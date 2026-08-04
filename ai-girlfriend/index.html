@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#ff7b9c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>小暖 · 你的 AI 女友</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="小暖">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ 启动页 ============ -->
+<div id="splash">
+  <div class="splash-heart">💗</div>
+  <div class="splash-name">小暖</div>
+  <div class="splash-sub">你的 AI 女友</div>
+</div>
+
+<!-- ============ 应用主体 ============ -->
+<div id="app" class="hidden">
+
+  <!-- ======= Tab 1: 聊天 ======= -->
+  <section class="page active" id="page-chat">
+    <header class="nav">
+      <div class="nav-avatar" id="nav-avatar"></div>
+      <div class="nav-info">
+        <div class="nav-name">小暖</div>
+        <div class="nav-status" id="nav-status">在线</div>
+      </div>
+      <div class="nav-mood" id="nav-mood" title="今日心情">😊</div>
+      <button class="nav-call" id="btn-call" title="给小暖打电话">📞</button>
+      <button class="nav-tts" id="btn-tts" title="小暖开口说话" aria-label="语音开关">🔊</button>
+    </header>
+    <main class="chat-body" id="chat-body"></main>
+    <footer class="chat-input-bar">
+      <button class="ci-btn" id="btn-mic" title="语音输入">🎤</button>
+      <button class="ci-btn" id="btn-image" title="发图片">📎</button>
+      <button class="ci-btn" id="btn-emoji" title="表情">😊</button>
+      <input type="text" id="chat-input" placeholder="和小暖说点什么…" autocomplete="off">
+      <button class="ci-btn send" id="btn-send" title="发送">➤</button>
+      <input type="file" id="chat-file" accept="image/*" class="hidden">
+    </footer>
+    <div class="emoji-panel hidden" id="emoji-panel"></div>
+  </section>
+
+  <!-- ======= Tab 2: 她 ======= -->
+  <section class="page" id="page-her">
+    <header class="nav her-nav">
+      <div class="nav-name-lg">小暖</div>
+      <div class="nav-days" id="her-days">相识第 1 天</div>
+    </header>
+    <main class="her-body">
+      <div class="her-stage" id="her-stage">
+        <!-- SVG 立绘由 app.js 注入 -->
+        <div class="her-bubble hidden" id="her-bubble"></div>
+        <div class="fx-layer" id="fx-layer"></div>
+      </div>
+      <div class="her-card">
+        <div class="her-row">
+          <span class="her-label">今日心情</span>
+          <span class="her-value" id="her-mood">😊 开心</span>
+        </div>
+        <div class="her-row">
+          <span class="her-label">好感度</span>
+          <span class="her-value" id="her-level">Lv.1 初识</span>
+        </div>
+        <div class="affection-bar">
+          <div class="affection-fill" id="affection-fill"></div>
+          <span class="affection-text" id="affection-text">0 / 100</span>
+        </div>
+        <div class="her-row small">
+          <span class="her-label" id="her-next-tip">再聊几句就更亲密啦</span>
+        </div>
+      </div>
+
+      <div class="her-card memory-card">
+        <div class="her-row"><span class="her-label">🧠 小暖记得</span></div>
+        <div id="memory-list" class="memory-list"></div>
+      </div>
+
+      <div class="her-card rel-card" id="rel-card">
+        <div class="her-row"><span class="her-label">💞 我们的关系</span><span class="her-value" id="rel-status">暧昧中</span></div>
+        <div class="her-row small" id="rel-tip">好感度越高，越容易让她点头 💕</div>
+        <button class="me-save" id="btn-propose" style="margin-top:10px">💞 向小暖表白</button>
+      </div>
+
+      <div class="her-card outfit-card">
+        <div class="me-title">👗 换装</div>
+        <div class="me-tip">给小暖换身衣服吧～</div>
+        <div class="chip-group" id="outfit-group">
+          <button class="chip outfit-chip" data-outfit="default">日常</button>
+          <button class="chip outfit-chip" data-outfit="school">学院</button>
+          <button class="chip outfit-chip" data-outfit="home">居家</button>
+          <button class="chip outfit-chip" data-outfit="kimono">和风</button>
+          <button class="chip outfit-chip" data-outfit="gala">晚礼</button>
+        </div>
+      </div>
+
+      <div class="her-actions">
+        <button class="action-btn" data-act="pat"><span>🤚</span>摸摸头</button>
+        <button class="action-btn" data-act="flower"><span>🌹</span>送花花</button>
+        <button class="action-btn" data-act="poke"><span>👉</span>戳一戳</button>
+        <button class="action-btn" data-act="hug"><span>🤗</span>抱一抱</button>
+        <button class="action-btn" data-act="kiss"><span>💋</span>飞吻</button>
+        <button class="action-btn" data-act="game"><span>🎮</span>玩游戏</button>
+      </div>
+    </main>
+  </section>
+
+  <!-- ======= Tab 3: 我的 ======= -->
+  <section class="page" id="page-me">
+    <header class="nav her-nav">
+      <div class="nav-name-lg">我的</div>
+    </header>
+    <main class="me-body">
+      <div class="me-card">
+        <div class="me-title">💑 恋爱档案</div>
+        <div class="me-row"><span>相识天数</span><b id="me-days">1 天</b></div>
+        <div class="me-row"><span>互相发消息</span><b id="me-msgs">0 条</b></div>
+        <div class="me-row"><span>当前好感度</span><b id="me-affection">0</b></div>
+        <div class="me-row"><span>恋爱状态</span><b id="me-status">单身</b></div>
+        <div class="me-row"><span>在一起</span><b id="me-together">—</b></div>
+      </div>
+
+      <div class="me-card">
+        <div class="me-title">💞 表白 & 纪念日</div>
+        <div class="me-tip">好感度越高，小暖越容易答应你。在一起后这里会显示你们的纪念日倒计时。</div>
+        <div class="me-row"><span>下次纪念日</span><b id="me-next-anni">先确定关系吧～</b></div>
+        <button class="me-save" id="btn-propose-me" style="margin-top:6px">💞 向小暖表白</button>
+      </div>
+
+      <div class="me-card">
+        <div class="me-title">🪪 我的昵称</div>
+        <div class="me-tip">小暖在亲密度高时会用昵称称呼你</div>
+        <input type="text" id="me-nickname" placeholder="例如：阿哲" maxlength="8">
+        <button class="me-save" id="save-nickname">保存昵称</button>
+      </div>
+
+      <div class="me-card">
+        <div class="me-title">🎀 小暖人设</div>
+        <div class="me-tip">调成你喜欢的样子，小暖会越来越懂你</div>
+        <div class="me-sub">性格基调</div>
+        <div class="chip-group" id="tone-group">
+          <button class="chip" data-tone="gentle">温柔</button>
+          <button class="chip" data-tone="playful">俏皮</button>
+          <button class="chip" data-tone="clingy">粘人</button>
+        </div>
+        <div class="me-sub">主题色</div>
+        <div class="chip-group" id="theme-group">
+          <button class="chip theme-chip" data-theme="sakura" style="--c:#ff7b9c" title="樱粉"></button>
+          <button class="chip theme-chip" data-theme="orange" style="--c:#ff9a62" title="蜜橘"></button>
+          <button class="chip theme-chip" data-theme="purple" style="--c:#b388ff" title="梦幻紫"></button>
+          <button class="chip theme-chip" data-theme="mint" style="--c:#36c6a8" title="薄荷绿"></button>
+          <button class="chip theme-chip" data-theme="blue" style="--c:#5aa9ff" title="海蓝"></button>
+        </div>
+      </div>
+
+      <div class="me-card">
+        <div class="me-title">🧠 云端大脑（可选）</div>
+        <div class="me-tip">默认使用本地情感引擎。配置 OpenAI 兼容接口后，小暖将由大模型驱动，对话更自由、更像真人。</div>
+        <div class="me-sub">服务商（选完自动填好地址，只粘 Key）</div>
+        <div class="chip-group" id="provider-group">
+          <button class="chip" data-prov="deepseek">DeepSeek</button>
+          <button class="chip" data-prov="openai">OpenAI</button>
+          <button class="chip" data-prov="custom">自定义</button>
+        </div>
+        <label class="me-switch">
+          <input type="checkbox" id="cloud-enabled">
+          <span>启用云端大模型</span>
+        </label>
+        <input type="text" id="cloud-base" placeholder="Base URL，如 https://api.deepseek.com">
+        <input type="password" id="cloud-key" placeholder="API Key">
+        <input type="text" id="cloud-model" placeholder="模型名，如 deepseek-chat">
+        <label class="me-switch" style="margin-top:8px">
+          <input type="checkbox" id="embed-enabled">
+          <span>启用语义记忆检索（embedding 向量）</span>
+        </label>
+        <input type="text" id="embed-model" placeholder="embedding 模型名，如 text-embedding-3-small" style="margin-top:6px">
+        <div class="me-tip" style="margin-top:6px">开启后，小暖用语义向量（而非关键词）回忆你说过的事，换种说法也能接起。需上方已配置 Base + Key（OpenAI 兼容接口）。向量会本地缓存，不会每条消息都调接口。</div>
+        <button class="me-save" id="save-cloud">保存配置</button>
+        <div class="me-status" id="cloud-status"></div>
+      </div>
+
+      <div class="me-card">
+        <div class="me-title">📱 端侧模型（离线 AI）</div>
+        <div class="me-tip">开启后，小暖会在你的设备里<b>本地跑一个小模型</b>，<b>无需任何 Key、断网也能聊</b>。首次需联网下载约 0.5GB 模型，之后本地缓存即可离线使用。建议用 WiFi，且设备支持 WebGPU（较新手机/电脑）体验更佳。</div>
+        <label class="me-switch">
+          <input type="checkbox" id="lm-enabled">
+          <span>启用端侧模型（离线 AI）</span>
+        </label>
+        <div class="me-sub">模型（越大越聪明，也越慢）</div>
+        <select id="lm-model" class="me-select">
+          <option value="onnx-community/Qwen2.5-0.5B-Instruct">Qwen2.5-0.5B（推荐·中文快）</option>
+          <option value="onnx-community/Qwen2.5-1.5B-Instruct">Qwen2.5-1.5B（更聪明·更慢）</option>
+          <option value="onnx-community/SmolLM2-1.7B-Instruct">SmolLM2-1.7B（英文更强）</option>
+        </select>
+        <button class="me-save" id="lm-load">下载并加载模型</button>
+        <div class="lm-progress hidden" id="lm-progress"><div class="lm-bar" id="lm-bar"></div></div>
+        <div class="me-status" id="lm-status"></div>
+        <div class="me-tip" id="lm-device"></div>
+      </div>
+
+      <div class="me-card">
+        <div class="me-title">🔊 语音（小暖开口说话）</div>
+        <div class="me-tip">开启后，小暖会用甜甜的声音把回复读出来。纯浏览器本地合成，无需任何 Key。</div>
+        <label class="me-switch">
+          <input type="checkbox" id="tts-enabled">
+          <span>让小暖开口说话</span>
+        </label>
+        <div class="me-tip" style="margin-top:8px">💡 聊天页输入框左侧的 🎤 还能让你直接用语音对她说话（需授权麦克风，且在 https 环境下可用）。</div>
+      </div>
+
+      <div class="me-card">
+        <div class="me-title">🔔 消息提醒（系统通知）</div>
+        <div class="me-tip">开启后，当你离开页面时，小暖的想念会悄悄变成手机系统通知，跨会话也能收到 💕</div>
+        <label class="me-switch">
+          <input type="checkbox" id="notify-enabled">
+          <span>允许小暖给我发通知</span>
+        </label>
+        <button class="me-save" id="btn-notify-test">发送一条测试通知</button>
+        <div class="me-status" id="notify-status"></div>
+      </div>
+
+      <div class="me-card">
+        <div class="me-title">🎀 语音音色</div>
+        <div class="me-tip">选一个你最喜欢的小暖声音，聊天和语音通话里都会用这个音色。</div>
+        <div class="chip-group" id="voice-group">
+          <button class="chip" data-voice="auto">自动</button>
+          <button class="chip" data-voice="sweet">甜心</button>
+          <button class="chip" data-voice="sister">御姐</button>
+          <button class="chip" data-voice="cute">软萌</button>
+          <button class="chip" data-voice="boy">少年</button>
+        </div>
+      </div>
+
+      <div class="me-card">
+        <div class="me-title">☁️ 云端存档（多端同步）</div>
+        <div class="me-tip">把你们的记忆、关系和好感度打包成一段存档码。换手机或重装后，把存档码粘贴进来就能完整恢复。</div>
+        <button class="me-save" id="btn-export">导出存档码</button>
+        <button class="me-save" id="btn-copy" style="margin-top:6px">复制存档码</button>
+        <textarea id="cloud-export" class="me-textarea hidden" readonly placeholder="点上方「导出存档码」生成"></textarea>
+        <div class="me-sub" style="margin-top:10px">导入存档码</div>
+        <textarea id="cloud-import" class="me-textarea" placeholder="把别处导出的存档码粘贴到这里"></textarea>
+        <button class="me-save danger" id="btn-import" style="margin-top:6px">导入并恢复</button>
+        <div class="me-status" id="cloud-sync-status"></div>
+      </div>
+
+      <div class="me-card danger">
+        <div class="me-title">🗑 重新开始</div>
+        <div class="me-tip">清除所有聊天记录与好感度，回到初次相遇的那一天。</div>
+        <button class="me-save danger" id="btn-reset">清除全部数据</button>
+      </div>
+      <div class="me-foot">小暖 v1.2 · 用爱发电 💕</div>
+    </main>
+  </section>
+
+  <!-- ======= Tab 4: 故事 ======= -->
+  <section class="page" id="page-story">
+    <header class="nav her-nav">
+      <div class="nav-name-lg">我们的故事</div>
+    </header>
+    <main class="story-body">
+      <div class="story-overview">
+        <div class="ov-card"><div class="ov-num" id="ov-days">1</div><div class="ov-label">相识天数</div></div>
+        <div class="ov-card"><div class="ov-num" id="ov-together">—</div><div class="ov-label">在一起</div></div>
+        <div class="ov-card"><div class="ov-num" id="ov-lv">Lv.1</div><div class="ov-label">好感等级</div></div>
+      </div>
+
+      <div class="her-card">
+        <div class="me-title">🕸 关系图谱</div>
+        <div class="graph-wrap" id="rel-graph"></div>
+      </div>
+
+      <div class="her-card">
+        <div class="me-title">📈 情感曲线</div>
+        <div class="curve-wrap" id="aff-curve"></div>
+        <div class="curve-tip">每一天你们的好感度变化</div>
+      </div>
+
+      <div class="her-card">
+        <div class="me-title">🌦 情绪晴雨表</div>
+        <div class="curve-wrap" id="emotion-chart"></div>
+        <div class="curve-tip">小暖此刻的心情坐标（越亮越近，红点=现在）</div>
+      </div>
+
+      <div class="her-card">
+        <div class="me-title">📖 我们的时间线</div>
+        <div class="timeline" id="timeline"></div>
+      </div>
+    </main>
+  </section>
+
+  <!-- ======= 语音通话浮层 ======= -->
+  <div id="call-overlay" class="hidden">
+    <div class="call-bg"></div>
+    <button class="call-amb" id="call-amb" title="环境音">🔈</button>
+    <div class="call-face" id="call-face"></div>
+    <div class="call-name">小暖</div>
+    <div class="call-timer" id="call-timer">00:00</div>
+    <div class="call-status" id="call-status">正在接通…</div>
+    <div class="call-wave" id="call-wave"><span></span><span></span><span></span><span></span><span></span></div>
+    <button class="call-mic" id="call-mic" title="说话">🎤</button>
+    <button class="call-hang" id="call-hang" title="挂断">✕</button>
+  </div>
+
+  <!-- ======= 情侣小游戏浮层 ======= -->
+  <div id="games-overlay" class="hidden">
+    <div class="games-panel">
+      <div class="games-head"><span>💕 和她的游戏</span><button class="games-close" id="games-close">✕</button></div>
+
+      <div class="games-section">
+        <div class="games-sub">✊ 石头剪刀布</div>
+        <div class="rps-her" id="rps-her">❔</div>
+        <div class="rps-row">
+          <button class="rps-btn" data-rps="rock">✊</button>
+          <button class="rps-btn" data-rps="scissors">✌️</button>
+          <button class="rps-btn" data-rps="paper">✋</button>
+        </div>
+        <div class="rps-result" id="rps-result">出拳吧，看谁赢～</div>
+      </div>
+
+      <div class="games-divider"></div>
+
+      <div class="games-section">
+        <div class="games-sub">💌 真心话</div>
+        <div class="truth-card" id="truth-card">点下面的按钮，抽一个只属于我们的问题 💗</div>
+        <button class="me-save" id="btn-truth" style="margin-top:8px">抽一张真心话</button>
+        <div class="games-stat" id="games-stat"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======= 底部 Tab 栏 ======= -->
+  <nav class="tabbar">
+    <button class="tab active" data-page="chat"><span class="tab-ico">💬</span>聊天<span class="tab-dot hidden" id="chat-dot"></span></button>
+    <button class="tab" data-page="her"><span class="tab-ico">👧</span>小暖</button>
+    <button class="tab" data-page="story"><span class="tab-ico">📖</span>故事</button>
+    <button class="tab" data-page="me"><span class="tab-ico">⚙️</span>我的</button>
+  </nav>
+</div>
+
+<script src="engine.js"></script>
+<script src="localmodel.js"></script>
+<script src="caption.js"></script>
+<script src="app.js"></script>
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+  }
+</script>
+</body>
+</html>
