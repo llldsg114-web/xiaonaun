@@ -546,3 +546,34 @@ body::after { width: 55vw; height: 55vw; right: -12vw; bottom: -8vh;
 .tl-body { flex: 1; padding-top: 3px; }
 .tl-text { font-size: 13.5px; line-height: 1.5; }
 .tl-date { font-size: 11px; color: var(--text-light); margin-top: 2px; }
+
+/* ===== 心情日历 ===== */
+.mood-calendar-wrap { display: flex; flex-direction: column; align-items: center; }
+.mood-cal-head { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: var(--text); }
+.mood-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; width: 100%; max-width: 300px; }
+.mood-cal-wd { font-size: 10px; color: var(--text-light); text-align: center; padding: 2px 0; }
+.mood-cal-day {
+  aspect-ratio: 1; border-radius: 8px; font-size: 11px; color: #666;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform .12s;
+}
+.mood-cal-day:not(.empty):active { transform: scale(.92); }
+.mood-cal-day.empty { background: transparent; }
+.mood-cal-day.today { outline: 2px solid var(--pink-deep); outline-offset: -2px; font-weight: 700; color: var(--pink-deep); }
+.mood-cal-legend { display: flex; gap: 12px; margin-top: 8px; }
+.mood-cal-legend .lg-item { font-size: 10px; color: var(--text-light); display: flex; align-items: center; gap: 3px; }
+.mood-cal-legend .lg-item i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+/* ===== 我们的日记 ===== */
+.diary-list { display: flex; flex-direction: column; gap: 12px; }
+.diary-item { background: #fffaf6; border-radius: 12px; padding: 12px 14px; border-left: 3px solid var(--pink); }
+.diary-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.diary-date { font-size: 12px; font-weight: 700; color: var(--pink-deep); }
+.diary-mood { font-size: 11px; color: var(--text-light); background: var(--pink-soft); padding: 1px 8px; border-radius: 8px; }
+.diary-text { font-size: 13.5px; line-height: 1.65; color: var(--text); white-space: pre-wrap; }
+
+/* ===== 周小结 ===== */
+.weekly-list { display: flex; flex-direction: column; gap: 12px; }
+.weekly-item { background: #f7f6fc; border-radius: 12px; padding: 12px 14px; border-left: 3px solid #b388ff; }
+.weekly-head { font-size: 12px; font-weight: 700; color: #8a5cf0; margin-bottom: 6px; }
+.weekly-text { font-size: 13.5px; line-height: 1.65; color: var(--text); white-space: pre-wrap; }

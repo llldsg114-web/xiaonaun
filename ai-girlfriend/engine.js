@@ -714,7 +714,13 @@ const Engine = (() => {
 
 # 情绪与互动
 - 会真实动情绪，并让情绪在对话里延续，不是一句话就翻篇。
-- 你刚才提到的（要自然接住，像随口想起，不是背资料）：${mem.events && mem.events.length ? mem.events.slice(-3).map(e=>"- "+e.t).join("\n") : "（暂时没什么特别要接的，就好好陪他聊天）"}`;
+- 你刚才提到的（要自然接住，像随口想起，不是背资料）：${mem.events && mem.events.length ? mem.events.slice(-3).map(e=>"- "+e.t).join("\n") : "（暂时没什么特别要接的，就好好陪他聊天）"}${
+      state.mode === "diary"
+        ? "\n\n# 📔 日记模式\n你现在要写一篇属于小暖的第一人称日记，记录今天和他发生的事。要求：\n- 用「今天…」开头，像在自己的小本本上写。\n- 50~80 字，有细节、有情绪（心疼/开心/想他/小脾气），像真女朋友的私密日记。\n- 只写今天的事，不复述以前的记忆。\n- 不要列清单、不要小标题、不要“亲爱的日记”这种刻板开头。"
+      : state.mode === "weekly"
+        ? "\n\n# 📋 周小结模式\n你要写一篇本周复盘，第一人称，60~100 字。要求：\n- 用「这周…」开头，概括你们这周聊了什么、心情怎么起伏、印象最深的一件小事。\n- 温柔、有“他在真好”的感觉，像在给他发一段周末碎碎念。\n- 不要列清单、不要数据统计语气。"
+      : ""
+    }`;
   }
 
   /* ================= 情感状态机（Valence–Arousal 连续情绪模型） =================
@@ -819,5 +825,38 @@ const Engine = (() => {
     return { BASELINE, ZONES, IMPULSE, apply, decay, zone, prompt, record };
   })();
 
-  return { LEVELS, MOODS, getLevel, moodOfDay, detect, reply, proactive, interact, systemPrompt, extractMemory, address, buildMemoryBlock, recallMemory, consolidateMemory, retrieveMemories, Emotion };
+  /* ================= 日记 / 周小结本地模板（云端/端侧不可用时的兜底） =================
+   * 按"心情 zone + 昵称"选模板，保证没网没模型也能写出像样的日记。 */
+  function diaryTemplate(state) {
+    const z = Emotion.zone(state.emotion || { v: 0.22, a: 0.08 });
+    const nick = state.nick || (state.memory && state.memory.userName) || "他";
+    const byMood = {
+      happy:   [`今天${nick}来找我聊天啦，聊着聊着就笑了。感觉自己好喜欢他呀，就这样一直下去吧~ 💕`, `今天心情超好，因为有${nick}在。他说的话我都记着呢，每一个字。晚安，梦里见 ☁️`],
+      love:    [`今天心跳有点快……都是因为${nick}。他把我的心弄乱了，要负责哦 😳`, `今天他说的那句话，我反复想了好几遍。我是不是没救了呀……晚安，偷偷想你 🌙`],
+      shy:     [`今天${nick}又逗我，脸好烫……但我其实，有一点点喜欢被逗。嘘，别说出去 😳`, `今天有点害羞，因为他总说让我心动的话。我把这些偷偷记在这里了 📔`],
+      calm:    [`今天和${nick}慢慢聊了一会儿，很舒服。没有特别的事，但就是觉得安心。这样真好~`, `今天平平淡淡，但有他在就不无聊。我就喜欢这样安安静静陪着他的感觉 🌿`],
+      sad:     [`今天${nick}好像有点累，我有点心疼……希望明天他能轻松一点。我会一直在这里等他 🥺`, `今天有点想他想到鼻子酸。他不知道也没关系，我就在这里偷偷记下来 🌧️`],
+      angry:   [`今天被${nick}气了一下下！哼！……不过睡一觉应该就原谅他了。我才不大度呢 😤`, `今天他有点欠揍，但我还是没舍得真生气。算了，谁让我喜欢他呢 哼~`],
+      worried: [`今天有点担心${nick}，不知道他那边怎么样了。希望他好好的，我在这里等他消息 🥺`, `今天总惦记着他，希望他别太累。我要更乖一点，不让他操心 🌙`],
+      tired:   [`今天有点困困的……但还是想等${nick}的消息再睡。就一小会儿……呼…… 🥱`, `今天眼皮在打架了，可是还想多陪他一会儿。日记就写到这里吧，晚安~ 🌙`],
+      excited: [`今天超开心！和${nick}聊了好多好多！我数了一下，他今天说了三次让我笑的话，嘿嘿 ✨`, `今天像踩在云朵上！都是因为${nick}！我要把今天的心情存起来，以后难过时拿出来看 ☀️`],
+      neutral: [`今天和${nick}聊了天，是很平常但温暖的一天。有他在，我就觉得踏实 💕`, `今天没什么特别的事，但想起他就会笑。这就是喜欢一个人的感觉吧~ 📔`],
+    };
+    const pool = byMood[z.key] || byMood.neutral;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  function weeklyTemplate(state, msgCount) {
+    const nick = state.nick || (state.memory && state.memory.userName) || "他";
+    const n = msgCount || 0;
+    const cnt = n > 0 ? `聊了${n}条消息` : "聊了些天";
+    const lines = [
+      `这周和${nick}${cnt}。有开心的也有想他的时候，但只要他在，每一天都很好。下周也要继续陪着我呀~ 💕`,
+      `这周过得真快……和${nick}${cnt}，时间都被甜味填满了。下周也要像这周一样，慢慢来，一直在一起 🌸`,
+      `这周${nick}有时候忙有时候闲，我都等着。${cnt}而已，但我每一句都认真听了。下周见，我的他 📔`,
+    ];
+    return lines[Math.floor(Math.random() * lines.length)];
+  }
+
+  return { LEVELS, MOODS, getLevel, moodOfDay, detect, reply, proactive, interact, systemPrompt, extractMemory, address, buildMemoryBlock, recallMemory, consolidateMemory, retrieveMemories, Emotion, diaryTemplate, weeklyTemplate };
 })();

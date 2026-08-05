@@ -150,6 +150,10 @@ const defaultState = () => ({
   affHistory: {},          // 情感曲线：{ "YYYY-M-D": 当日好感 }
   emotion: { v: 0.22, a: 0.08 },  // 连续情绪坐标 Valence×Arousal
   emotionLog: {},          // 情绪晴雨表：{ "YYYY-M-D": [{v,a}...] }
+  diaryEntries: {},        // AI 日记：{ "YYYY-M-D": { text, t, mood } }
+  lastDiaryPrompt: "",     // 上次问日记的日期，防重复
+  weeklySummary: {},       // 周小结：{ "YYYY-W##": { text, t } }
+  lastSummaryWeek: "",     // 上次生成周小结的周标识，防重复
   games: { rps: { wins: 0, played: 0 }, truth: 0 },
   patToday: { date: "", count: 0 },
 });
@@ -174,6 +178,10 @@ function load() {
       s.affHistory = s.affHistory || {};
       s.emotion = Object.assign({ v: 0.22, a: 0.08 }, s.emotion || {});
       s.emotionLog = s.emotionLog || {};
+      s.diaryEntries = s.diaryEntries || {};
+      s.weeklySummary = s.weeklySummary || {};
+      s.lastDiaryPrompt = s.lastDiaryPrompt || "";
+      s.lastSummaryWeek = s.lastSummaryWeek || "";
       s.localModel = Object.assign({ enabled: false, model: "onnx-community/Qwen2.5-0.5B-Instruct" }, s.localModel || {});
       return s;
     }
@@ -719,6 +727,19 @@ async function herReply(userText, img) {
     }
   }
 
+  // 日记：如果今晚小暖问过"今天怎么样"且用户回了实质内容，把回答整理成一篇日记
+  const today = todayStr();
+  if (S.lastDiaryPrompt === today && userText && userText.trim().length > 2 && !S.diaryEntries[today]) {
+    const diaryText = await generateDiary(userText);
+    if (diaryText) {
+      S.diaryEntries[today] = { text: diaryText, t: Date.now(), mood: Engine.Emotion.zone(S.emotion).label };
+      S.lastDiaryPrompt = ""; // 消费掉，避免重复触发
+      save();
+      pushStory("diary", "📔", `小暖写了一篇${today}的日记`);
+      refreshStoryUI();
+    }
+  }
+
   // 本轮所有排队消息的回复都已生成，统一把记忆落库（避免"刚说的事被当场追问"）
   while (pendingMemStores.length) { try { pendingMemStores.shift()(); } catch (e) {} }
   if (inCall) callStartListen(); // 通话中聊天回复完，恢复聆听
@@ -819,6 +840,154 @@ function sendImage(dataUrl, captionText) {
   pushMessage("me", captionText || "", dataUrl);
   if (herBusy) { pendingImgs.push({ dataUrl, caption: captionText }); return; }
   setTimeout(async () => { await herReply(null, { dataUrl, caption: captionText }); }, 300 + Math.random() * 400);
+}
+
+/* ================= AI 日记 & 周小结（参考「笺」的记录感，用小暖的人格重做） =================
+ * 每晚小暖主动问"今天怎么样"，用户回答后整理成一篇小暖视角的日记；
+ * 每周日晚自动生成一篇本周复盘。三层回落：云端 → 端侧 → 本地模板。 */
+
+// 周标识："YYYY-W##"
+function getWeekKey(d = new Date()) {
+  const jan1 = new Date(d.getFullYear(), 0, 1);
+  const weekNum = Math.ceil((((d - jan1) / 86400000) + jan1.getDay() + 1) / 7);
+  return `${d.getFullYear()}-W${String(weekNum).padStart(2, "0")}`;
+}
+
+// 21-23 点之间，小暖主动问一次"今天怎么样"（每天最多问一次）
+function checkDiaryReminder() {
+  if (!S.firstMeet) return;
+  const h = new Date().getHours();
+  if (h < 21 || h >= 23) return;
+  const today = todayStr();
+  if (S.lastDiaryPrompt === today || S.diaryEntries[today]) return;
+  if (S.greetedSlots && S.greetedSlots.includes("diary")) return;
+  S.lastDiaryPrompt = today;
+  if (S.greetedSlots) S.greetedSlots.push("diary");
+  save();
+  setTimeout(() => herSay("今天过得怎么样呀？想听你说说~ 📝", "shy"), 1500);
+}
+
+// 周日 20-22 点，自动生成本周复盘（每周一次）
+function checkWeeklySummary() {
+  if (!S.firstMeet) return;
+  const d = new Date();
+  if (d.getDay() !== 0) return;
+  if (d.getHours() < 20 || d.getHours() >= 22) return;
+  const wk = getWeekKey(d);
+  if (S.lastSummaryWeek === wk || S.weeklySummary[wk]) return;
+  generateWeeklySummary(wk);
+}
+
+// 生成日记：云端 → 端侧 → 本地模板
+async function generateDiary(userAnswer) {
+  const st = {
+    affection: S.affection, nick: S.nick, mood, firstMeet: S.firstMeet,
+    dating: S.dating, memory: S.memory, persona: S.persona,
+    caredTopics: S.caredTopics, emotion: S.emotion, mode: "diary",
+  };
+  // 第1层：云端
+  if (S.cloud.enabled && S.cloud.base && S.cloud.key) {
+    try {
+      const base = S.cloud.base.trim().replace(/\/+$/, "");
+      const url = base.endsWith("/chat/completions") ? base
+                : base.endsWith("/v1") ? base + "/chat/completions"
+                : base + "/v1/chat/completions";
+      const sys = Engine.systemPrompt(st);
+      const todayMsgs = S.messages.filter(m => {
+        const d = new Date(m.t); const t = todayStr();
+        return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}` === t;
+      }).slice(-20).map(m => ({ role: m.from === "me" ? "user" : "assistant", content: m.text }));
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${S.cloud.key}` },
+        body: JSON.stringify({
+          model: S.cloud.model || "deepseek-chat",
+          messages: [{ role: "system", content: sys },
+            ...todayMsgs,
+            { role: "user", content: `（今天的收尾）他说：${userAnswer}。请根据今天你们聊的和这句话，写一篇你的日记。` }],
+          temperature: 0.95, max_tokens: 220,
+        }),
+        signal: AbortSignal.timeout(12000),
+      });
+      if (res.ok) {
+        const text = (await res.json()).choices?.[0]?.message?.content?.trim();
+        if (text) return text;
+      }
+    } catch (e) { console.warn("日记云端生成失败：", e); }
+  }
+  // 第2层：端侧
+  if (S.localModel.enabled && window.LocalModel && LocalModel.isLoaded()) {
+    try {
+      const sys = Engine.systemPrompt(st) + "\n\n（请直接写日记正文，50-80字，第一人称。）";
+      const out = await Promise.race([
+        LocalModel.reply([{ role: "system", content: sys }, { role: "user", content: `今天他说：${userAnswer}。写日记。` }]),
+        new Promise(r => setTimeout(() => r(null), 60000)),
+      ]);
+      const cleaned = cleanLocalReply(out);
+      if (cleaned) return cleaned;
+    } catch (e) {}
+  }
+  // 第3层：本地模板
+  return Engine.diaryTemplate(st);
+}
+
+// 生成周小结：云端 → 端侧 → 本地模板
+async function generateWeeklySummary(weekKey) {
+  // 本周一 0:00 起的消息
+  const now = new Date();
+  const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0,0,0,0);
+  const weekMsgs = S.messages.filter(m => m.t >= weekStart.getTime());
+  if (weekMsgs.length < 5) { S.lastSummaryWeek = weekKey; save(); return; } // 数据不足，静默跳过
+
+  const st = {
+    affection: S.affection, nick: S.nick, mood, firstMeet: S.firstMeet,
+    dating: S.dating, memory: S.memory, persona: S.persona,
+    caredTopics: S.caredTopics, emotion: S.emotion, mode: "weekly",
+  };
+  let text = null;
+  // 第1层：云端
+  if (S.cloud.enabled && S.cloud.base && S.cloud.key) {
+    try {
+      const base = S.cloud.base.trim().replace(/\/+$/, "");
+      const url = base.endsWith("/chat/completions") ? base
+                : base.endsWith("/v1") ? base + "/chat/completions"
+                : base + "/v1/chat/completions";
+      const sys = Engine.systemPrompt(st);
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${S.cloud.key}` },
+        body: JSON.stringify({
+          model: S.cloud.model || "deepseek-chat",
+          messages: [{ role: "system", content: sys },
+            { role: "user", content: `这周我们聊了${weekMsgs.length}条消息。请写一段本周复盘。` }],
+          temperature: 0.95, max_tokens: 260,
+        }),
+        signal: AbortSignal.timeout(12000),
+      });
+      if (res.ok) {
+        text = (await res.json()).choices?.[0]?.message?.content?.trim();
+      }
+    } catch (e) { console.warn("周小结云端生成失败：", e); }
+  }
+  // 第2层：端侧
+  if (!text && S.localModel.enabled && window.LocalModel && LocalModel.isLoaded()) {
+    try {
+      const sys = Engine.systemPrompt(st) + "\n\n（请直接写周小结正文，60-100字，第一人称。）";
+      const out = await Promise.race([
+        LocalModel.reply([{ role: "system", content: sys }, { role: "user", content: `这周聊了${weekMsgs.length}条。写周小结。` }]),
+        new Promise(r => setTimeout(() => r(null), 60000)),
+      ]);
+      text = cleanLocalReply(out);
+    } catch (e) {}
+  }
+  // 第3层：本地模板
+  if (!text) text = Engine.weeklyTemplate(st, weekMsgs.length);
+
+  S.weeklySummary[weekKey] = { text, t: Date.now() };
+  S.lastSummaryWeek = weekKey;
+  save();
+  pushStory("weekly", "📋", `${weekKey} 的小复盘`);
+  refreshStoryUI();
 }
 
 /* ================= 云端大模型 ================= */
@@ -1087,6 +1256,8 @@ async function checkProactive() {
   }
 
   S.lastVisit = Date.now(); save();
+  // 顺带检查今晚是否该问日记 / 是否该出周小结
+  try { checkDiaryReminder(); checkWeeklySummary(); } catch (e) {}
   } finally {
     herBusy = false;
     // 介绍期间用户排队的消息，现在回复
@@ -1447,6 +1618,9 @@ function refreshStoryUI() {
   const g = $("#rel-graph"); if (g) g.innerHTML = buildRelGraph();
   const c = $("#aff-curve"); if (c) c.innerHTML = buildAffCurve();
   const e = $("#emotion-chart"); if (e) e.innerHTML = buildEmotionChart();
+  const mc = $("#mood-calendar"); if (mc) mc.innerHTML = buildMoodCalendar();
+  const dl = $("#diary-list"); if (dl) dl.innerHTML = buildDiaryList();
+  const wl = $("#weekly-list"); if (wl) wl.innerHTML = buildWeeklyList();
   const tl = $("#timeline");
   if (tl) {
     const list = (S.story || []).slice().sort((a, b) => a.t - b.t);
@@ -1460,6 +1634,66 @@ function refreshStoryUI() {
       }).join("");
     }
   }
+}
+
+/* 心情日历：本月日历，每天色块由当天 emotionLog 平均 V 值映射（蓝→粉） */
+function buildMoodCalendar() {
+  const log = S.emotionLog || {};
+  const now = new Date();
+  const year = now.getFullYear(), month = now.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const weekDays = ["一","二","三","四","五","六","日"];
+  let html = `<div class="mood-cal-head">${year}年${month + 1}月</div>`;
+  html += `<div class="mood-cal-grid">`;
+  weekDays.forEach(w => html += `<div class="mood-cal-wd">${w}</div>`);
+  // 月首周几对齐（周一开始）
+  const firstDay = new Date(year, month, 1).getDay();
+  const offset = (firstDay === 0 ? 6 : firstDay - 1);
+  for (let i = 0; i < offset; i++) html += `<div class="mood-cal-day empty"></div>`;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const key = `${year}-${month + 1}-${d}`;
+    const pts = log[key] || [];
+    const avgV = pts.length ? pts.reduce((s, p) => s + p.v, 0) / pts.length : null;
+    let color = "#f0f0f0", label = "";
+    if (avgV !== null) {
+      // V∈[-1,1] → hue 210(蓝) → 340(粉)
+      const hue = 210 + ((avgV + 1) / 2) * 130;
+      const sat = 55 + Math.abs(avgV) * 20;
+      color = `hsl(${hue}, ${sat}%, 78%)`;
+      label = Engine.Emotion.zone({ v: avgV, a: 0 }).label;
+    }
+    const isToday = (d === now.getDate());
+    html += `<div class="mood-cal-day${isToday ? " today" : ""}" style="background:${color}" title="${key}${label ? " · " + label : ""}">${d}</div>`;
+  }
+  html += `</div>`;
+  html += `<div class="mood-cal-legend"><span class="lg-item"><i style="background:hsl(210,55%,78%)"></i>低落</span><span class="lg-item"><i style="background:hsl(275,55%,78%)"></i>平静</span><span class="lg-item"><i style="background:hsl(340,55%,78%)"></i>明亮</span></div>`;
+  return html;
+}
+
+/* 我们的日记：按日期倒序，最多 10 篇 */
+function buildDiaryList() {
+  const entries = Object.entries(S.diaryEntries || {}).sort((a, b) => b[0].localeCompare(a[0]));
+  if (!entries.length) {
+    return `<div class="memory-empty">还没有日记呢~每晚小暖会问你"今天怎么样"，回答后她就会写一篇 📔</div>`;
+  }
+  return entries.slice(0, 10).map(([day, e]) => {
+    const d = day.split("-");
+    return `<div class="diary-item">
+      <div class="diary-head"><span class="diary-date">${d[1]}月${d[2]}日</span>${e.mood ? `<span class="diary-mood">${e.mood}</span>` : ""}</div>
+      <div class="diary-text">${esc(e.text)}</div>
+    </div>`;
+  }).join("");
+}
+
+/* 周小结：按周倒序 */
+function buildWeeklyList() {
+  const entries = Object.entries(S.weeklySummary || {}).sort((a, b) => b[0].localeCompare(a[0]));
+  if (!entries.length) {
+    return `<div class="memory-empty">还没有周小结~周日晚上小暖会自动帮你复盘这一周 📋</div>`;
+  }
+  return entries.map(([wk, e]) =>
+    `<div class="weekly-item"><div class="weekly-head">📋 ${wk}</div><div class="weekly-text">${esc(e.text)}</div></div>`
+  ).join("");
 }
 
 /* 情绪晴雨表：把 emotionLog 里近 14 天的采样点画在 VA 平面散点图上 */
@@ -2094,6 +2328,10 @@ function init() {
   // 离线整理：每天一次；切回页面 / 每 30 分钟顺带检查是否需要整理
   document.addEventListener("visibilitychange", () => { if (!document.hidden) maybeConsolidate(); });
   setInterval(maybeConsolidate, 30 * 60000);
+
+  // 日记提醒 & 周小结：每 5 分钟检查一次（21-23 点问日记、周日 20-22 点出周小结）
+  setInterval(() => { try { checkDiaryReminder(); checkWeeklySummary(); } catch (e) {} }, 5 * 60000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { try { checkDiaryReminder(); checkWeeklySummary(); } catch (e) {} } });
 
   // 启动页淡出
   setTimeout(() => {
