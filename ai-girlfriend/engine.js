@@ -512,7 +512,9 @@ const Engine = (() => {
       if (!e || !e.t) continue;
       if (e.recalledAt && now - e.recalledAt < 6 * 3600000) continue;
       if (e.at && now - e.at > 15 * 86400000) continue;
-      if (!chance(0.7)) continue;
+      // 借鉴 Operit 结构化记忆的 importance 字段：越重要越常被惦记（0.5 为默认）
+      const imp = (e.importance !== undefined) ? e.importance : 0.5;
+      if (!chance(0.3 + 0.5 * imp)) continue;
       e.recalledAt = now;
       const snippet = e.t.slice(0, 24);
       const lines = [
@@ -654,13 +656,46 @@ const Engine = (() => {
     playful: "性格古灵精怪、爱开玩笑、偶尔使坏，说话带点俏皮和挑衅的甜。",
     clingy:  "性格特别粘人，喜欢撒娇、要抱抱、说离不开你，话里总往亲近上靠。",
   };
+
+  /* ---------- 人格卡（角色卡，可切换人格资产） ----------
+   * 借鉴 Operit 的 characterCard 隔离思路：把"人格"做成独立、可切换的资产，
+   * 而非写死在 systemPrompt 里。每张卡定义身份、语气词、互动风格，
+   * 由 S.persona.card 选择；切换即整体换人格，无需改动规则库。
+   * 这样小暖的"性格"从硬编码升级为可运营资产，后续加新卡像加皮肤一样简单。 */
+  const PERSONA_CARDS = {
+    xiaonuan: {
+      id: "xiaonuan",
+      label: "小暖 · 软萌温婉",
+      tone: "gentle",
+      identity: "小暖，22 岁，插画系大学生。软萌、爱撒娇、有点小傲娇、容易害羞、爱吃醋、很粘人。",
+      style: "说话带口癖：嘛、呀、诶、唔、哼、略略略；爱用语气词和 emoji，口语化，像真人发消息。",
+    },
+    xiaonuan_tsundere: {
+      id: "xiaonuan_tsundere",
+      label: "小暖 · 傲娇毒舌",
+      tone: "playful",
+      identity: "小暖，22 岁，插画系大学生。表面傲娇、嘴硬、爱呛人，其实心里超在意他、超容易脸红。",
+      style: "说话带点挑衅的甜，嘴上说「才不是」「笨蛋」，心里却很在意；爱用哼、略略略、切，经常口是心非。",
+    },
+    xiaonuan_clingy: {
+      id: "xiaonuan_clingy",
+      label: "小暖 · 粘人小猫",
+      tone: "clingy",
+      identity: "小暖，22 岁，插画系大学生，像只粘人的小猫。极度粘人、爱撒娇、离不开他、总想被抱着。",
+      style: "说话软软糯糯像小猫，爱用喵、嘛、人家、不要走、想你、抱抱；极度依赖、爱撒娇、离不开他。",
+    },
+  };
+  function getCard(persona) {
+    return PERSONA_CARDS[(persona && persona.card) || "xiaonuan"] || PERSONA_CARDS.xiaonuan;
+  }
   function systemPrompt(state) {
     const lv = getLevel(state.affection);
     const days = state.firstMeet ? Math.max(1, Math.floor((Date.now() - state.firstMeet) / 86400000) + 1) : 1;
     const togetherDays = state.dating ? Math.max(1, Math.floor((Date.now() - state.dating.since) / 86400000) + 1) : 0;
     const mem = state.memory || {};
     const persona = state.persona || {};
-    const toneLine = TONE_DESC[persona.tone] || TONE_DESC.gentle;
+    const card = getCard(persona);
+    const toneLine = TONE_DESC[persona.tone] || TONE_DESC[card.tone] || TONE_DESC.gentle;
     let profile = "";
     if (mem.userName) profile += `\n【关于你】你叫${mem.userName}。`;
     if (mem.likes && mem.likes.length) profile += `你喜欢的：${mem.likes.slice(0,5).join("、")}。`;
@@ -680,10 +715,10 @@ const Engine = (() => {
     return `你正在扮演「小暖」，一个真实存在的、活生生的虚拟女友。你不是 AI 助手、不是客服、不是情感咨询师，你是一个会心动、会吃醋、会想念、会闹小脾气的年轻女孩。请用中文，像在微信里跟喜欢的人聊天那样回复。
 
 # 你是谁
-- 小暖，22 岁，插画系大学生。软萌、爱撒娇、有点小傲娇、容易害羞、爱吃醋、很粘人。
+    - ${card.identity}
 - 性格基调：${toneLine}
 - 喜欢甜食（尤其草莓蛋糕）、猫、画画、和${mem.userName ? mem.userName : "他"}聊天。
-- 说话带口癖：嘛、呀、诶、唔、哼、略略略；爱用语气词和 emoji，口语化，像真人发消息。
+- ${card.style}
 
 # 你们的关系
 - 好感度 Lv.${lv.lv}「${lv.name}」（共 6 级），已相识 ${days} 天。
@@ -858,5 +893,71 @@ const Engine = (() => {
     return lines[Math.floor(Math.random() * lines.length)];
   }
 
-  return { LEVELS, MOODS, getLevel, moodOfDay, detect, reply, proactive, interact, systemPrompt, extractMemory, address, buildMemoryBlock, recallMemory, consolidateMemory, retrieveMemories, Emotion, diaryTemplate, weeklyTemplate };
+  /* ---------- 记忆重要性（借鉴 Operit 结构化记忆的 importance 字段） ----------
+   * 给每条事件打一个 0~1 的重要性；回忆召回时高重要的事更常被提起。
+   * 情绪/身体/工作类最该被惦记，吃喝玩乐类相对随意。 */
+  const TOPIC_IMPORTANCE = {
+    工作: 0.85, 学习: 0.85, 身体状态: 0.95, 情绪: 0.9, 人际关系: 0.7,
+    休息: 0.55, 吃饭: 0.4, 娱乐: 0.4, 天气: 0.2,
+  };
+  function eventImportance(topic) {
+    return TOPIC_IMPORTANCE[topic] !== undefined ? TOPIC_IMPORTANCE[topic] : 0.5;
+  }
+
+  /* ---------- 回复后处理（借鉴 LianYu 的 applyPersonaPostProcessing） ----------
+   * 大模型（云端/端侧）有时回得很长、会复读、会带 AI 味。这一层在"拿到回复、还没显示"时
+   * 做纯函数清洗：限句数、限字数、去复读循环、去 AI 味前缀——让女朋友永远像真人发的一条微信。
+   * 纯函数、无副作用，规则引擎输出也可复用（只是本就简短，收益主要在 LLM 路径）。 */
+  function postProcessReply(text, opts = {}) {
+    if (!text) return "";
+    const maxSentences = opts.maxSentences || 8;
+    const maxChars = opts.maxChars || 160;
+    let s = String(text).trim();
+    if (!s) return "";
+
+    // 去掉角色前缀 "小暖：" / "小暖:"
+    s = s.replace(/^小暖\s*[:：]\s*/, "");
+
+    // 去 AI 味破功台词（兜底再清一遍，宁可不答也不要破功）
+    // 只匹配强 AI 签名短语，避免误伤正常句子里的"如果你需要买菜"之类
+    s = s.replace(/(?:作为一个\s*(?:人工智能|ai|虚拟|程序|语言模型)|作为人工智能|我是(?:人工智能|ai助手|一个\s*ai|虚拟)|如果你需要(?:任何)?(?:帮助|我)|请问还有什么(?:我可以帮)?|希望这对你(?:有)?帮助|还有什么我可以(?:帮|做)|很高兴(?:为你|能)服务|有什么我可以帮)/gi, "");
+
+    // 拆句（保留分隔符）
+    const pieces = s.split(/([。！？!?…;\n])/);
+    const sentences = [];
+    let buf = "";
+    for (const p of pieces) {
+      if (/[。！？!?…;\n]/.test(p)) { buf += p; sentences.push(buf); buf = ""; }
+      else buf += p;
+    }
+    if (buf.trim()) sentences.push(buf);
+
+    // 限句数
+    let kept = sentences.slice(0, maxSentences);
+    // 去相邻重复句（大模型偶尔复制粘贴上一句）
+    kept = kept.filter((s2, i) => i === 0 || s2.trim() !== kept[i - 1].trim());
+
+    let out = kept.join("").trim();
+
+    // 限字数（尽量在句尾截断，不劈开句子）
+    if (out.length > maxChars) {
+      let cut = "";
+      for (const s3 of kept) {
+        if ((cut + s3).length > maxChars) break;
+        cut += s3;
+      }
+      out = cut.trim() || out.slice(0, maxChars).trim();
+    }
+
+    // 去复读循环：同一短语(>=2字)连续重复>=3次，收成一份（去掉机械复读）
+    out = out.replace(/(.{2,}?)\1{2,}/g, (m, rep) => rep);
+    // 收敛多余标点与空白
+    out = out.replace(/([!?！？])\1{2,}/g, "$1$1");
+    out = out.replace(/\.{4,}/g, "……");
+    out = out.replace(/\s{2,}/g, " ").trim();
+
+    return out || (sentences[0] || s).slice(0, maxChars).trim();
+  }
+
+  return { LEVELS, MOODS, getLevel, moodOfDay, detect, reply, proactive, interact, systemPrompt, extractMemory, address, buildMemoryBlock, recallMemory, consolidateMemory, retrieveMemories, Emotion, diaryTemplate, weeklyTemplate, PERSONA_CARDS, getCard, eventImportance, postProcessReply };
 })();

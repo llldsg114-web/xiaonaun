@@ -136,7 +136,7 @@ const defaultState = () => ({
   stats: { msgs: 0 },
   cloud: { enabled: false, base: "", key: "", model: "", provider: "", embedEnabled: false, embedModel: "text-embedding-3-small" },
   memory: {}, // {userName, likes, events}
-  persona: { tone: "gentle", theme: "sakura" },
+  persona: { tone: "gentle", theme: "sakura", card: "xiaonuan" },
   wardrobe: { outfit: "default", hair: "brown" },
   tts: false,
   voiceName: "auto",       // 音色：auto/sweet/sister/cute/boy 或 "__v:真实音色名"
@@ -541,7 +541,10 @@ function markAllRead() {
   document.querySelectorAll(".msg.me .read").forEach(el => el.textContent = "已读");
 }
 
-/* ================= 她说话（typing 模拟） ================= */
+/* ================= 她说话（流式打字机渲染） =================
+ * 借鉴竞品的"流式输出"手感：先显示"正在输入"气泡，再把回复逐字渲染出来，
+ * 像真人一边想一边打字。纯前端效果，不依赖大模型是否支持流式接口。
+ * 打字完成后才把完整文本交给 TTS，避免朗读被打断。 */
 async function herSay(text, expr = null) {
   // 显示"正在输入"
   $("#nav-status").textContent = "正在输入…";
@@ -549,19 +552,42 @@ async function herSay(text, expr = null) {
   const body = $("#chat-body");
   const tip = document.createElement("div");
   tip.className = "msg her";
+  const meta = `<div class="msg-meta">${fmtTime(Date.now())}</div>`;
   tip.innerHTML = `<div class="msg-avatar">${avatarSVG()}</div>
-    <div class="bubble-wrap"><div class="bubble typing-bubble"><i></i><i></i><i></i></div></div>`;
-
-  await new Promise(r => setTimeout(r, 250 + Math.random() * 200));
+    <div class="bubble-wrap"><div class="bubble typing-bubble"><i></i><i></i><i></i></div>${meta}</div>`;
   body.appendChild(tip); scrollBottom();
-  const typingMs = Math.max(600, Math.min(2200, 500 + text.length * 35));
-  await new Promise(r => setTimeout(r, typingMs));
-  tip.remove();
+
+  // 思考停顿：短消息更快开打，长消息略多酝酿
+  await new Promise(r => setTimeout(r, 350 + Math.min(900, text.length * 12)));
   $("#nav-status").textContent = "在线";
   $("#nav-status").classList.remove("typing");
 
-  pushMessage("her", text);
+  // 把"正在输入"气泡换成真实气泡，逐字渲染（流式打字机效果）
+  const wrap = tip.querySelector(".bubble-wrap");
+  wrap.innerHTML = `<div class="bubble her-bubble-stream"></div>${meta}`;
+  const bubble = wrap.querySelector(".bubble");
+
+  const chars = Array.from(text);
+  // 自适应速度：长句更快，整体不超过 ~2.6s；标点处稍作停顿更像真人
+  const per = Math.max(10, Math.min(42, Math.floor(2600 / Math.max(1, chars.length))));
+  let shown = "";
+  for (let i = 0; i < chars.length; i++) {
+    shown += chars[i];
+    bubble.textContent = shown;
+    scrollBottom();
+    const c = chars[i];
+    const pause = /[。！？!?，,、…\n]/.test(c) ? per * 3 : 0;
+    await new Promise(r => setTimeout(r, per + pause));
+  }
+  bubble.classList.remove("her-bubble-stream");
   if (expr) { setExpression(expr, 2600); }
+
+  // 落库：把这条回复记进消息流（DOM 已由上面的气泡呈现，不再重复渲染）
+  const m = { from: "her", text, t: Date.now(), read: true };
+  S.messages.push(m);
+  if (S.messages.length > 300) S.messages = S.messages.slice(-300);
+  save();
+
   // 页面不可见时（切到后台/其他 App），把想念/回复转成系统通知，实现跨会话推送
   if (document.hidden && S.notify) {
     notifyOS("小暖想你了 💕", text);
@@ -1043,8 +1069,11 @@ async function callCloud(userText) {
     });
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
-    const text = data.choices?.[0]?.message?.content?.trim();
+    let text = data.choices?.[0]?.message?.content?.trim();
     if (!text) throw new Error("empty");
+    // 借鉴 LianYu 的回复后处理：限句/限字/去复读，让大模型输出也像真人微信
+    text = Engine.postProcessReply(text, { maxSentences: 8, maxChars: 160 });
+    if (!text) throw new Error("empty after post");
     return { replies: [text], delta: 3, expression: "normal" };
   } catch (e) {
     console.warn("云端调用失败，回落本地引擎：", e);
@@ -1092,7 +1121,9 @@ async function localThink(text) {
     ]);
     const cleaned = cleanLocalReply(out);
     if (!cleaned) return null;
-    return { replies: [cleaned], delta: 3, expression: CALL_EXPR[intent] || "normal" };
+    const post = Engine.postProcessReply(cleaned, { maxSentences: 6, maxChars: 140 });
+    if (!post) return null;
+    return { replies: [post], delta: 3, expression: CALL_EXPR[intent] || "normal" };
   } catch (e) {
     return null;
   }
@@ -1974,7 +2005,7 @@ function bindInput() {
       }
       if (mem.event) {
         S.memory.events = S.memory.events || [];
-        S.memory.events.push({ ...mem.event, at: Date.now() });
+        S.memory.events.push({ ...mem.event, at: Date.now(), importance: Engine.eventImportance(mem.event.topic) });
         if (S.memory.events.length > 8) S.memory.events = S.memory.events.slice(-8);
       }
       save(); refreshMemoryUI();
@@ -2249,6 +2280,29 @@ function bindSettings() {
         c.classList.add("active");
         applyTheme(c.dataset.theme);
         save();
+      });
+    });
+  }
+
+  // 人设：人格卡（借鉴 Operit 角色卡隔离——人格做成可切换资产）
+  const cardGroup = $("#card-group");
+  if (cardGroup) {
+    const syncCard = () => cardGroup.querySelectorAll(".chip").forEach(c =>
+      c.classList.toggle("active", c.dataset.card === (S.persona.card || "xiaonuan")));
+    syncCard();
+    cardGroup.querySelectorAll(".chip").forEach(c => {
+      c.addEventListener("click", () => {
+        S.persona.card = c.dataset.card;
+        const card = Engine.getCard(S.persona);
+        S.persona.tone = card.tone; // 规则库语气与卡片保持一致
+        syncCard();
+        save();
+        // 立刻给一个轻提示，让切换"被看见"
+        const tip = document.createElement("div");
+        tip.className = "msg her sys-tip";
+        tip.innerHTML = `<div class="bubble-wrap"><div class="bubble">（小暖换上了「${card.label}」皮肤 ✨）</div></div>`;
+        $("#chat-body").appendChild(tip); scrollBottom();
+        setTimeout(() => tip.remove(), 2600);
       });
     });
   }

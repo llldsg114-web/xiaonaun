@@ -108,6 +108,24 @@ html, body {
 .typing-bubble i:nth-child(3) { animation-delay: .36s; }
 @keyframes typingDot { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-5px); opacity: 1; } }
 
+/* 流式打字机：真实气泡逐字出现，末尾闪烁光标 */
+.bubble.her-bubble-stream { min-height: 1.4em; }
+.bubble.her-bubble-stream::after {
+  content: "▍";
+  margin-left: 1px;
+  opacity: .65;
+  animation: caretBlink 1s steps(1) infinite;
+}
+@keyframes caretBlink { 50% { opacity: 0; } }
+
+/* 人格卡切换的轻提示气泡 */
+.msg.sys-tip .bubble {
+  background: rgba(255,255,255,.55);
+  color: var(--text-light);
+  font-size: 12.5px;
+  border: 1px dashed var(--pink);
+}
+
 /* 输入栏 */
 .chat-input-bar {
   display: flex; align-items: center; gap: 8px;
