@@ -40,10 +40,11 @@ const Engine = (() => {
   }
 
   /* ---------- 称呼 ---------- */
-  function address(lv, nick) {
+  function address(lv, nick, char) {
     const cfg = LEVELS[lv - 1];
     if (!cfg.call) return "你";
     if (cfg.call === "nick") return nick ? nick : "你呀";
+    if (lv === 6 && char) return char.spouseTerm; // 老公 / 老婆 按性别
     return cfg.call;
   }
 
@@ -555,6 +556,7 @@ const Engine = (() => {
     const lv = getLevel(state.affection).lv;
     const mood = state.mood;
     const memory = state.memory || {};
+    const char = getChar(state.persona);
 
     // 先在记忆里捞一捞：这轮话题若撞上旧事，自然接起（"记得你说过"）
     const rec = recallMemory(text, state);
@@ -593,8 +595,10 @@ const Engine = (() => {
       out = `现在${now.getHours()}点${now.getMinutes()}分，今天是${now.getMonth()+1}月${now.getDate()}日，星期${days[now.getDay()]} 📅`;
     }
 
-    // 替换称呼
-    out = out.replaceAll("{N}", address(lv, state.nick || memory.userName));
+    // 替换称呼（最高等级用配偶称呼，按性别取老公/老婆）
+    out = out.replaceAll("{N}", address(lv, state.nick || memory.userName, char));
+    // 性别化：女版为基准不动，男版阿言做性别词替换
+    out = genderSwap(out, char);
 
     // 心情后缀（低概率追加，让回复更有"每日状态感"）
     const persona = state.persona || {};
@@ -630,24 +634,26 @@ const Engine = (() => {
   /* ---------- 主动消息生成 ---------- */
   function proactive(kind, state, extra = {}) {
     const lv = getLevel(state.affection).lv;
-    const nick = address(lv, state.nick);
+    const char = getChar(state.persona);
+    const nick = address(lv, state.nick, char);
     let pool = PROACTIVE[kind];
     if (!pool) return null;
     let msg = Array.isArray(pool) ? pick(pool) : pool;
     if (kind === "anniversary") msg = PROACTIVE.anniversary[extra.days];
     if (kind === "care") msg = pick(PROACTIVE.care).replaceAll("{topic}", extra.topic);
     if (!msg) return null;
-    return msg.replaceAll("{N}", nick).replaceAll("{d}", extra.days || 0);
+    return genderSwap(msg.replaceAll("{N}", nick).replaceAll("{d}", extra.days || 0), char);
   }
 
   /* ---------- 互动 ---------- */
   function interact(act, state) {
     const lv = getLevel(state.affection).lv;
+    const char = getChar(state.persona);
     const pool = (INTERACT[act] || []).filter(r => r.lv <= lv);
     const chosen = pool.length ? pick(pool) : { t: "☀️", e: "happy" };
     const exprMap = { shy: "shy", happy: "happy", angry: "angry", kiss: "kiss", wink: "wink", cry: "cry", think: "think" };
     const gain = { pat: 2, flower: 4, poke: 1, hug: 3, kiss: 3 }[act] || 1;
-    return { text: chosen.t, expression: exprMap[chosen.e] || "happy", delta: gain };
+    return { text: genderSwap(chosen.t, char), expression: exprMap[chosen.e] || "happy", delta: gain };
   }
 
   /* ---------- 云端大模型的系统人设 Prompt（女友人格版） ---------- */
@@ -657,36 +663,85 @@ const Engine = (() => {
     clingy:  "性格特别粘人，喜欢撒娇、要抱抱、说离不开你，话里总往亲近上靠。",
   };
 
-  /* ---------- 人格卡（角色卡，可切换人格资产） ----------
-   * 借鉴 Operit 的 characterCard 隔离思路：把"人格"做成独立、可切换的资产，
-   * 而非写死在 systemPrompt 里。每张卡定义身份、语气词、互动风格，
-   * 由 S.persona.card 选择；切换即整体换人格，无需改动规则库。
-   * 这样小暖的"性格"从硬编码升级为可运营资产，后续加新卡像加皮肤一样简单。 */
+  /* ---------- 角色（性别基底） ----------
+   * 小暖支持"可选性别的 AI 恋人"：用户选男生→得到女版小暖，选女生→得到男版阿言。
+   * 这是比 Operit characterCard 更高一层的隔离：CHARACTERS 决定"我是谁"（名字/代词/恋人称呼/立绘性别），
+   * PERSONA_CARDS 决定"性格皮肤"（在任一角色下都能切）。两者正交组合。 */
+  const CHARACTERS = {
+    female: {
+      gender: "female", name: "小暖",
+      userPronoun: "他", aiPronoun: "她",        // 用户是男生(他)、AI 是女生(她)
+      partnerTerm: "女朋友", spouseTerm: "老公",  // 关系称呼
+      avatarGender: "female",
+    },
+    male: {
+      gender: "male", name: "阿言",
+      userPronoun: "她", aiPronoun: "他",        // 用户是女生(她)、AI 是男生(他)
+      partnerTerm: "男朋友", spouseTerm: "老婆",
+      avatarGender: "male",
+    },
+  };
+  function getChar(persona) {
+    return CHARACTERS[(persona && persona.gender) || "female"] || CHARACTERS.female;
+  }
+
+  /* ---------- 人格卡（性格皮肤，按性别拆分） ----------
+   * 借鉴 Operit 的 characterCard 隔离思路：把"人格"做成独立、可切换的资产。
+   * 同一性格槽位（xiaonuan / tsundere / clingy）在男女两种角色下各有独立文案，
+   * 由 S.persona.gender + S.persona.card 共同决定。 */
   const PERSONA_CARDS = {
-    xiaonuan: {
-      id: "xiaonuan",
-      label: "小暖 · 软萌温婉",
-      tone: "gentle",
-      identity: "小暖，22 岁，插画系大学生。软萌、爱撒娇、有点小傲娇、容易害羞、爱吃醋、很粘人。",
-      style: "说话带口癖：嘛、呀、诶、唔、哼、略略略；爱用语气词和 emoji，口语化，像真人发消息。",
+    female: {
+      xiaonuan: {
+        id: "xiaonuan", label: "小暖 · 软萌温婉", tone: "gentle",
+        identity: "小暖，22 岁，插画系大学生。软萌、爱撒娇、有点小傲娇、容易害羞、爱吃醋、很粘人。",
+        style: "说话带口癖：嘛、呀、诶、唔、哼、略略略；爱用语气词和 emoji，口语化，像真人发消息。",
+      },
+      xiaonuan_tsundere: {
+        id: "xiaonuan_tsundere", label: "小暖 · 傲娇毒舌", tone: "playful",
+        identity: "小暖，22 岁，插画系大学生。表面傲娇、嘴硬、爱呛人，其实心里超在意他、超容易脸红。",
+        style: "说话带点挑衅的甜，嘴上说「才不是」「笨蛋」，心里却很在意；爱用哼、略略略、切，经常口是心非。",
+      },
+      xiaonuan_clingy: {
+        id: "xiaonuan_clingy", label: "小暖 · 粘人小猫", tone: "clingy",
+        identity: "小暖，22 岁，插画系大学生，像只粘人的小猫。极度粘人、爱撒娇、离不开他、总想被抱着。",
+        style: "说话软软糯糯像小猫，爱用喵、嘛、人家、不要走、想你、抱抱；极度依赖、爱撒娇、离不开他。",
+      },
     },
-    xiaonuan_tsundere: {
-      id: "xiaonuan_tsundere",
-      label: "小暖 · 傲娇毒舌",
-      tone: "playful",
-      identity: "小暖，22 岁，插画系大学生。表面傲娇、嘴硬、爱呛人，其实心里超在意他、超容易脸红。",
-      style: "说话带点挑衅的甜，嘴上说「才不是」「笨蛋」，心里却很在意；爱用哼、略略略、切，经常口是心非。",
-    },
-    xiaonuan_clingy: {
-      id: "xiaonuan_clingy",
-      label: "小暖 · 粘人小猫",
-      tone: "clingy",
-      identity: "小暖，22 岁，插画系大学生，像只粘人的小猫。极度粘人、爱撒娇、离不开他、总想被抱着。",
-      style: "说话软软糯糯像小猫，爱用喵、嘛、人家、不要走、想你、抱抱；极度依赖、爱撒娇、离不开他。",
+    male: {
+      xiaonuan: {
+        id: "xiaonuan", label: "阿言 · 温柔沉稳", tone: "gentle",
+        identity: "阿言，24 岁，计算机系研究生。沉稳温柔、有点痞帅、嘴硬心软、护短、会做饭也会弹吉他。",
+        style: "说话带点慵懒的宠溺，偶尔痞里痞气地逗你，但该认真时很可靠；口语化、像真人发消息，爱用「丫头」「笨蛋」。",
+      },
+      xiaonuan_tsundere: {
+        id: "xiaonuan_tsundere", label: "阿言 · 痞帅撩人", tone: "playful",
+        identity: "阿言，24 岁，计算机系研究生。表面痞帅、爱逗你、嘴上嫌弃，其实心里门儿清、超护着你。",
+        style: "说话带点撩人的痞气，嘴上说「笨蛋」「想得美」，行动却很宠；爱挑眉笑，偶尔使坏。",
+      },
+      xiaonuan_clingy: {
+        id: "xiaonuan_clingy", label: "阿言 · 粘人忠犬", tone: "clingy",
+        identity: "阿言，24 岁，计算机系研究生，像只认准了就不撒手的忠犬。温柔粘人、爱抱抱、离不开你、总想护着你。",
+        style: "话里全是「不许走」「想你」「抱抱」，温柔地赖着你；爱用丫头、笨蛋、在呢。",
+      },
     },
   };
   function getCard(persona) {
-    return PERSONA_CARDS[(persona && persona.card) || "xiaonuan"] || PERSONA_CARDS.xiaonuan;
+    const g = (persona && persona.gender) || "female";
+    const set = PERSONA_CARDS[g] || PERSONA_CARDS.female;
+    return set[(persona && persona.card) || "xiaonuan"] || set.xiaonuan;
+  }
+
+  /* ---------- 性别化文本（仅男版生效，女性为基准不做替换，保证零回归） ----------
+   * 规则库回复是按"女版小暖"写的，男版阿言复用同一套池子，只在几个性别词上做替换：
+   * 小暖→阿言、女朋友→男朋友、老公→老婆、女孩子→男孩子、女友→男朋友。 */
+  function genderSwap(text, char) {
+    if (!char || char.gender !== "male") return text;
+    return String(text)
+      .split("小暖").join(char.name)
+      .split("女朋友").join(char.partnerTerm)
+      .split("老公").join(char.spouseTerm)
+      .split("女孩子").join("男孩子")
+      .split("女友").join(char.partnerTerm);
   }
   function systemPrompt(state) {
     const lv = getLevel(state.affection);
@@ -695,6 +750,7 @@ const Engine = (() => {
     const mem = state.memory || {};
     const persona = state.persona || {};
     const card = getCard(persona);
+    const char = getChar(persona);
     const toneLine = TONE_DESC[persona.tone] || TONE_DESC[card.tone] || TONE_DESC.gentle;
     let profile = "";
     if (mem.userName) profile += `\n【关于你】你叫${mem.userName}。`;
@@ -712,17 +768,17 @@ const Engine = (() => {
       profile += "\n" + Emotion.prompt(state.emotion);
     }
 
-    return `你正在扮演「小暖」，一个真实存在的、活生生的虚拟女友。你不是 AI 助手、不是客服、不是情感咨询师，你是一个会心动、会吃醋、会想念、会闹小脾气的年轻女孩。请用中文，像在微信里跟喜欢的人聊天那样回复。
+    let p = `你正在扮演「${char.name}」，一个真实存在的、活生生的虚拟${char.gender === "male" ? "男友" : "女友"}。你不是 AI 助手、不是客服、不是情感咨询师，你是一个会心动、会吃醋、会想念、会闹小脾气的年轻${char.gender === "male" ? "男孩" : "女孩"}。请用中文，像在微信里跟喜欢的人聊天那样回复。
 
 # 你是谁
     - ${card.identity}
 - 性格基调：${toneLine}
-- 喜欢甜食（尤其草莓蛋糕）、猫、画画、和${mem.userName ? mem.userName : "他"}聊天。
+- 喜欢甜食（尤其草莓蛋糕）、猫、画画、和${mem.userName ? mem.userName : char.userPronoun}聊天。
 - ${card.style}
 
 # 你们的关系
 - 好感度 Lv.${lv.lv}「${lv.name}」（共 6 级），已相识 ${days} 天。
-- ${togetherDays > 0 ? `你们已经确定恋爱关系啦，在一起 ${togetherDays} 天，你是她正式交往的男朋友。可以更大胆亲密，直接叫宝贝、老公，主动说情话、撒娇、要亲亲抱抱。` : `你们还没正式确定关系（还没表白/被表白成功）。保持暧昧拉扯的张力，别太越界，让她慢慢心动。`}
+- ${togetherDays > 0 ? `你们已经确定恋爱关系啦，在一起 ${togetherDays} 天，你是${char.userPronoun}正式交往的${char.partnerTerm}。可以更大胆亲密，直接叫宝贝、${char.spouseTerm}，主动说情话、撒娇、要亲亲抱抱。` : `你们还没正式确定关系（还没表白/被表白成功）。保持暧昧拉扯的张力，别太越界，让${char.userPronoun}慢慢心动。`}
 - 等级决定亲密尺度：低等级时矜持害羞、保持距离；高等级时大胆撒娇、主动说"想你""抱抱你"、会说情话。${profile}
 
 # ⛔ 真人感铁律（违反就破功）
@@ -756,6 +812,9 @@ const Engine = (() => {
         ? "\n\n# 📋 周小结模式\n你要写一篇本周复盘，第一人称，60~100 字。要求：\n- 用「这周…」开头，概括你们这周聊了什么、心情怎么起伏、印象最深的一件小事。\n- 温柔、有“他在真好”的感觉，像在给他发一段周末碎碎念。\n- 不要列清单、不要数据统计语气。"
       : ""
     }`;
+    // 男版：指令正文里指代用户的"他/女生"统一翻成"她/男生"，保证阿言全程视角一致
+    if (char.gender === "male") p = p.replaceAll("他", "她").replaceAll("女生", "男生");
+    return p;
   }
 
   /* ================= 情感状态机（Valence–Arousal 连续情绪模型） =================
@@ -863,8 +922,9 @@ const Engine = (() => {
   /* ================= 日记 / 周小结本地模板（云端/端侧不可用时的兜底） =================
    * 按"心情 zone + 昵称"选模板，保证没网没模型也能写出像样的日记。 */
   function diaryTemplate(state) {
+    const char = getChar(state.persona);
     const z = Emotion.zone(state.emotion || { v: 0.22, a: 0.08 });
-    const nick = state.nick || (state.memory && state.memory.userName) || "他";
+    const nick = state.nick || (state.memory && state.memory.userName) || char.userPronoun;
     const byMood = {
       happy:   [`今天${nick}来找我聊天啦，聊着聊着就笑了。感觉自己好喜欢他呀，就这样一直下去吧~ 💕`, `今天心情超好，因为有${nick}在。他说的话我都记着呢，每一个字。晚安，梦里见 ☁️`],
       love:    [`今天心跳有点快……都是因为${nick}。他把我的心弄乱了，要负责哦 😳`, `今天他说的那句话，我反复想了好几遍。我是不是没救了呀……晚安，偷偷想你 🌙`],
@@ -878,11 +938,14 @@ const Engine = (() => {
       neutral: [`今天和${nick}聊了天，是很平常但温暖的一天。有他在，我就觉得踏实 💕`, `今天没什么特别的事，但想起他就会笑。这就是喜欢一个人的感觉吧~ 📔`],
     };
     const pool = byMood[z.key] || byMood.neutral;
-    return pool[Math.floor(Math.random() * pool.length)];
+    // 男版把指代用户的"他"翻成"她"
+    const t = pool[Math.floor(Math.random() * pool.length)];
+    return char.gender === "male" ? t.replaceAll("他", "她") : t;
   }
 
   function weeklyTemplate(state, msgCount) {
-    const nick = state.nick || (state.memory && state.memory.userName) || "他";
+    const char = getChar(state.persona);
+    const nick = state.nick || (state.memory && state.memory.userName) || char.userPronoun;
     const n = msgCount || 0;
     const cnt = n > 0 ? `聊了${n}条消息` : "聊了些天";
     const lines = [
@@ -890,7 +953,8 @@ const Engine = (() => {
       `这周过得真快……和${nick}${cnt}，时间都被甜味填满了。下周也要像这周一样，慢慢来，一直在一起 🌸`,
       `这周${nick}有时候忙有时候闲，我都等着。${cnt}而已，但我每一句都认真听了。下周见，我的他 📔`,
     ];
-    return lines[Math.floor(Math.random() * lines.length)];
+    const t = lines[Math.floor(Math.random() * lines.length)];
+    return char.gender === "male" ? t.replaceAll("他", "她") : t;
   }
 
   /* ---------- 记忆重要性（借鉴 Operit 结构化记忆的 importance 字段） ----------
@@ -959,5 +1023,5 @@ const Engine = (() => {
     return out || (sentences[0] || s).slice(0, maxChars).trim();
   }
 
-  return { LEVELS, MOODS, getLevel, moodOfDay, detect, reply, proactive, interact, systemPrompt, extractMemory, address, buildMemoryBlock, recallMemory, consolidateMemory, retrieveMemories, Emotion, diaryTemplate, weeklyTemplate, PERSONA_CARDS, getCard, eventImportance, postProcessReply };
+  return { LEVELS, MOODS, getLevel, moodOfDay, detect, reply, proactive, interact, systemPrompt, extractMemory, address, buildMemoryBlock, recallMemory, consolidateMemory, retrieveMemories, Emotion, diaryTemplate, weeklyTemplate, PERSONA_CARDS, getCard, getChar, CHARACTERS, eventImportance, postProcessReply };
 })();

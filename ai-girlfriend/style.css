@@ -625,3 +625,35 @@ body::after { width: 55vw; height: 55vw; right: -12vw; bottom: -8vh;
   border-radius: 999px; padding: 6px 15px; font-size: 13px; font-weight: 600; cursor: pointer;
 }
 .sw-update-toast button:active { opacity: .85; }
+
+/* ============ 首次性别选择弹层 ============ */
+.gender-picker {
+  position: fixed; inset: 0; z-index: 99999;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(160deg, rgba(255,192,210,.96), rgba(186,168,255,.96));
+  backdrop-filter: blur(2px);
+  padding: 20px;
+  animation: gp-fade .4s ease;
+}
+@keyframes gp-fade { from { opacity: 0; } to { opacity: 1; } }
+.gp-card {
+  background: #fff; border-radius: 22px; padding: 26px 20px 22px;
+  width: 100%; max-width: 360px; text-align: center;
+  box-shadow: 0 20px 50px rgba(170,120,160,.35);
+  animation: gp-pop .42s cubic-bezier(.2,.85,.25,1.1);
+}
+@keyframes gp-pop { from { transform: translateY(16px) scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+.gp-title { font-size: 19px; font-weight: 800; color: #d24b72; }
+.gp-sub { font-size: 13px; color: #9a8aa0; margin: 8px 0 20px; }
+.gp-options { display: flex; gap: 14px; justify-content: center; }
+.gp-opt {
+  flex: 1; border: 2px solid #ffe0ea; background: #fff7fa; border-radius: 18px;
+  padding: 16px 8px 14px; cursor: pointer; transition: transform .18s, border-color .18s, box-shadow .18s;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.gp-opt:active { transform: scale(.96); }
+.gp-opt:hover { border-color: #ff9bbd; box-shadow: 0 8px 20px rgba(255,140,180,.25); }
+.gp-avatar { width: 84px; height: 96px; display: flex; align-items: flex-end; justify-content: center; }
+.gp-avatar svg { width: 88px; height: auto; }
+.gp-name { font-size: 15px; font-weight: 700; color: #444; }
+.gp-desc { font-size: 11.5px; color: #b08; opacity: .8; }

@@ -136,7 +136,7 @@ const defaultState = () => ({
   stats: { msgs: 0 },
   cloud: { enabled: false, base: "", key: "", model: "", provider: "", embedEnabled: false, embedModel: "text-embedding-3-small" },
   memory: {}, // {userName, likes, events}
-  persona: { tone: "gentle", theme: "sakura", card: "xiaonuan" },
+  persona: { gender: "female", tone: "gentle", theme: "sakura", card: "xiaonuan" },
   wardrobe: { outfit: "default", hair: "brown" },
   tts: false,
   voiceName: "auto",       // 音色：auto/sweet/sister/cute/boy 或 "__v:真实音色名"
@@ -171,6 +171,7 @@ function load() {
       const s = Object.assign(defaultState(), JSON.parse(raw));
       // 嵌套字段兜底（兼容旧存档）
       s.wardrobe = Object.assign({ outfit: "default", hair: "brown" }, s.wardrobe || {});
+      s.persona = Object.assign({ gender: "female", tone: "gentle", theme: "sakura", card: "xiaonuan" }, s.persona || {});
       s.datingAnnis = s.datingAnnis || [];
       s.games = Object.assign({ rps: { wins: 0, played: 0 }, truth: 0 }, s.games || {});
       s.games.rps = Object.assign({ wins: 0, played: 0 }, s.games.rps || {});
@@ -198,33 +199,43 @@ const daysTogether = () =>
   S.firstMeet ? Math.max(1, Math.floor((Date.now() - S.firstMeet) / 86400000) + 1) : 1;
 
 /* ================= SVG 立绘 ================= */
-function avatarSVG(expr = "normal") {
+/* 当前角色性别（男版=阿言 / 女版=小暖），贯穿立绘与文本 */
+const currentGender = () => (typeof S !== "undefined" && S.persona && S.persona.gender) || "female";
+const currentChar = () => (typeof Engine !== "undefined" ? Engine.getChar(S.persona) : { name: "小暖" });
+function avatarSVG(expr = "normal", gender = currentGender()) {
   // 头像：只取头部
-  return `<svg viewBox="60 30 180 190" xmlns="http://www.w3.org/2000/svg">${headParts(expr)}</svg>`;
+  return `<svg viewBox="60 30 180 190" xmlns="http://www.w3.org/2000/svg">${headParts(expr, false, gender)}</svg>`;
 }
 
-function fullSVG() {
+function fullSVG(gender = currentGender()) {
+  const isMale = gender === "male";
+  const bodyFill = isMale ? "#5b8fd6" : "#ff8fab";
+  const bodyFill2 = isMale ? "#4a7ec4" : "#ff7b9c";
+  const backHair = isMale ? "" : `
+  <!-- 后发 -->
+  <path id="hair-back1" d="M78 118 Q58 200 72 292 Q86 300 92 288 Q80 210 92 150 Z" fill="#6b4634"/>
+  <path id="hair-back2" d="M222 118 Q242 200 228 292 Q214 300 208 288 Q220 210 208 150 Z" fill="#6b4634"/>`;
+  const collar = isMale ? '<path d="M138 240 L150 256 L162 240" stroke="#ffffff" stroke-width="3" fill="none" stroke-linecap="round"/>' : "";
   return `<svg viewBox="0 0 300 340" xmlns="http://www.w3.org/2000/svg" id="her-svg">
   <!-- 身体 -->
-  <path id="outfit-body" d="M102 340 L102 292 Q102 242 150 240 Q198 242 198 292 L198 340 Z" fill="#ff8fab"/>
-  <path id="outfit-body2" d="M102 300 Q150 316 198 300 L198 340 L102 340 Z" fill="#ff7b9c"/>
+  <path id="outfit-body" d="M102 340 L102 292 Q102 242 150 240 Q198 242 198 292 L198 340 Z" fill="${bodyFill}"/>
+  <path id="outfit-body2" d="M102 300 Q150 316 198 300 L198 340 L102 340 Z" fill="${bodyFill2}"/>
   <path d="M134 244 Q150 258 166 244 L150 236 Z" fill="#ffffff"/>
   <circle cx="150" cy="272" r="3.5" fill="#fff"/>
   <circle cx="150" cy="290" r="3.5" fill="#fff"/>
-  <!-- 后发 -->
-  <path id="hair-back1" d="M78 118 Q58 200 72 292 Q86 300 92 288 Q80 210 92 150 Z" fill="#6b4634"/>
-  <path id="hair-back2" d="M222 118 Q242 200 228 292 Q214 300 208 288 Q220 210 208 150 Z" fill="#6b4634"/>
-  ${headParts("normal", true)}
+  ${collar}
+  ${backHair}
+  ${headParts("normal", true, gender)}
 </svg>`;
 }
 
-function headParts(expr, full = false) {
-  return `
-  <!-- 耳朵 -->
-  <ellipse cx="82" cy="152" rx="9" ry="13" fill="#ffe4d3"/>
-  <ellipse cx="218" cy="152" rx="9" ry="13" fill="#ffe4d3"/>
-  <!-- 脸 -->
-  <ellipse cx="150" cy="146" rx="68" ry="66" fill="#ffe9db"/>
+function headParts(expr, full = false, gender = currentGender()) {
+  const isMale = gender === "male";
+  const hair = isMale ? `
+  <!-- 短发 -->
+  <path id="hair-main" d="M84 142 Q72 66 150 60 Q228 66 216 142 Q208 100 150 96 Q92 100 84 142 Z" fill="#3a2a22"/>
+  <path d="M150 62 Q158 42 176 40 Q162 52 160 64 Z" fill="#3a2a22"/>
+  <path d="M98 78 Q120 62 150 60 Q118 70 104 86 Z" fill="#4a342a" opacity=".7"/>` : `
   <!-- 头顶发 -->
   <path id="hair-main" d="M80 138 Q66 46 150 44 Q234 46 220 138 Q214 100 196 96 Q206 120 196 128 Q182 92 152 90 Q162 112 152 120 Q132 92 106 98 Q116 118 106 128 Q88 108 80 138 Z" fill="#7a5442"/>
   <path d="M150 48 Q156 26 172 24 Q160 36 159 50 Z" fill="#7a5442"/>
@@ -234,7 +245,14 @@ function headParts(expr, full = false) {
     <path d="M0 0 L-20 -13 Q-24 0 -20 13 Z" fill="#ff5c7a"/>
     <path d="M0 0 L20 -13 Q24 0 20 13 Z" fill="#ff5c7a"/>
     <circle r="6" fill="#e04468"/>
-  </g>
+  </g>`;
+  return `
+  <!-- 耳朵 -->
+  <ellipse cx="82" cy="152" rx="9" ry="13" fill="#ffe4d3"/>
+  <ellipse cx="218" cy="152" rx="9" ry="13" fill="#ffe4d3"/>
+  <!-- 脸 -->
+  <ellipse cx="150" cy="146" rx="68" ry="66" fill="#ffe9db"/>
+  ${hair}
   <!-- 腮红 -->
   <g id="blush-normal">
     <ellipse cx="106" cy="172" rx="10" ry="5.5" fill="#ffb3c0" opacity=".55"/>
@@ -433,7 +451,7 @@ function refreshAffectionUI() {
   // 今日心情：优先显示连续情绪区（更实时），回落每日 mood
   const z = Engine.Emotion.zone(S.emotion || { v: 0.22, a: 0.08 });
   $("#nav-mood").textContent = z.ico;
-  $("#nav-mood").title = `小暖此刻：${z.label}`;
+  $("#nav-mood").title = `${currentChar().name}此刻：${z.label}`;
   $("#her-mood").textContent = `${z.ico} ${z.label}`;
   refreshMemoryUI();
 }
@@ -450,7 +468,7 @@ function refreshMemoryUI() {
     mem.events.slice(-3).forEach(e => items.push({ ico: "📌", text: e.topic }));
   }
   if (!items.length) {
-    box.innerHTML = `<div class="memory-empty">还没有记住什么…多陪小暖聊聊，她会把你放在心上 💕</div>`;
+    box.innerHTML = `<div class="memory-empty">还没有记住什么…多陪${currentChar().name}聊聊，${currentChar().name}会把你放在心上 💕</div>`;
     return;
   }
   box.innerHTML = items.map(i => `<div class="memory-item"><span>${i.ico}</span><span>${esc(i.text)}</span></div>`).join("");
@@ -464,7 +482,7 @@ function maybeConsolidate() {
   S.memory.lastConsolidatedDay = today;
   save();
   if (changed) {
-    pushStory("memory", "🌙", "小暖在夜里悄悄整理了今天的回忆");
+    pushStory("memory", "🌙", `${currentChar().name}在夜里悄悄整理了今天的回忆`);
     refreshMemoryUI();
     refreshStoryUI();
   }
@@ -590,7 +608,7 @@ async function herSay(text, expr = null) {
 
   // 页面不可见时（切到后台/其他 App），把想念/回复转成系统通知，实现跨会话推送
   if (document.hidden && S.notify) {
-    notifyOS("小暖想你了 💕", text);
+    notifyOS(currentChar().name + "想你了 💕", text);
   } else {
     speak(text);
   }
@@ -623,7 +641,8 @@ async function handleSpecialIntent(text, intent) {
       S.dating = { since: Date.now() };
       save();
       recordAff(S.affection);
-      pushStory("confess", "💞", "你向小暖表白，她害羞地答应了，你们正式在一起 💍");
+      const cChar = Engine.getChar(S.persona);
+      pushStory("confess", "💞", `你向${cChar.name}表白，${cChar.aiPronoun}害羞地答应了，你们正式在一起 💍`);
       refreshRelationshipUI(); // 答应瞬间立即更新关系状态
       setExpression("happy", 3000);
       celebrateTogether();
@@ -790,7 +809,7 @@ async function herReply(userText, img) {
       S.diaryEntries[today] = { text: diaryText, t: Date.now(), mood: Engine.Emotion.zone(S.emotion).label };
       S.lastDiaryPrompt = ""; // 消费掉，避免重复触发
       save();
-      pushStory("diary", "📔", `小暖写了一篇${today}的日记`);
+      pushStory("diary", "📔", `${currentChar().name}写了一篇${today}的日记`);
       refreshStoryUI();
     }
   }
@@ -1088,7 +1107,9 @@ async function callCloud(userText) {
 function cleanLocalReply(t) {
   let s = (t || "").trim();
   if (!s) return "";
-  // 去掉可能的角色前缀，如 "小暖："
+  // 去掉可能的角色前缀，如 "小暖：" / "阿言："
+  const nm = (Engine.getChar(S.persona) || {}).name || "小暖";
+  s = s.replace(new RegExp("^" + nm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*[:：]\\s*"), "");
   s = s.replace(/^小暖\s*[:：]\s*/i, "");
   // 触发"AI 味"破功台词则丢弃，回落规则引擎（宁可不答，也不要破功）
   const bad = [/作为一个\s*ai/i, /作为人工智能/i, /我是人工智能/i, /我是ai助手/i,
@@ -1250,10 +1271,12 @@ async function checkProactive() {
   // 初次相遇
   if (!S.firstMeet) {
     S.firstMeet = Date.now(); S.lastVisit = Date.now(); save();
-    pushStory("meet", "💗", "初次相遇，小暖闯进了你的生活");
-    await herSay("嗨，我是小暖 ☀️");
+    const ch0 = currentChar();
+    const role0 = ch0.gender === "male" ? "男友" : "女友";
+    pushStory("meet", "💗", `初次相遇，${ch0.name}闯进了你的生活`);
+    await herSay(`嗨，我是${ch0.name} ☀️`);
     await new Promise(r => setTimeout(r, 500));
-    await herSay("从今天起，我就是你的专属 AI 女友啦。你可以跟我聊任何事——开心的、难过的、无聊的，我都想听。");
+    await herSay(`从今天起，我就是你的专属 AI ${role0}啦。你可以跟我聊任何事——开心的、难过的、无聊的，我都想听。`);
     await new Promise(r => setTimeout(r, 500));
     await herSay("先告诉我，你叫什么名字呀？😊", "shy");
     return;
@@ -1530,10 +1553,10 @@ async function callOnResult(text) {
   if (!inCall || !text) return;
   callSetState("speaking"); // 先占住，避免识别结束的 onend 抢先重启监听
   setCallExpression("think");
-  $("#call-status").textContent = "小暖正在想…";
+  $("#call-status").textContent = currentChar().name + "正在想…";
   const reply = await callThink(text);
   if (!inCall) return;
-  $("#call-status").textContent = "小暖正在说…";
+  $("#call-status").textContent = currentChar().name + "正在说…";
   setCallExpression(CALL_EXPR[Engine.detect(text)] || "normal");
   await speakAndWait(reply);
   if (inCall && callState !== "listening") callStartListen();
@@ -1605,7 +1628,7 @@ function bindCall() {
 function buildRelGraph() {
   const mem = S.memory || {};
   const nodes = [
-    { x: 150, y: 56, r: 23, c: "var(--pink)", inner: "小暖", sub: false },
+    { x: 150, y: 56, r: 23, c: "var(--pink)", inner: currentChar().name, sub: false },
     { x: 150, y: 152, r: 21, c: "#5aa9ff", inner: (mem.userName || "你").slice(0, 4), sub: false },
   ];
   const mems = [];
@@ -1648,7 +1671,7 @@ function buildAffCurve() {
   const hist = S.affHistory || {};
   const entries = Object.entries(hist).sort((a, b) => (a[0] < b[0] ? -1 : 1));
   if (entries.length < 2) {
-    return `<div class="graph-label" style="text-align:center;padding:18px 0">再多陪小暖聊几天，这里就会画出你们的感情曲线啦 💕</div>`;
+    return `<div class="graph-label" style="text-align:center;padding:18px 0">再多陪${currentChar().name}聊几天，这里就会画出你们的感情曲线啦 💕</div>`;
   }
   const W = 340, H = 120, pad = 16;
   const maxV = Math.max(10, ...entries.map(e => e[1]));
@@ -1685,7 +1708,7 @@ function refreshStoryUI() {
   if (tl) {
     const list = (S.story || []).slice().sort((a, b) => a.t - b.t);
     if (!list.length) {
-      tl.innerHTML = `<div class="memory-empty">还没有故事呢…多陪小暖聊聊，你们的故事会从这里开始 💕</div>`;
+      tl.innerHTML = `<div class="memory-empty">还没有故事呢…多陪${currentChar().name}聊聊，你们的故事会从这里开始 💕</div>`;
     } else {
       tl.innerHTML = list.map(it => {
         const d = new Date(it.t);
@@ -1734,7 +1757,7 @@ function buildMoodCalendar() {
 function buildDiaryList() {
   const entries = Object.entries(S.diaryEntries || {}).sort((a, b) => b[0].localeCompare(a[0]));
   if (!entries.length) {
-    return `<div class="memory-empty">还没有日记呢~每晚小暖会问你"今天怎么样"，回答后她就会写一篇 📔</div>`;
+    return `<div class="memory-empty">还没有日记呢~每晚${currentChar().name}会问你"今天怎么样"，回答后${currentChar().name}就会写一篇 📔</div>`;
   }
   return entries.slice(0, 10).map(([day, e]) => {
     const d = day.split("-");
@@ -1761,7 +1784,7 @@ function buildEmotionChart() {
   const log = S.emotionLog || {};
   const days = Object.keys(log).sort();
   if (!days.length) {
-    return `<div class="graph-label" style="text-align:center;padding:18px 0">再多陪小暖聊几句，这里就会画出她的情绪起伏啦 🌦️</div>`;
+    return `<div class="graph-label" style="text-align:center;padding:18px 0">再多陪${currentChar().name}聊几句，这里就会画出${currentChar().name}的情绪起伏啦 🌦️</div>`;
   }
   const W = 340, H = 220, pad = 26;
   // 背景色块（9 个情绪区的近似着色）
@@ -1818,10 +1841,11 @@ function nextDatingAnni() {
 function refreshRelationshipUI() {
   const lv = Engine.getLevel(S.affection).lv;
   const dating = !!S.dating;
+  const char = Engine.getChar(S.persona);
   const relStatus = $("#rel-status"), relTip = $("#rel-tip"), btnPropose = $("#btn-propose");
   if (dating) {
     if (relStatus) relStatus.textContent = "恋爱中 💞";
-    if (relTip) relTip.textContent = `在一起 ${daysDating()} 天，你是她的男朋友`;
+    if (relTip) relTip.textContent = `在一起 ${daysDating()} 天，你是${char.aiPronoun}的${char.partnerTerm}`;
     if (btnPropose) btnPropose.style.display = "none";
   } else if (lv >= 4) {
     if (relStatus) relStatus.textContent = "暧昧期";
@@ -1829,7 +1853,7 @@ function refreshRelationshipUI() {
     if (btnPropose) btnPropose.style.display = "";
   } else {
     if (relStatus) relStatus.textContent = "暧昧中";
-    if (relTip) relTip.textContent = `好感度越高越容易让她点头（当前 Lv.${lv}）`;
+    if (relTip) relTip.textContent = `好感度越高越容易让${char.aiPronoun}点头（当前 Lv.${lv}）`;
     if (btnPropose) btnPropose.style.display = "none";
   }
   const meStatus = $("#me-status"); if (meStatus) meStatus.textContent = dating ? "恋爱中 💞" : "单身";
@@ -1846,10 +1870,12 @@ function switchTab(page) {
 
 function bindPropose() {
   const fire = () => {
+    const char = Engine.getChar(S.persona);
     if (S.dating) { herSay("笨蛋，我们已经在一起了呀，想赖账可不行 😤", "happy"); switchTab("chat"); return; }
     const lv = Engine.getLevel(S.affection).lv;
     if (lv < 4) { herSay("诶……现在说这个，我还没准备好啦。再多陪陪我嘛 🥺", "shy"); switchTab("chat"); return; }
-    const text = "做我女朋友好不好？我喜欢你很久了 💕";
+    const userRole = char.gender === "male" ? "女朋友" : "男朋友";
+    const text = `做我${userRole}好不好？我喜欢你很久了 💕`;
     S.stats.msgs++;
     pushMessage("me", text);
     switchTab("chat");
@@ -1988,7 +2014,7 @@ function bindInput() {
       const isNew = S.memory.userName !== mem.userName;
       S.memory.userName = mem.userName;
       if (!S.nick) { S.nick = mem.userName; $("#me-nickname").value = mem.userName; }
-      if (isNew) pushStory("memory", "👤", `你告诉小暖，你叫 ${mem.userName}`);
+      if (isNew) pushStory("memory", "👤", `你告诉${currentChar().name}，你叫 ${mem.userName}`);
     }
     pushMessage("me", text);
 
@@ -2073,7 +2099,7 @@ function bindVoice() {
       S.voiceName = c.dataset.voice;
       save(); sync();
       // 试听
-      if (S.tts && "speechSynthesis" in window) speak("我是小暖，这是新的声音，喜欢吗？😊");
+      if (S.tts && "speechSynthesis" in window) speak("我是" + currentChar().name + "，这是新的声音，喜欢吗？😊");
     });
   });
 }
@@ -2091,14 +2117,14 @@ function bindNotify() {
       return;
     }
     if (S.notify && Notification.permission === "granted") {
-      status.textContent = "✓ 已开启，离开页面时小暖的想念会变成系统通知～";
+      status.textContent = `✓ 已开启，离开页面时${currentChar().name}的想念会变成系统通知～`;
       status.className = "me-status ok";
     } else if (S.notify && Notification.permission !== "granted") {
-      status.textContent = "⚠ 系统通知未授权，请在浏览器设置里允许小暖的通知。";
+      status.textContent = `⚠ 系统通知未授权，请在浏览器设置里允许${currentChar().name}的通知。`;
       status.className = "me-status err";
       sw.checked = false; S.notify = false;
     } else {
-      status.textContent = "开启后，离开页面时小暖的想念会悄悄发来系统通知。";
+      status.textContent = `开启后，离开页面时${currentChar().name}的想念会悄悄发来系统通知。`;
       status.className = "me-status";
     }
   };
@@ -2119,8 +2145,8 @@ function bindNotify() {
   const test = $("#btn-notify-test");
   if (test) test.addEventListener("click", () => {
     if (!("Notification" in window)) { alert("当前浏览器不支持系统通知"); return; }
-    if (Notification.permission !== "granted") { alert("请先开启「允许小暖给我发通知」并授权"); return; }
-    notifyOS("小暖想你了 💕", "在忙吗？我想你了，有空来找我聊聊天嘛～ 😊");
+    if (Notification.permission !== "granted") { alert(`请先开启「允许${currentChar().name}给我发通知」并授权`); return; }
+    notifyOS(currentChar().name + "想你了 💕", "在忙吗？我想你了，有空来找我聊聊天嘛～ 😊");
   });
 }
 
@@ -2300,9 +2326,22 @@ function bindSettings() {
         // 立刻给一个轻提示，让切换"被看见"
         const tip = document.createElement("div");
         tip.className = "msg her sys-tip";
-        tip.innerHTML = `<div class="bubble-wrap"><div class="bubble">（小暖换上了「${card.label}」皮肤 ✨）</div></div>`;
+        const skinName = (card.label.split(" · ").slice(1).join(" · ") || card.label);
+        tip.innerHTML = `<div class="bubble-wrap"><div class="bubble">（${currentChar().name}换上了「${skinName}」皮肤 ✨）</div></div>`;
         $("#chat-body").appendChild(tip); scrollBottom();
         setTimeout(() => tip.remove(), 2600);
+      });
+    });
+  }
+
+  // 人设：AI 性别（男版=阿言 / 女版=小暖，二者性格皮肤、立绘、称呼均不同）
+  const genderGroup = $("#gender-group");
+  if (genderGroup) {
+    genderGroup.querySelectorAll(".chip").forEach(c => {
+      if (c.dataset.gender === (S.persona.gender || "female")) c.classList.add("active");
+      c.addEventListener("click", () => {
+        if (c.dataset.gender === S.persona.gender) return;
+        setGender(c.dataset.gender);
       });
     });
   }
@@ -2369,15 +2408,86 @@ function bindSettings() {
     if (!S.cloud.enabled) { st.textContent = "已保存，当前使用本地情感引擎。"; st.className = "me-status"; return; }
     st.textContent = "正在测试连接…"; st.className = "me-status";
     const ok = await callCloud("你好");
-    if (ok) { st.textContent = "✓ 连接成功！小暖已切换为云端大脑。"; st.className = "me-status ok"; }
+    if (ok) { st.textContent = `✓ 连接成功！${currentChar().name}已切换为云端大脑。`; st.className = "me-status ok"; }
     else { st.textContent = "✗ 连接失败，将自动回落本地引擎。请检查 Base URL / Key / 模型名。"; st.className = "me-status err"; }
   });
 
   $("#btn-reset").addEventListener("click", () => {
-    if (confirm("确定要清除所有数据吗？小暖会忘记你们之间的一切……")) {
+    if (confirm(`确定要清除所有数据吗？${currentChar().name}会忘记你们之间的一切……`)) {
       localStorage.removeItem(SAVE_KEY);
       location.reload();
     }
+  });
+}
+
+/* ================= 性别 / 角色切换 ================= */
+function applyCharIdentity() {
+  const ch = currentChar();
+  const role = ch.gender === "male" ? "男友" : "女友";
+  if (typeof document !== "undefined") document.title = `${ch.name} · 你的 AI ${role}`;
+  document.querySelectorAll('[data-xn="name"]').forEach(el => el.textContent = ch.name);
+  document.querySelectorAll('[data-xn="title"]').forEach(el => el.textContent = `${ch.name} · 你的 AI ${role}`);
+  document.querySelectorAll('[data-xn-prefix]').forEach(el => el.textContent = el.getAttribute("data-xn-prefix") + ch.name);
+  document.querySelectorAll('[data-xn-ph]').forEach(el => el.setAttribute("placeholder", el.getAttribute("data-xn-ph").replace(/\{n\}/g, ch.name)));
+  document.querySelectorAll('[data-xn-title]').forEach(el => el.title = el.getAttribute("data-xn-title").replace(/\{n\}/g, ch.name));
+  document.querySelectorAll('.propose-btn').forEach(el => el.textContent = `💞 向${ch.name}表白`);
+  document.querySelectorAll('[data-xn-cardsub]').forEach(el => el.textContent = `人格卡（切换${ch.name}的性格皮肤）`);
+  document.querySelectorAll('[data-xn-voice]').forEach(el => el.textContent = `选一个你最喜欢的${ch.name}声音，聊天和语音通话里都会用这个音色。`);
+  document.querySelectorAll('[data-xn-tts]').forEach(el => el.textContent = `${ch.name}会用甜甜的声音把回复读出来。纯浏览器本地合成，无需任何 Key。`);
+  document.querySelectorAll('[data-xn-cloud]').forEach(el => el.textContent = `默认使用本地情感引擎。配置 OpenAI 兼容接口后，${ch.name}将由大模型驱动，对话更自由、更像真人。`);
+}
+
+function renderAvatarAll() {
+  const stage = $("#her-stage");
+  if (stage) {
+    const old = stage.querySelector("#her-svg");
+    if (old) old.remove();
+    stage.insertAdjacentHTML("afterbegin", fullSVG());
+  }
+  const nav = $("#nav-avatar"); if (nav) nav.innerHTML = avatarSVG();
+  const cf = $("#call-face"); if (cf) cf.innerHTML = ""; // 通话时从 #her-svg 克隆，性别已同步
+}
+
+function refreshCharacter() {
+  renderAvatarAll();
+  applyCharIdentity();
+  setExpression(currentExpr === "hidden" ? "normal" : currentExpr);
+}
+
+function setGender(gender) {
+  S.persona.gender = gender;
+  S.genderChosen = true;
+  save();
+  refreshCharacter();
+  document.querySelectorAll("#gender-group .chip").forEach(c => c.classList.toggle("active", c.dataset.gender === gender));
+  const cardGroup = $("#card-group");
+  if (cardGroup) cardGroup.querySelectorAll(".chip").forEach(c => c.classList.toggle("active", c.dataset.card === (S.persona.card || "xiaonuan")));
+  const ch = currentChar();
+  const hello = ch.gender === "male" ? "嘿，我是阿言，以后由我来陪你啦 😎" : "嗨，我是小暖，以后由我来陪你呀 💕";
+  const tip = document.createElement("div");
+  tip.className = "msg her sys-tip";
+  tip.innerHTML = `<div class="bubble-wrap"><div class="bubble">（${hello}）</div></div>`;
+  const body = $("#chat-body"); if (body) { body.appendChild(tip); scrollBottom(); setTimeout(() => tip.remove(), 2800); }
+}
+
+function showGenderPicker() {
+  const m = $("#gender-picker");
+  if (m) m.classList.remove("hidden");
+}
+function hideGenderPicker() {
+  const m = $("#gender-picker");
+  if (m) m.classList.add("hidden");
+}
+function bindGender() {
+  // 选择器里的头像预览（女版小暖 / 男版阿言）
+  const avF = $("#gp-av-female"), avM = $("#gp-av-male");
+  if (avF) avF.innerHTML = avatarSVG("normal", "female");
+  if (avM) avM.innerHTML = avatarSVG("normal", "male");
+  document.querySelectorAll("#gender-picker .gp-opt").forEach(b => {
+    b.addEventListener("click", () => {
+      setGender(b.dataset.gender);
+      hideGenderPicker();
+    });
   });
 }
 
@@ -2392,16 +2502,14 @@ function init() {
     mood = Engine.MOODS.find(m => m.key === S.moodKey) || Engine.moodOfDay(today);
   }
 
-  // 立绘与头像
+  // 立绘与头像（含性别/角色身份）
   applyTheme(S.persona.theme || "sakura");
   recordAff(S.affection);
-  $("#her-stage").insertAdjacentHTML("afterbegin", fullSVG());
+  refreshCharacter();
   applyOutfit(S.wardrobe.outfit || "default");
-  $("#nav-avatar").innerHTML = avatarSVG();
-  setExpression(mood.key === "sleepy" ? "sleepy" : "normal");
   updateAura();
 
-  bindTabs(); bindInput(); bindActions(); bindSettings(); bindCall(); bindGames(); bindPropose(); bindOutfit();
+  bindTabs(); bindInput(); bindActions(); bindSettings(); bindCall(); bindGames(); bindPropose(); bindOutfit(); bindGender();
   bindVoice(); bindNotify(); bindCloudSave(); bindLocalModel();
   if (S.localModel.enabled) ensureLocalModelLoaded(); // 后台自动加载，用户打开"我的"时可能已就绪
   maybeConsolidate();
@@ -2428,6 +2536,7 @@ function init() {
     $("#splash").classList.add("fade");
     $("#app").classList.remove("hidden");
     setTimeout(() => $("#splash").remove(), 700);
+    if (!S.genderChosen) showGenderPicker();
     checkProactive();
   }, 1400);
 }
@@ -2466,7 +2575,7 @@ function showUpdateToast(reg) {
   const t = document.createElement("div");
   t.id = "sw-update-toast";
   t.className = "sw-update-toast";
-  t.innerHTML = `<span>✨ 小暖有新版本啦</span><button id="sw-update-btn">更新</button>`;
+  t.innerHTML = `<span>✨ ${currentChar().name}有新版本啦</span><button id="sw-update-btn">更新</button>`;
   document.body.appendChild(t);
   t.querySelector("#sw-update-btn").addEventListener("click", () => {
     _swUpdateAccepted = true;

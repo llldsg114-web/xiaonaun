@@ -6,10 +6,10 @@
 <meta name="theme-color" content="#ff7b9c">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<title>小暖 · 你的 AI 女友</title>
+<title data-xn="title">小暖 · 你的 AI 女友</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<meta name="apple-mobile-web-app-title" content="小暖">
+<meta name="apple-mobile-web-app-title" data-xn="appname" content="小暖">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -17,8 +17,28 @@
 <!-- ============ 启动页 ============ -->
 <div id="splash">
   <div class="splash-heart">💗</div>
-  <div class="splash-name">小暖</div>
-  <div class="splash-sub">你的 AI 女友</div>
+  <div class="splash-name" data-xn="name">小暖</div>
+  <div class="splash-sub" data-xn="title">你的 AI 女友</div>
+</div>
+
+<!-- ============ 首次性别选择（决定你遇见的是小暖还是阿言） ============ -->
+<div id="gender-picker" class="gender-picker hidden">
+  <div class="gp-card">
+    <div class="gp-title">你是男生还是女生呀？😊</div>
+    <div class="gp-sub">选好后，小暖会化身最适合你的那个 TA</div>
+    <div class="gp-options">
+      <button class="gp-opt" data-gender="female">
+        <div class="gp-avatar" id="gp-av-female"></div>
+        <div class="gp-name">我是男生</div>
+        <div class="gp-desc">遇见小暖 · AI 女友</div>
+      </button>
+      <button class="gp-opt" data-gender="male">
+        <div class="gp-avatar" id="gp-av-male"></div>
+        <div class="gp-name">我是女生</div>
+        <div class="gp-desc">遇见阿言 · AI 男友</div>
+      </button>
+    </div>
+  </div>
 </div>
 
 <!-- ============ 应用主体 ============ -->
@@ -29,19 +49,19 @@
     <header class="nav">
       <div class="nav-avatar" id="nav-avatar"></div>
       <div class="nav-info">
-        <div class="nav-name">小暖</div>
+        <div class="nav-name" data-xn="name">小暖</div>
         <div class="nav-status" id="nav-status">在线</div>
       </div>
       <div class="nav-mood" id="nav-mood" title="今日心情">😊</div>
-      <button class="nav-call" id="btn-call" title="给小暖打电话">📞</button>
-      <button class="nav-tts" id="btn-tts" title="小暖开口说话" aria-label="语音开关">🔊</button>
+      <button class="nav-call" id="btn-call" data-xn-title="给{n}打电话" title="给小暖打电话">📞</button>
+      <button class="nav-tts" id="btn-tts" data-xn-title="{n}开口说话" title="小暖开口说话" aria-label="语音开关">🔊</button>
     </header>
     <main class="chat-body" id="chat-body"></main>
     <footer class="chat-input-bar">
       <button class="ci-btn" id="btn-mic" title="语音输入">🎤</button>
       <button class="ci-btn" id="btn-image" title="发图片">📎</button>
       <button class="ci-btn" id="btn-emoji" title="表情">😊</button>
-      <input type="text" id="chat-input" placeholder="和小暖说点什么…" autocomplete="off">
+      <input type="text" id="chat-input" data-xn-ph="和{n}说点什么…" placeholder="和小暖说点什么…" autocomplete="off">
       <button class="ci-btn send" id="btn-send" title="发送">➤</button>
       <input type="file" id="chat-file" accept="image/*" class="hidden">
     </footer>
@@ -51,7 +71,7 @@
   <!-- ======= Tab 2: 她 ======= -->
   <section class="page" id="page-her">
     <header class="nav her-nav">
-      <div class="nav-name-lg">小暖</div>
+      <div class="nav-name-lg" data-xn="name">小暖</div>
       <div class="nav-days" id="her-days">相识第 1 天</div>
     </header>
     <main class="her-body">
@@ -81,14 +101,14 @@
       </div>
 
       <div class="her-card memory-card">
-        <div class="her-row"><span class="her-label">🧠 小暖记得</span></div>
+        <div class="her-row"><span class="her-label" data-xn-prefix="🧠 ">🧠 小暖记得</span></div>
         <div id="memory-list" class="memory-list"></div>
       </div>
 
       <div class="her-card rel-card" id="rel-card">
         <div class="her-row"><span class="her-label">💞 我们的关系</span><span class="her-value" id="rel-status">暧昧中</span></div>
         <div class="her-row small" id="rel-tip">好感度越高，越容易让她点头 💕</div>
-        <button class="me-save" id="btn-propose" style="margin-top:10px">💞 向小暖表白</button>
+        <button class="me-save propose-btn" id="btn-propose" style="margin-top:10px">💞 向小暖表白</button>
       </div>
 
       <div class="her-card outfit-card">
@@ -133,7 +153,7 @@
         <div class="me-title">💞 表白 & 纪念日</div>
         <div class="me-tip">好感度越高，小暖越容易答应你。在一起后这里会显示你们的纪念日倒计时。</div>
         <div class="me-row"><span>下次纪念日</span><b id="me-next-anni">先确定关系吧～</b></div>
-        <button class="me-save" id="btn-propose-me" style="margin-top:6px">💞 向小暖表白</button>
+        <button class="me-save propose-btn" id="btn-propose-me" style="margin-top:6px">💞 向小暖表白</button>
       </div>
 
       <div class="me-card">
@@ -144,8 +164,13 @@
       </div>
 
       <div class="me-card">
-        <div class="me-title">🎀 小暖人设</div>
-        <div class="me-tip">调成你喜欢的样子，小暖会越来越懂你</div>
+        <div class="me-title" data-xn-prefix="🎀 ">🎀 小暖人设</div>
+        <div class="me-tip">调成你喜欢的样子，TA 会越来越懂你</div>
+        <div class="me-sub">AI 性别（遇见小暖 or 阿言）</div>
+        <div class="chip-group" id="gender-group">
+          <button class="chip" data-gender="female">女 · 小暖</button>
+          <button class="chip" data-gender="male">男 · 阿言</button>
+        </div>
         <div class="me-sub">性格基调</div>
         <div class="chip-group" id="tone-group">
           <button class="chip" data-tone="gentle">温柔</button>
@@ -160,7 +185,7 @@
           <button class="chip theme-chip" data-theme="mint" style="--c:#36c6a8" title="薄荷绿"></button>
           <button class="chip theme-chip" data-theme="blue" style="--c:#5aa9ff" title="海蓝"></button>
         </div>
-        <div class="me-sub">人格卡（切换小暖的性格皮肤）</div>
+        <div class="me-sub" data-xn-cardsub>人格卡（切换小暖的性格皮肤）</div>
         <div class="chip-group" id="card-group">
           <button class="chip" data-card="xiaonuan">软萌温婉</button>
           <button class="chip" data-card="xiaonuan_tsundere">傲娇毒舌</button>
@@ -170,7 +195,7 @@
 
       <div class="me-card">
         <div class="me-title">🧠 云端大脑（可选）</div>
-        <div class="me-tip">默认使用本地情感引擎。配置 OpenAI 兼容接口后，小暖将由大模型驱动，对话更自由、更像真人。</div>
+        <div class="me-tip" data-xn-cloud>默认使用本地情感引擎。配置 OpenAI 兼容接口后，小暖将由大模型驱动，对话更自由、更像真人。</div>
         <div class="me-sub">服务商（选完自动填好地址，只粘 Key）</div>
         <div class="chip-group" id="provider-group">
           <button class="chip" data-prov="deepseek">DeepSeek</button>
@@ -215,7 +240,7 @@
 
       <div class="me-card">
         <div class="me-title">🔊 语音（小暖开口说话）</div>
-        <div class="me-tip">开启后，小暖会用甜甜的声音把回复读出来。纯浏览器本地合成，无需任何 Key。</div>
+        <div class="me-tip" data-xn-tts>开启后，小暖会用甜甜的声音把回复读出来。纯浏览器本地合成，无需任何 Key。</div>
         <label class="me-switch">
           <input type="checkbox" id="tts-enabled">
           <span>让小暖开口说话</span>
@@ -236,7 +261,7 @@
 
       <div class="me-card">
         <div class="me-title">🎀 语音音色</div>
-        <div class="me-tip">选一个你最喜欢的小暖声音，聊天和语音通话里都会用这个音色。</div>
+        <div class="me-tip" data-xn-voice>选一个你最喜欢的小暖声音，聊天和语音通话里都会用这个音色。</div>
         <div class="chip-group" id="voice-group">
           <button class="chip" data-voice="auto">自动</button>
           <button class="chip" data-voice="sweet">甜心</button>
@@ -324,7 +349,7 @@
     <div class="call-bg"></div>
     <button class="call-amb" id="call-amb" title="环境音">🔈</button>
     <div class="call-face" id="call-face"></div>
-    <div class="call-name">小暖</div>
+    <div class="call-name" data-xn="name">小暖</div>
     <div class="call-timer" id="call-timer">00:00</div>
     <div class="call-status" id="call-status">正在接通…</div>
     <div class="call-wave" id="call-wave"><span></span><span></span><span></span><span></span><span></span></div>
@@ -362,7 +387,7 @@
   <!-- ======= 底部 Tab 栏 ======= -->
   <nav class="tabbar">
     <button class="tab active" data-page="chat"><span class="tab-ico">💬</span>聊天<span class="tab-dot hidden" id="chat-dot"></span></button>
-    <button class="tab" data-page="her"><span class="tab-ico">👧</span>小暖</button>
+    <button class="tab" data-page="her"><span class="tab-ico">👧</span><span data-xn="name">小暖</span></button>
     <button class="tab" data-page="story"><span class="tab-ico">📖</span>故事</button>
     <button class="tab" data-page="me"><span class="tab-ico">⚙️</span>我的</button>
   </nav>
