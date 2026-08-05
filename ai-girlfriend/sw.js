@@ -1,5 +1,5 @@
 /* 小暖 PWA Service Worker —— 缓存应用外壳，支持离线打开 + 触发"安装到主屏幕" */
-const CACHE = "xiaonuan-v3";
+const CACHE = "xiaonuan-v4";
 const ASSETS = [
   "/", "/index.html", "/style.css", "/engine.js", "/app.js", "/localmodel.js",
   "/manifest.json", "/icon-192.png", "/icon-512.png"
