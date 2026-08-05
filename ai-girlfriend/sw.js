@@ -1,18 +1,18 @@
 /* 小暖 PWA Service Worker —— 缓存应用外壳，支持离线打开 + 触发"安装到主屏幕" */
-const CACHE = "xiaonuan-v5";
+const CACHE = "xiaonuan-v6";
 const ASSETS = [
   "/", "/index.html", "/style.css", "/engine.js", "/app.js", "/localmodel.js",
   "/manifest.json", "/icon-192.png", "/icon-512.png"
 ];
 
 self.addEventListener("install", e => {
-  // 注意：这里不再 skipWaiting。首次安装时无旧 SW 控制，浏览器会自动激活；
-  // 若是"更新"，新 SW 会进入 waiting 状态，等页面（用户点"更新"）发消息再激活，
-  // 从而触发一次受控刷新，而不是偷偷把用户正在看的老页面换掉。
+  // 立即接管：新版本安装后马上激活，配合页面在 controllerchange 时一次性刷新，
+  // 这样用户打开书签就会自动用上最新版（无需点提示、更不用重装书签）。
+  self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
 });
 
-// 页面检测到新版本并获用户同意后，发消息让我们激活，接管页面
+// 兜底：极端情况下新 SW 没自动接管时，页面可发消息让我们激活
 self.addEventListener("message", e => {
   if (e.data === "SKIP_WAITING") self.skipWaiting();
 });
@@ -21,6 +21,8 @@ self.addEventListener("activate", e => {
   e.waitUntil(
     caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
+      .then(() => self.clients.matchAll({ type: "window", includeUncontrolled: true }))
+      .then(cls => cls.forEach(c => { try { c.navigate(c.url); } catch (_) {} })) // 已打开的书签标签页也立即刷新到新版
   );
 });
 

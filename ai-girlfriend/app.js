@@ -2547,48 +2547,48 @@ function init() {
   }, 1400);
 }
 
-/* ================= PWA 静默更新提示 =================
- * 配合 sw.js 的"更新时等待"策略：检测到新版本只弹一个轻提示，
- * 用户点"更新"才刷新，绝不偷偷打断正在聊天的你。
- * 这样以后我每次发版，你桌面书签上点一下就好，不用重装、不用清缓存。 */
-let _swUpdateAccepted = false;
+/* ================= PWA 自动更新 =================
+ * 打开书签时若检测到新版本，新 SW（sw.js 里已 skipWaiting）会立刻接管，
+ * 页面在 controllerchange 时自动刷新一次加载新缓存——不用你点、更不用重装书签。
+ * 用 sessionStorage 做防循环保护，避免重复刷新。 */
+let _swHadController = false;
 function initPWAUpdate() {
   if (!("serviceWorker" in navigator)) return;
-  const tryShow = reg => { if (reg && reg.waiting) showUpdateToast(reg); };
+  const justUpdated = sessionStorage.getItem("sw_just_updated");
+  if (justUpdated) sessionStorage.removeItem("sw_just_updated");
+  // 注册前是否已有旧 SW 在控：是 → 这次是"更新"；否 → 首次安装（不自动刷新）
+  _swHadController = !!navigator.serviceWorker.controller && !justUpdated;
 
   navigator.serviceWorker.register("./sw.js").then(reg => {
-    tryShow(reg); // 打开时已有等待中的新版
+    if (reg.waiting) reg.waiting.postMessage("SKIP_WAITING"); // 打开时已有等待中的新版，放行
     reg.addEventListener("updatefound", () => {
       const installing = reg.installing;
       if (!installing) return;
       installing.addEventListener("statechange", () => {
-        // controller 存在 = 已有旧 SW 在控 = 这是"更新"而非首次安装，才弹提示
-        if (installing.state === "installed" && navigator.serviceWorker.controller) {
-          showUpdateToast(reg);
+        if (installing.state === "installed" && reg.waiting) {
+          reg.waiting.postMessage("SKIP_WAITING"); // 兜底：补一刀让新 SW 接管
         }
       });
     });
   }).catch(() => {});
 
-  // 新 SW 接管页面后，刷新一次以加载新缓存（仅当用户主动点了"更新"）
   navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (_swUpdateAccepted) location.reload();
+    if (_swHadController && !sessionStorage.getItem("sw_reloading")) {
+      sessionStorage.setItem("sw_reloading", "1");
+      sessionStorage.setItem("sw_just_updated", "1");
+      location.reload(); // 新 SW 已接管 → 刷新一次用上最新版
+    }
   });
-}
 
-function showUpdateToast(reg) {
-  if (document.getElementById("sw-update-toast")) return; // 避免重复弹
-  const t = document.createElement("div");
-  t.id = "sw-update-toast";
-  t.className = "sw-update-toast";
-  t.innerHTML = `<span>✨ ${currentChar().name}有新版本啦</span><button id="sw-update-btn">更新</button>`;
-  document.body.appendChild(t);
-  t.querySelector("#sw-update-btn").addEventListener("click", () => {
-    _swUpdateAccepted = true;
-    if (reg.waiting) reg.waiting.postMessage("SKIP_WAITING"); // 让 sw.js 激活 → controllerchange → 刷新
-    else location.reload();
-  });
-  requestAnimationFrame(() => t.classList.add("show"));
+  // 若本次是刚更新完（上一轮刷新带过来的标记），给个轻提示
+  if (justUpdated) {
+    const t = document.createElement("div");
+    t.id = "sw-update-toast";
+    t.className = "sw-update-toast show";
+    t.innerHTML = `<span>✨ 已更新到最新版</span>`;
+    document.body.appendChild(t);
+    setTimeout(() => { t.classList.remove("show"); setTimeout(() => t.remove(), 400); }, 2600);
+  }
 }
 
 document.addEventListener("DOMContentLoaded", init);
