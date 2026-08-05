@@ -1270,6 +1270,7 @@ async function checkProactive() {
   try {
   // 初次相遇
   if (!S.firstMeet) {
+    if (!S.genderChosen) return; // 先让用户选性别，避免用错角色打招呼（选完由 setGender 触发）
     S.firstMeet = Date.now(); S.lastVisit = Date.now(); save();
     const ch0 = currentChar();
     const role0 = ch0.gender === "male" ? "男友" : "女友";
@@ -2455,6 +2456,7 @@ function refreshCharacter() {
 }
 
 function setGender(gender) {
+  const firstTime = !S.firstMeet; // 全新用户：选完性别后再用正确角色打招呼
   S.persona.gender = gender;
   S.genderChosen = true;
   save();
@@ -2462,6 +2464,10 @@ function setGender(gender) {
   document.querySelectorAll("#gender-group .chip").forEach(c => c.classList.toggle("active", c.dataset.gender === gender));
   const cardGroup = $("#card-group");
   if (cardGroup) cardGroup.querySelectorAll(".chip").forEach(c => c.classList.toggle("active", c.dataset.card === (S.persona.card || "xiaonuan")));
+  if (firstTime) {
+    checkProactive(); // 首次相遇问候（已用正确性别）
+    return;
+  }
   const ch = currentChar();
   const hello = ch.gender === "male" ? "嘿，我是阿言，以后由我来陪你啦 😎" : "嗨，我是小暖，以后由我来陪你呀 💕";
   const tip = document.createElement("div");
