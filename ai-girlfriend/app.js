@@ -358,6 +358,34 @@ setInterval(() => {
   }, 160);
 }, 3400);
 
+/* 连续情绪光晕：颜色随 valence、强度随 arousal 实时变化（小火人只有脚本表情，小暖有真·V-A 情绪引擎） */
+function updateAura() {
+  const el = document.getElementById("emotion-aura");
+  if (!el || !S.emotion) return;
+  const v = Math.max(-1, Math.min(1, S.emotion.v || 0));
+  const a = Math.max(-1, Math.min(1, S.emotion.a || 0));
+  const t = (v + 1) / 2;                      // 0(低落) .. 1(开心)
+  const hue = Math.round(200 + t * 140);      // 200 蓝 → 340 粉
+  const sat = 80;
+  const light = 60 + a * 6;
+  const intensity = 0.34 + Math.abs(a) * 0.5; // 0.34 .. 0.84
+  const scale = 1 + Math.abs(a) * 0.28;
+  el.style.background = `radial-gradient(circle at 50% 50%, hsla(${hue}, ${sat}%, ${light}%, .95) 0%, hsla(${hue}, ${sat}%, ${light - 6}%, .45) 38%, transparent 66%)`;
+  el.style.opacity = intensity.toFixed(2);
+  el.style.transform = `translate(-50%, -50%) scale(${scale.toFixed(3)})`;
+}
+
+/* 空闲时情绪缓慢回归基线，光晕温柔回落，让立绘"活"着 */
+let _auraTick = 0;
+function tickEmotion() {
+  if (!S.emotion) return;
+  const BASE = { v: 0.22, a: 0.08 };
+  S.emotion.v += (BASE.v - S.emotion.v) * 0.06;
+  S.emotion.a += (BASE.a - S.emotion.a) * 0.06;
+  updateAura();
+  if (++_auraTick % 6 === 0) save(); // 每 ~60s 落盘一次，避免频繁写盘
+}
+
 /* ================= 工具 ================= */
 const $ = sel => document.querySelector(sel);
 const esc = s => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -628,6 +656,7 @@ function applyEmotion(intent, delta) {
   Engine.Emotion.apply(S.emotion, intent, delta);
   Engine.Emotion.decay(S.emotion);
   Engine.Emotion.record(S.emotionLog, S.emotion, todayStr());
+  updateAura();
   save();
   return Engine.Emotion.zone(S.emotion);
 }
@@ -2316,6 +2345,7 @@ function init() {
   applyOutfit(S.wardrobe.outfit || "default");
   $("#nav-avatar").innerHTML = avatarSVG();
   setExpression(mood.key === "sleepy" ? "sleepy" : "normal");
+  updateAura();
 
   bindTabs(); bindInput(); bindActions(); bindSettings(); bindCall(); bindGames(); bindPropose(); bindOutfit();
   bindVoice(); bindNotify(); bindCloudSave(); bindLocalModel();
@@ -2332,6 +2362,9 @@ function init() {
   // 日记提醒 & 周小结：每 5 分钟检查一次（21-23 点问日记、周日 20-22 点出周小结）
   setInterval(() => { try { checkDiaryReminder(); checkWeeklySummary(); } catch (e) {} }, 5 * 60000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { try { checkDiaryReminder(); checkWeeklySummary(); } catch (e) {} } });
+
+  // 连续情绪光晕：空闲时缓慢回落，立绘始终"活"着
+  setInterval(tickEmotion, 10000);
 
   // 启动页淡出
   setTimeout(() => {

@@ -148,8 +148,18 @@ html, body {
   position: relative; width: 100%; max-width: 340px; aspect-ratio: 3 / 3.4;
   display: flex; align-items: flex-end; justify-content: center;
 }
-.her-stage svg { width: 92%; height: auto; filter: drop-shadow(0 8px 20px rgba(242,92,130,.25)); }
+.her-stage svg { width: 92%; height: auto; filter: drop-shadow(0 8px 20px rgba(242,92,130,.25)); position: relative; z-index: 2; }
 .her-stage svg .blinkable { transform-origin: center; transform-box: fill-box; }
+
+/* 连续情绪光晕：颜色随 valence、强度随 arousal 实时变化（小火人只有脚本表情，小暖有真·情绪引擎） */
+.emotion-aura {
+  position: absolute; left: 50%; top: 46%; width: 78%; aspect-ratio: 1; transform: translate(-50%, -50%) scale(1);
+  border-radius: 50%; z-index: 0; pointer-events: none; opacity: .55;
+  background: radial-gradient(circle at 50% 50%, hsla(330, 85%, 68%, .9) 0%, hsla(330, 85%, 62%, .45) 38%, transparent 66%);
+  filter: blur(14px); transition: background .9s ease, opacity .9s ease, transform .9s ease;
+  animation: auraBreathe 4.2s ease-in-out infinite;
+}
+@keyframes auraBreathe { 0%, 100% { filter: blur(14px); } 50% { filter: blur(18px); } }
 
 /* 立绘待机微动画（呼吸/漂浮） */
 .her-stage svg { animation: herIdle 5s ease-in-out infinite; transform-origin: 50% 100%; }
