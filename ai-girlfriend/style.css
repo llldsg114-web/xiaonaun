@@ -605,3 +605,23 @@ body::after { width: 55vw; height: 55vw; right: -12vw; bottom: -8vh;
 .weekly-item { background: #f7f6fc; border-radius: 12px; padding: 12px 14px; border-left: 3px solid #b388ff; }
 .weekly-head { font-size: 12px; font-weight: 700; color: #8a5cf0; margin-bottom: 6px; }
 .weekly-text { font-size: 13.5px; line-height: 1.65; color: var(--text); white-space: pre-wrap; }
+
+/* ============ PWA 更新提示条 ============ */
+.sw-update-toast {
+  position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 78px);
+  transform: translateX(-50%) translateY(140%);
+  background: #fff; color: var(--text);
+  border: 1px solid var(--pink, #ff7b9c);
+  box-shadow: 0 10px 30px rgba(255,123,156,.28);
+  border-radius: 999px; padding: 8px 8px 8px 16px;
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px; z-index: 9999; opacity: 0;
+  transition: transform .38s cubic-bezier(.2,.8,.2,1), opacity .38s;
+  max-width: 90vw;
+}
+.sw-update-toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+.sw-update-toast button {
+  border: none; background: linear-gradient(135deg, #ff8fab, #ff5c8a); color: #fff;
+  border-radius: 999px; padding: 6px 15px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.sw-update-toast button:active { opacity: .85; }

@@ -2420,6 +2420,9 @@ function init() {
   // 连续情绪光晕：空闲时缓慢回落，立绘始终"活"着
   setInterval(tickEmotion, 10000);
 
+  // PWA 更新提示：项目发新版本时，桌面书签只弹一个小条，点一下即更新（无需重装/清缓存）
+  initPWAUpdate();
+
   // 启动页淡出
   setTimeout(() => {
     $("#splash").classList.add("fade");
@@ -2427,6 +2430,50 @@ function init() {
     setTimeout(() => $("#splash").remove(), 700);
     checkProactive();
   }, 1400);
+}
+
+/* ================= PWA 静默更新提示 =================
+ * 配合 sw.js 的"更新时等待"策略：检测到新版本只弹一个轻提示，
+ * 用户点"更新"才刷新，绝不偷偷打断正在聊天的你。
+ * 这样以后我每次发版，你桌面书签上点一下就好，不用重装、不用清缓存。 */
+let _swUpdateAccepted = false;
+function initPWAUpdate() {
+  if (!("serviceWorker" in navigator)) return;
+  const tryShow = reg => { if (reg && reg.waiting) showUpdateToast(reg); };
+
+  navigator.serviceWorker.register("./sw.js").then(reg => {
+    tryShow(reg); // 打开时已有等待中的新版
+    reg.addEventListener("updatefound", () => {
+      const installing = reg.installing;
+      if (!installing) return;
+      installing.addEventListener("statechange", () => {
+        // controller 存在 = 已有旧 SW 在控 = 这是"更新"而非首次安装，才弹提示
+        if (installing.state === "installed" && navigator.serviceWorker.controller) {
+          showUpdateToast(reg);
+        }
+      });
+    });
+  }).catch(() => {});
+
+  // 新 SW 接管页面后，刷新一次以加载新缓存（仅当用户主动点了"更新"）
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (_swUpdateAccepted) location.reload();
+  });
+}
+
+function showUpdateToast(reg) {
+  if (document.getElementById("sw-update-toast")) return; // 避免重复弹
+  const t = document.createElement("div");
+  t.id = "sw-update-toast";
+  t.className = "sw-update-toast";
+  t.innerHTML = `<span>✨ 小暖有新版本啦</span><button id="sw-update-btn">更新</button>`;
+  document.body.appendChild(t);
+  t.querySelector("#sw-update-btn").addEventListener("click", () => {
+    _swUpdateAccepted = true;
+    if (reg.waiting) reg.waiting.postMessage("SKIP_WAITING"); // 让 sw.js 激活 → controllerchange → 刷新
+    else location.reload();
+  });
+  requestAnimationFrame(() => t.classList.add("show"));
 }
 
 document.addEventListener("DOMContentLoaded", init);

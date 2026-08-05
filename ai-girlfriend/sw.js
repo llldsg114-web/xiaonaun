@@ -6,7 +6,15 @@ const ASSETS = [
 ];
 
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // 注意：这里不再 skipWaiting。首次安装时无旧 SW 控制，浏览器会自动激活；
+  // 若是"更新"，新 SW 会进入 waiting 状态，等页面（用户点"更新"）发消息再激活，
+  // 从而触发一次受控刷新，而不是偷偷把用户正在看的老页面换掉。
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
+});
+
+// 页面检测到新版本并获用户同意后，发消息让我们激活，接管页面
+self.addEventListener("message", e => {
+  if (e.data === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("activate", e => {
