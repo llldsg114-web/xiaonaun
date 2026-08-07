@@ -4,3 +4,14 @@ node_modules/
 .cloudstudio
 *.zip
 *.bundle
+
+# === v12 delivery: 排除运行时密钥 / WIP 集成 / 聊天记录 dump（绝不入库）===
+ai-girlfriend/.data/
+ai-girlfriend/bridge/
+ai-girlfriend/openclaw.js
+ai-girlfriend/server.js
+ai-girlfriend/notify.js
+ai-girlfriend/schedule.js
+ai-girlfriend/wecom_crypto.js
+# 注：仓库根目录两个微信聊天记录 dump（非 UTF-8 文件名，上面通配符无法匹配）
+# 它们已被定向 git add 排除、本次不入库；建议手动移出 /workspace 或改名后本规则即可生效。

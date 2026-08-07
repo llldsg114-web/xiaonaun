@@ -135,7 +135,8 @@ const defaultState = () => ({
   moodKey: "happy",
   stats: { msgs: 0 },
   cloud: { enabled: false, base: "", key: "", model: "", provider: "", embedEnabled: false, embedModel: "text-embedding-3-small" },
-  memory: {}, // {userName, likes, events}
+  memory: {}, // {userName, likes, events, summary}
+  dailyNotes: {}, // 跨会话记忆回写「余温」：{ "YYYY-M-D": { text, t } }
   persona: { gender: "female", tone: "gentle", theme: "sakura", card: "xiaonuan" },
   wardrobe: { outfit: "default", hair: "brown" },
   tts: false,
@@ -156,7 +157,32 @@ const defaultState = () => ({
   lastSummaryWeek: "",     // 上次生成周小结的周标识，防重复
   games: { rps: { wins: 0, played: 0 }, truth: 0 },
   patToday: { date: "", count: 0 },
+  // —— v11 对话人格系统（T01 定义 schema，这里只是把默认值并进来）——
+  ...(typeof Engine !== "undefined" && Engine.defaults ? Engine.defaults() : {}),
 });
+
+/* v11 老存档迁移：引擎的 defaults() 是唯一真相，缺哪个补哪个，已有值一律不动。
+ * 幂等 —— 重复调用不会覆盖用户数据。 */
+function migrateState(s) {
+  if (!s || typeof s !== "object") return s;
+  try {
+    const def = (typeof Engine !== "undefined" && Engine.defaults) ? Engine.defaults() : null;
+    if (!def) return s;
+    for (const k of Object.keys(def)) {
+      if (s[k] === undefined || s[k] === null) { s[k] = def[k]; continue; }
+      // 嵌套对象（flags / safety）逐键兜底，避免老存档只有半套开关
+      if (def[k] && typeof def[k] === "object" && !Array.isArray(def[k])
+        && s[k] && typeof s[k] === "object" && !Array.isArray(s[k])) {
+        s[k] = Object.assign({}, def[k], s[k]);
+      }
+    }
+    if (!Array.isArray(s.recentReplies)) s.recentReplies = [];
+    if (typeof s.storyTurns !== "number" || !isFinite(s.storyTurns)) s.storyTurns = 0;
+    if (typeof s.storylines !== "object" || Array.isArray(s.storylines)) s.storylines = {};
+    if (typeof s.usedProactive !== "object" || Array.isArray(s.usedProactive)) s.usedProactive = {};
+  } catch (e) {}
+  return s;
+}
 
 let S = load();
 let mood = null; // 今日心情对象
@@ -184,16 +210,25 @@ function load() {
       s.lastDiaryPrompt = s.lastDiaryPrompt || "";
       s.lastSummaryWeek = s.lastSummaryWeek || "";
       s.localModel = Object.assign({ enabled: false, model: "onnx-community/Qwen2.5-0.5B-Instruct" }, s.localModel || {});
-      return s;
+      return migrateState(s);
     }
   } catch (e) {}
-  return defaultState();
+  return migrateState(defaultState());
 }
-function save() { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); }
+function save() {
+  localStorage.setItem(SAVE_KEY, JSON.stringify(S));
+  // 开了云同步就在空闲 60 秒后静默上传一次（离开页面时另有 1.2 秒的快推）
+  // 注意：syncPush 内部也会 save()，用 syncBusy 挡住，避免自我触发死循环
+  try { if (!syncBusy) scheduleSyncPush(60000); } catch (e) {}
+}
 
+/* D1：日期串全项目统一为零填充 "YYYY-MM-DD"，与 Engine.dayKey 同一实现（直接委托，
+ * 杜绝"两处各写一遍、有一天改岔"）。Engine 缺失时才回落本地实现（保证 app 不因此崩）。 */
 const todayStr = () => {
   const d = new Date();
-  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  if (typeof Engine !== "undefined" && Engine && typeof Engine.dayKey === "function") return Engine.dayKey(d);
+  const p = (n) => (n < 10 ? "0" : "") + n;
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 const daysTogether = () =>
   S.firstMeet ? Math.max(1, Math.floor((Date.now() - S.firstMeet) / 86400000) + 1) : 1;
@@ -383,11 +418,21 @@ function updateAura() {
   const v = Math.max(-1, Math.min(1, S.emotion.v || 0));
   const a = Math.max(-1, Math.min(1, S.emotion.a || 0));
   const t = (v + 1) / 2;                      // 0(低落) .. 1(开心)
-  const hue = Math.round(200 + t * 140);      // 200 蓝 → 340 粉
-  const sat = 80;
-  const light = 60 + a * 6;
-  const intensity = 0.34 + Math.abs(a) * 0.5; // 0.34 .. 0.84
+  let hue = Math.round(200 + t * 140);        // 200 蓝 → 340 粉
+  let sat = 80;
+  let light = 60 + a * 6;
+  let intensity = 0.34 + Math.abs(a) * 0.5;   // 0.34 .. 0.84
   const scale = 1 + Math.abs(a) * 0.28;
+  // v11 · 共情态视觉反馈（PRD 5.1③）：识别到用户高强度负面情绪时不弹任何提示条，
+  // 只把光晕往冷色推、降饱和、收敛亮度——用户只应"感觉到她变了"，不该"看到系统提示"。
+  const ue = S.ue;
+  if (ue && ue.polarity < 0 && ue.intensity > 0.35) {
+    const k = Math.min(1, (ue.intensity - 0.35) / 0.5);   // 0 .. 1
+    hue = Math.round(hue - k * 40);                        // 往蓝紫方向转冷
+    sat = Math.round(sat - k * 34);                        // 降饱和
+    light = light - k * 4;
+    intensity = Math.max(0.2, intensity - k * 0.1);
+  }
   el.style.background = `radial-gradient(circle at 50% 50%, hsla(${hue}, ${sat}%, ${light}%, .95) 0%, hsla(${hue}, ${sat}%, ${light - 6}%, .45) 38%, transparent 66%)`;
   el.style.opacity = intensity.toFixed(2);
   el.style.transform = `translate(-50%, -50%) scale(${scale.toFixed(3)})`;
@@ -409,6 +454,25 @@ const $ = sel => document.querySelector(sel);
 const esc = s => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmtTime = ts => { const d = new Date(ts); return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; };
 const scrollBottom = () => { const b = $("#chat-body"); b.scrollTop = b.scrollHeight; };
+
+/* v11 · 顶栏状态位的第三态（PRD 5.1①）：话题状态机连续追踪同一话题（turns≥2）时
+ * 显示「在聊「加班」· 第 3 句」，话题收束后自动恢复「在线」。复用 #nav-status，零新增元素。 */
+function navIdleText() {
+  try {
+    const tp = S.topic;
+    if (tp && tp.key && tp.turns >= 2 && !Engine.topicExpired(tp, Date.now())) {
+      return `在聊「${tp.label || tp.key}」· 第 ${tp.turns} 句`;
+    }
+  } catch (e) {}
+  return "在线";
+}
+function refreshNavStatus() {
+  const el = $("#nav-status");
+  if (!el || el.classList.contains("typing")) return;
+  const txt = navIdleText();
+  el.textContent = txt;
+  el.classList.toggle("on-topic", txt !== "在线");
+}
 
 /* ================= 好感度 ================= */
 function addAffection(delta) {
@@ -474,8 +538,117 @@ function refreshMemoryUI() {
   box.innerHTML = items.map(i => `<div class="memory-item"><span>${i.ico}</span><span>${esc(i.text)}</span></div>`).join("");
 }
 
-/* 离线整理（Sleep-time Compute）：每天至多一次，整理并（如有变化）记到时间线 */
-function maybeConsolidate() {
+/* v11 · 她页「💬 我们最近」（PRD 5.2④）：当前话题 + 进行中的剧情线节点进度。
+ * 两者都没有时整张卡隐藏，不留空壳。 */
+function refreshRecentUI() {
+  const card = $("#recent-card");
+  if (!card) return;
+  const tRow = $("#recent-topic-row"), aRow = $("#recent-arc-row");
+  let any = false;
+
+  // 在聊：话题状态机的当前快照
+  let topicTxt = "";
+  try {
+    const tp = S.topic;
+    if (tp && tp.key && !Engine.topicExpired(tp, Date.now())) {
+      topicTxt = `${tp.label || tp.key}　· 已聊 ${tp.turns || 1} 句`;
+    }
+  } catch (e) {}
+  if (topicTxt) { $("#recent-topic").textContent = topicTxt; tRow.classList.remove("hidden"); any = true; }
+  else tRow.classList.add("hidden");
+
+  // 正在发生：优先展示已开线且未完结的那条
+  let arcHtml = "";
+  try {
+    const list = Engine.Story.progress(S) || [];
+    const running = list.filter(l => l.started && !l.done).sort((a, b) => b.stage - a.stage)[0]
+      || list.filter(l => l.started).sort((a, b) => b.stage - a.stage)[0];
+    if (running) {
+      arcHtml = `${running.icon} ${esc(running.label)}　<span class="arc-dots">${dotBar(running.stage, running.total)}</span> ${running.stage}/${running.total} ›`;
+    }
+  } catch (e) {}
+  if (arcHtml) { $("#recent-arc").innerHTML = arcHtml; aRow.classList.remove("hidden"); any = true; }
+  else aRow.classList.add("hidden");
+
+  card.classList.toggle("hidden", !any);
+}
+
+/* 节点进度点：●●●○ */
+function dotBar(done, total) {
+  let s = "";
+  for (let i = 0; i < total; i++) s += i < done ? "●" : "○";
+  return s;
+}
+
+/* 通用云端补全（用于生成余温/摘要等，不污染主对话历史） */
+async function cloudComplete(systemPrompt, userText, opts = {}) {
+  if (!(S.cloud.enabled && S.cloud.base && S.cloud.key)) return null;
+  try {
+    const base = S.cloud.base.trim().replace(/\/+$/, "");
+    const url = /\/chat\/completions$/.test(base) ? base
+      : (base.endsWith("/v1") ? base + "/chat/completions" : base + "/v1/chat/completions");
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${S.cloud.key}` },
+      body: JSON.stringify({
+        model: S.cloud.model || "deepseek-chat",
+        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userText }],
+        temperature: opts.temperature ?? 0.7,
+        max_tokens: opts.max_tokens ?? 120,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data.choices?.[0]?.message?.content || "").trim() || null;
+  } catch (e) { return null; }
+}
+
+/* 跨会话记忆回写「余温」（借鉴 coread）：睡前把今天的感受写成一句小结，下次自然接起 */
+async function generateDailyNote() {
+  const today = todayStr();
+  if (S.dailyNotes[today]) return;
+  const myToday = S.messages.filter(m => m.from === "me" && todayStr(m.t) === today).map(m => m.text);
+  const topics = (S.memory.events || []).filter(e => todayStr(e.at) === today).map(e => e.topic);
+  const mood = (S.emotionLog[today] || []).slice(-1)[0];
+  let note = null;
+  if (S.cloud.enabled && S.cloud.base && S.cloud.key) {
+    const sys = `你是${currentChar().name}的回忆整理小助手。用第一人称、一句 20~40 字、温暖口语化，总结"今天和${S.memory.userName || "他"}聊了什么、他状态如何"。只输出这一句，不要引号、不要解释。`;
+    const usr = `今天他说了这些：${(myToday.slice(-15).join(" / ") || "（没说什么）")}。提到的主题：${topics.join("、") || "生活点滴"}。`;
+    note = await cloudComplete(sys, usr, { temperature: 0.8, max_tokens: 80 });
+    note = note ? cleanLocalReply(note) : null;
+  }
+  if (!note) {
+    const t = topics.length ? ("你提到了" + topics.join("、")) : "你们聊了生活里的点点滴滴";
+    note = `今天和你说了${myToday.length}句话，${t}，我都悄悄记在心里啦。`;
+  }
+  S.dailyNotes[today] = { text: note, t: Date.now() };
+  save();
+}
+
+/* 记忆摘要（借鉴 chatnest-ui 的 memory summary）：把零散喜好/事件压成常驻档案 */
+async function generateMemorySummary() {
+  const likes = S.memory.likes || [];
+  const events = (S.memory.events || []).slice(-5).map(e => e.topic);
+  let summary = null;
+  if (S.cloud.enabled && S.cloud.base && S.cloud.key && (likes.length || events.length)) {
+    const sys = `你是${currentChar().name}的记忆整理助手。用一句 30~60 字、口语化，概括"他是谁、喜欢什么、最近在忙什么"。只输出这一句。`;
+    const usr = `名字：${S.memory.userName || "未知"}；喜欢：${likes.join("、") || "未知"}；最近：${events.join("、") || "未知"}。`;
+    summary = await cloudComplete(sys, usr, { temperature: 0.6, max_tokens: 90 });
+    summary = summary ? cleanLocalReply(summary) : null;
+  }
+  if (!summary && (likes.length || events.length || S.memory.userName)) {
+    const parts = [];
+    if (S.memory.userName) parts.push(`他叫${S.memory.userName}`);
+    if (likes.length) parts.push(`喜欢${likes.slice(0, 5).join("、")}`);
+    if (events.length) parts.push(`最近在${[...new Set(events)].slice(0, 4).join("、")}`);
+    summary = parts.join("，") + "。";
+  }
+  if (summary) { S.memory.summary = summary; save(); }
+}
+
+/* 离线整理（Sleep-time Compute）：每天至多一次，做结构性合并 */
+async function maybeConsolidate() {
   const today = todayStr();
   if (S.memory.lastConsolidatedDay === today) return;
   const changed = Engine.consolidateMemory(S);
@@ -486,6 +659,17 @@ function maybeConsolidate() {
     refreshMemoryUI();
     refreshStoryUI();
   }
+}
+
+/* 余温 + 记忆摘要：随聊天增量生成（不局限于每日整理，避免"初始化时记忆还空就写好"） */
+let _reflectTimer = null;
+function scheduleReflection() {
+  if (_reflectTimer) clearTimeout(_reflectTimer);
+  _reflectTimer = setTimeout(() => {
+    _reflectTimer = null;
+    generateDailyNote().catch(() => {});
+    generateMemorySummary().catch(() => {});
+  }, 4000);
 }
 
 /* ================= 我们的故事时间线 & 情感曲线 ================= */
@@ -520,14 +704,30 @@ function renderMessage(m, animate = true) {
   }
   const wrap = document.createElement("div");
   wrap.className = `msg ${m.from}`;
+  wrap.dataset.idx = S.messages.indexOf(m);
   if (!animate) wrap.style.animation = "none";
+  // 工具卡片（预留给未来接外部工具：查天气/日历等）——借鉴 chatnest-ui 的 tool card
+  if (m.tool) {
+    wrap.innerHTML = `<div class="msg-avatar">${avatarSVG()}</div>
+      <div class="bubble-wrap"><div class="tool-card">
+        <span class="tool-ico">${m.tool.icon}</span>
+        <span class="tool-label">${esc(m.tool.label)}</span>
+        <span class="tool-status">${esc(m.tool.status || "完成")}</span>
+      </div><div class="msg-meta">${fmtTime(m.t)}</div></div>`;
+    body.appendChild(wrap);
+    scrollBottom();
+    return;
+  }
   // 图片消息：气泡里只放图（+可选文字说明）
   const imgHtml = m.img ? `<img class="bubble-img" src="${m.img}" alt="图片">` : "";
   const txtHtml = m.text ? esc(m.text) : "";
   const inner = imgHtml + (imgHtml && txtHtml ? `<div class="bubble-cap">${txtHtml}</div>` : txtHtml);
   if (m.from === "her") {
+    // v11 · 剧情气泡：重新进入页面时按落库标记还原竖条 + 图标 + 尾注
+    if (m.story) wrap.className += " story-bubble";
+    const foot = m.story ? storyFootHTML(m.story) : "";
     wrap.innerHTML = `<div class="msg-avatar">${avatarSVG()}</div>
-      <div class="bubble-wrap"><div class="bubble">${inner}</div>
+      <div class="bubble-wrap"><div class="bubble">${inner}</div>${foot}
       <div class="msg-meta">${fmtTime(m.t)}</div></div>`;
   } else {
     wrap.innerHTML = `<div class="bubble-wrap"><div class="bubble">${inner}</div>
@@ -535,6 +735,31 @@ function renderMessage(m, animate = true) {
   }
   body.appendChild(wrap);
   scrollBottom();
+}
+
+/* 工具卡片消息（如"查了下时间"），为未来接外部工具铺路 */
+function pushToolCard(icon, label, status) {
+  const m = { from: "her", tool: { icon, label, status }, t: Date.now(), read: true };
+  S.messages.push(m);
+  if (S.messages.length > 300) S.messages = S.messages.slice(-300);
+  save();
+  renderMessage(m);
+  return m;
+}
+
+/* 思考气泡（借鉴"思考链"手感）：回复前闪一下"她在斟酌"，更像真人在想 */
+function showThinking() {
+  const body = $("#chat-body");
+  if (body.querySelector(".thinking-wrap")) return null;
+  const wrap = document.createElement("div");
+  wrap.className = "msg her thinking-wrap";
+  wrap.innerHTML = `<div class="msg-avatar">${avatarSVG()}</div>
+    <div class="bubble-wrap"><div class="bubble thinking"><i></i><i></i><i></i></div></div>`;
+  body.appendChild(wrap); scrollBottom();
+  return wrap;
+}
+function removeThinking() {
+  document.querySelectorAll(".thinking-wrap").forEach(e => e.remove());
 }
 
 function renderAllMessages() {
@@ -563,13 +788,16 @@ function markAllRead() {
  * 借鉴竞品的"流式输出"手感：先显示"正在输入"气泡，再把回复逐字渲染出来，
  * 像真人一边想一边打字。纯前端效果，不依赖大模型是否支持流式接口。
  * 打字完成后才把完整文本交给 TTS，避免朗读被打断。 */
-async function herSay(text, expr = null) {
+async function herSay(text, expr = null, opts = null) {
+  removeThinking(); // 真实回复开始，收掉思考气泡
   // 显示"正在输入"
   $("#nav-status").textContent = "正在输入…";
   $("#nav-status").classList.add("typing");
   const body = $("#chat-body");
   const tip = document.createElement("div");
-  tip.className = "msg her";
+  // v11 · 剧情气泡（PRD 5.1②）：仍是聊天气泡形态，只在左侧加淡色竖条 + 图标 + 尾注
+  const story = opts && opts.story ? opts.story : null;
+  tip.className = "msg her" + (story ? " story-bubble" : "");
   const meta = `<div class="msg-meta">${fmtTime(Date.now())}</div>`;
   tip.innerHTML = `<div class="msg-avatar">${avatarSVG()}</div>
     <div class="bubble-wrap"><div class="bubble typing-bubble"><i></i><i></i><i></i></div>${meta}</div>`;
@@ -577,12 +805,13 @@ async function herSay(text, expr = null) {
 
   // 思考停顿：短消息更快开打，长消息略多酝酿
   await new Promise(r => setTimeout(r, 350 + Math.min(900, text.length * 12)));
-  $("#nav-status").textContent = "在线";
   $("#nav-status").classList.remove("typing");
+  $("#nav-status").textContent = navIdleText();
 
   // 把"正在输入"气泡换成真实气泡，逐字渲染（流式打字机效果）
   const wrap = tip.querySelector(".bubble-wrap");
-  wrap.innerHTML = `<div class="bubble her-bubble-stream"></div>${meta}`;
+  const foot = story ? storyFootHTML(story) : "";
+  wrap.innerHTML = `<div class="bubble her-bubble-stream"></div>${foot}${meta}`;
   const bubble = wrap.querySelector(".bubble");
 
   const chars = Array.from(text);
@@ -602,6 +831,7 @@ async function herSay(text, expr = null) {
 
   // 落库：把这条回复记进消息流（DOM 已由上面的气泡呈现，不再重复渲染）
   const m = { from: "her", text, t: Date.now(), read: true };
+  if (story) m.story = { lineId: story.lineId, label: story.label, icon: story.icon };
   S.messages.push(m);
   if (S.messages.length > 300) S.messages = S.messages.slice(-300);
   save();
@@ -614,6 +844,58 @@ async function herSay(text, expr = null) {
   }
   // 不在聊天页时亮红点
   if (!$("#page-chat").classList.contains("active")) $("#chat-dot").classList.remove("hidden");
+}
+
+/* 剧情气泡尾注：「我们的经历 · 楼下的小橘 ›」，点击跳故事页对应剧情线 */
+function storyFootHTML(story) {
+  return `<div class="story-foot" data-line="${esc(story.lineId)}">${story.icon || "🌱"} 我们的经历 · ${esc(story.label || "")} ›</div>`;
+}
+
+/* ================= v11 · 危机帮助卡（PRD Q4 / 主理人裁定） =================
+ * 硬性口径，逐条对齐裁定：
+ *   · 聊天流内的卡片，不是 modal、不是 toast、不阻断输入
+ *   · 只陈述不承诺疗效、不诊断、不说教，保持恋人陪伴的口吻
+ *   · 用户可手动关闭
+ *   · 绝不做任何数据上报（本函数内没有任何 fetch / 网络调用，也不写入消息历史）
+ *   · 同一会话 24 小时内不重复弹（冷却由 Engine.CRISIS_CARD_COOLDOWN 定义）
+ * 只把冷却时间戳落盘，危机文本本身不留痕。 */
+function renderSafetyCard(safety) {
+  if (!safety || !safety.card) return false;
+  const body = $("#chat-body");
+  if (!body) return false;
+  const hotlines = (safety.hotlines && safety.hotlines.length)
+    ? safety.hotlines
+    : [{ name: "全国统一心理援助热线", tel: Engine.CRISIS_HOTLINE, note: "24 小时" }];
+  const wrap = document.createElement("div");
+  wrap.className = "msg safety-wrap";   // 中性类：不带她的头像、不像是她说的气泡
+  const rows = hotlines.map(h =>
+    `<a class="safety-tel" href="tel:${esc(h.tel)}"><span class="st-name">${esc(h.name)}</span>` +
+    `<span class="st-num">${esc(h.tel)}</span>${h.note ? `<span class="st-note">${esc(h.note)}</span>` : ""}</a>`
+  ).join("");
+  wrap.innerHTML =
+    `<div class="safety-card">
+       <div class="safety-head">
+         <svg class="safety-icon" viewBox="0 0 24 24" aria-hidden="true">
+           <path d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+           <path d="M12 8.2c1.6-1.1 3.4-.4 3.4 1.2 0 1.6-1.7 2.7-3.4 4-1.7-1.3-3.4-2.4-3.4-4 0-1.6 1.8-2.3 3.4-1.2z" fill="currentColor" opacity=".85"/>
+         </svg>
+         <span class="safety-tag">安心提示</span>
+         <button class="safety-close" type="button" aria-label="关闭">×</button>
+       </div>
+       <div class="safety-title">如果你现在很难受，可以找人说说</div>
+       <div class="safety-desc">我会一直在这儿陪你。有些时候，让专业的人也搭把手会更好一点。</div>
+       <div class="safety-tels">${rows}</div>
+       <div class="safety-foot">这张卡只显示在你自己的设备上，不会被记录也不会发送到任何地方。</div>
+     </div>`;
+  wrap.querySelector(".safety-close").addEventListener("click", () => wrap.remove());
+  body.appendChild(wrap);
+  scrollBottom();
+  // 只落冷却时间戳，不落任何危机文本（零留痕、零上报）
+  S.safety = Object.assign({ lastCardAt: 0, off: false, hits: [] }, S.safety || {});
+  S.safety.lastCardAt = safety.cardAt || Date.now();
+  S.safety.hits = [];
+  save();
+  return true;
 }
 
 /* ================= 仪式感：特殊意图处理 ================= */
@@ -697,10 +979,23 @@ let pendingImgs = [];
 
 /* 把一次对话的"情绪后果"落进连续情绪模型：施加冲量 → 衰减余韵 → 按天记录。
  * 返回当前情绪区，供决定立绘表情与语气。 */
-function applyEmotion(intent, delta) {
-  Engine.Emotion.apply(S.emotion, intent, delta);
-  Engine.Emotion.decay(S.emotion);
-  Engine.Emotion.record(S.emotionLog, S.emotion, todayStr());
+function applyEmotion(intent, delta, ue) {
+  // ue 为可选第 4 参：只在输入侧调制冲量（用户难过 → 她的冲量跟着往下压），
+  // V-A 模型本身（9 情绪区 / 冲量表 / 基线回归）一字未改。不传时行为与 v10 完全一致。
+  // v12 · D3 修复：第 5 参 minDv 真正接进调用链（真实档 -0.35 / 克制档 -0.20）。
+  // 上一批只加了参数没接线，负向冲量实测能到 -0.64，直接击穿 PRD 5.1 的单次下限。
+  Engine.Emotion.apply(S.emotion, intent, delta, ue || null, Engine.negMinDv(S));
+  // v12 · T2：衰减目标从固定基线换成 effectiveBaseline(moodDay)——慢层唯一接缝。
+  // moodDay 为 null（关层/老档/跨天前）时返回零偏置基线，逐位等价 v11。
+  Engine.Emotion.decay(S.emotion, Engine.effectiveBaseline(S.moodDay));
+  // v12 · D1/D3 写侧接线：安抚意图（对不起/抱抱/我爱你…）落地即清 G1 streak。
+  // "判断正确"与"判断被消费"是两回事——G1 的读侧此前 100% 正确、写侧 0%，就栽在这类回写上。
+  try { S.negGate = Engine.negAfterTurn(S, intent, { now: Date.now() }) || S.negGate; } catch (e) {}
+  const _d = todayStr();
+  Engine.Emotion.record(S.emotionLog, S.emotion, _d);
+  // v12 · T2：情绪收盘每轮覆写。跨天时 moodTick 读到的就是"昨天最后一刻"的情绪，
+  // 无需额外定时器，也不怕用户中途关页面（R4 余韵过夜）。
+  S.emoCarry = { date: _d, v: +S.emotion.v.toFixed(3), a: +S.emotion.a.toFixed(3) };
   updateAura();
   save();
   return Engine.Emotion.zone(S.emotion);
@@ -717,6 +1012,10 @@ async function herReply(userText, img) {
 
     // 特殊仪式感意图（表白 / 纪念日 / 游戏）需要读取或改写状态
     const intent = Engine.detect(text);
+    // v11 · 剧情双闸门的轮数计数器：唯一累加点就在这里（不含主动消息、不含互动动作）
+    S.storyTurns = (Number(S.storyTurns) || 0) + 1;
+    // 工具卡片演示：问时间时，先亮一张"查了下时间"的工具卡（为未来接外部工具铺路）
+    if (intent === "time_ask") pushToolCard("🕐", "查了下时间", "完成");
     const special = await handleSpecialIntent(text, intent);
     if (special) {
       const z = applyEmotion(intent, special.delta);
@@ -760,15 +1059,32 @@ async function herReply(userText, img) {
       result = await localThink(text);
     }
     // 本地引擎兜底（永远可用，无网络也无模型也能聊）
+    // v11：把完整 state 交给引擎（话题 / 跨轮去重窗口 / 用户情绪 / 危机冷却 / 开关），
+    // 引擎不写 state —— app.js 就是那个"调用方回写"的人，下面逐字段写回并持久化。
     if (!result) {
-      const r = Engine.reply(text, { affection: S.affection, nick: S.nick, mood, memory: S.memory, persona: S.persona, dating: S.dating, lastReply: S.lastReply });
-      result = { replies: r.replies, delta: r.delta, expression: r.expression, moodOverride: r.moodOverride };
+      const r = Engine.reply(text, {
+        affection: S.affection, nick: S.nick, mood, memory: S.memory, persona: S.persona,
+        dating: S.dating, lastReply: S.lastReply,
+        topic: S.topic, recentReplies: S.recentReplies, ue: S.ue,
+        safety: S.safety, flags: S.flags,
+      });
+      result = {
+        replies: r.replies, delta: r.delta, expression: r.expression, moodOverride: r.moodOverride,
+        intent: r.intent, intentEx: r.intentEx,
+        topic: r.topic, recentReplies: r.recentReplies, ue: r.ue, safety: r.safety,
+      };
     }
+
+    // —— v11 新 state 字段回写（引擎侧是纯函数，落库责任在这里）——
+    if (result.recentReplies !== undefined) S.recentReplies = result.recentReplies;
+    if (result.topic !== undefined) S.topic = result.topic;
+    if (result.ue !== undefined) S.ue = result.ue;
 
     if (result.moodOverride) { mood = result.moodOverride; S.moodKey = mood.key; save(); refreshAffectionUI(); }
 
     // 情绪状态机：用本轮回合的意图/好感度更新连续情绪，再决定表情（覆盖无表情的行）
-    const z = applyEmotion(intent, result.delta);
+    // v11：把用户情绪 result.ue 作为第 4 参传入，只调制输入侧冲量，V-A 模型本身不变
+    const z = applyEmotion(intent, result.delta, result.ue);
     if (!result.expression || result.expression === "normal") result.expression = z.expr;
 
     if (result.intent === "greeting" && Engine.getLevel(S.affection).lv >= 3) waveHello();
@@ -777,9 +1093,13 @@ async function herReply(userText, img) {
       await herSay(result.replies[i], result.expression);
       if (i < result.replies.length - 1) await new Promise(r => setTimeout(r, 500 + Math.random() * 600));
     }
+    // 危机帮助卡：在最后一条气泡渲染完成之后追加，流内卡片、不阻断输入
+    if (result.safety && result.safety.card) { try { renderSafetyCard(result.safety); } catch (e) {} }
     markAllRead();
     S.lastReply = result.replies[result.replies.length - 1];
     save();
+    refreshNavStatus();
+    refreshRecentUI();
     addAffection(result.delta);
   }
 
@@ -839,7 +1159,7 @@ async function handleImage(img) {
     replies = ["唔…我这边的眼睛好像没收到图 😣 你说给我听好不好呀？或者去「我的」给我装上会看图的小脑瓜，我就能陪你一起看啦～"];
     expr = "sad"; delta = 0;
   }
-  $("#nav-status").textContent = "在线";
+  $("#nav-status").textContent = navIdleText();
   return { replies, expr, delta };
 }
 
@@ -968,8 +1288,8 @@ async function generateDiary(userAnswer) {
                 : base + "/v1/chat/completions";
       const sys = Engine.systemPrompt(st);
       const todayMsgs = S.messages.filter(m => {
-        const d = new Date(m.t); const t = todayStr();
-        return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}` === t;
+        // D1：与 todayStr() 同口径（零填充），否则"今天的消息"永远筛不出来
+        return Engine.dayKey(new Date(m.t)) === todayStr();
       }).slice(-20).map(m => ({ role: m.from === "me" ? "user" : "assistant", content: m.text }));
       const res = await fetch(url, {
         method: "POST",
@@ -1080,7 +1400,7 @@ async function callCloud(userText) {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${S.cloud.key}` },
       body: JSON.stringify({
         model: S.cloud.model || "deepseek-chat",
-        messages: [{ role: "system", content: Engine.systemPrompt({ affection: S.affection, nick: S.nick, mood, firstMeet: S.firstMeet, dating: S.dating, memory: S.memory, persona: S.persona, caredTopics: S.caredTopics, recall: await retrieveMemoriesCloud(userText), emotion: S.emotion }) }, ...history],
+        messages: [{ role: "system", content: Engine.systemPrompt({ affection: S.affection, nick: S.nick, mood, firstMeet: S.firstMeet, dating: S.dating, memory: S.memory, persona: S.persona, caredTopics: S.caredTopics, recall: await retrieveMemoriesCloud(userText), emotion: S.emotion, lastVisit: S.lastVisit, dailyNotes: S.dailyNotes }) }, ...history],
         temperature: 0.9, max_tokens: 200,
         frequency_penalty: 0.6, presence_penalty: 0.4,
       }),
@@ -1284,14 +1604,15 @@ async function checkProactive() {
   }
 
   // 久别重逢
-  const gapDays = Math.floor((Date.now() - (S.lastVisit || 0)) / 86400000);
+      const gapDays = Math.floor((Date.now() - (S.lastVisit || 0)) / 86400000);
+  const gapNote = Engine.timeGap(S.lastVisit);
   if (gapDays >= 3 && !S.greetedSlots.includes("back3")) {
     S.greetedSlots.push("back3"); save();
-    const msg = Engine.proactive("longNoSee3d", S, { days: gapDays });
+    const msg = Engine.proactive("longNoSee3d", S, { days: gapDays, gap: gapNote });
     if (msg) await herSay(msg, "sad");
   } else if (gapDays >= 1 && !S.greetedSlots.includes("back1")) {
     S.greetedSlots.push("back1"); save();
-    const msg = Engine.proactive("longNoSee1d", S);
+    const msg = Engine.proactive("longNoSee1d", S, { gap: gapNote });
     if (msg) await herSay(msg, "angry");
   }
 
@@ -1326,18 +1647,11 @@ async function checkProactive() {
     }
   }
 
-  // 基于记忆的主动关心（记得你之前提过的事）
+  // v11 · 主动消息优先级重排（T07）：剧情线 > 记忆召回 > 时段问候 > 随机池。
+  // 上面的初次相遇 / 久别重逢 / 时段问候 / 纪念日四段既有前置行为一字未动（零回归），
+  // 这里只是把"她主动找你"的后半段交给编排器，让消息有理由而不是掷骰子。
   if (!S.caredTopics) S.caredTopics = [];
-  const ev = (S.memory.events || []).find(e => !S.caredTopics.includes(e.topic) && Date.now() - e.at < 3 * 86400000);
-  if (ev) {
-    const msg = Engine.proactive("care", S, { topic: ev.topic });
-    if (msg) {
-      S.caredTopics.push(ev.topic);
-      if (S.caredTopics.length > 12) S.caredTopics = S.caredTopics.slice(-12);
-      save();
-      setTimeout(() => herSay(msg, "shy"), 3000);
-    }
-  }
+  dispatchProactive({ delay: 3000 });
 
   S.lastVisit = Date.now(); save();
   // 顺带检查今晚是否该问日记 / 是否该出周小结
@@ -1349,15 +1663,72 @@ async function checkProactive() {
   }
 }
 
-/* 页面停留期间的随机想念 */
+/* v11 · 主动消息统一分发：拿 Engine.proactivePlan 的头名候选，按 kind 落库并渲染。
+ * 引擎只判定不写 state，所有持久化动作都在这个函数里显式完成。 */
+function dispatchProactive(opts = {}) {
+  if (!S.firstMeet) return null;
+  const now = Date.now();
+  const hour = new Date(now).getHours();
+  const lastMsg = S.messages[S.messages.length - 1];
+  const idleMs = typeof opts.idleMs === "number" ? opts.idleMs : (now - (lastMsg ? lastMsg.t : 0));
+  let plan = [];
+  try { plan = Engine.proactivePlan(S, { now, hour, idleMs }) || []; } catch (e) { plan = []; }
+  if (opts.kinds) plan = plan.filter(p => opts.kinds.includes(p.kind));
+  if (!plan.length) return null;
+  const p = plan[0];
+  const delay = typeof opts.delay === "number" ? opts.delay : 0;
+
+  if (p.kind === "story") {
+    const hit = p.meta;
+    // 落库：推进节点 + 轮数计数器归零 + 全局节流锚点（引擎给的是纯补丁）
+    Object.assign(S, Engine.storyAdvance(S, hit, now));
+    pushStory("arc", hit.icon || "🌱", hit.storyLog || hit.label);
+    // 剧情产出的专属回忆复用既有 memory.events 机制，不建并行体系
+    if (hit.yield && hit.yield.topic) {
+      S.memory = S.memory || {};
+      S.memory.events = S.memory.events || [];
+      if (!S.memory.events.some(e => e && e.topic === hit.yield.topic)) {
+        S.memory.events.push({ topic: hit.yield.topic, at: now, importance: hit.yield.importance || 0.8 });
+        if (S.memory.events.length > 40) S.memory.events = S.memory.events.slice(-40);
+      }
+      S.caredTopics.push(hit.yield.topic); // 剧情自带上下文，别再被 care 池追问一遍
+      if (S.caredTopics.length > 12) S.caredTopics = S.caredTopics.slice(-12);
+    }
+  } else if (p.kind === "care") {
+    S.caredTopics.push(p.meta.topic);
+    if (S.caredTopics.length > 12) S.caredTopics = S.caredTopics.slice(-12);
+  } else if (p.kind === "slot") {
+    if (!S.greetedSlots.includes(p.meta.slot)) S.greetedSlots.push(p.meta.slot);
+  }
+  // 7 天滚动去重登记
+  S.usedProactive = Engine.pruneUsedProactive(S.usedProactive, now);
+  S.usedProactive[Engine.hashStr(p.text)] = now;
+  save();
+
+  const say = () => {
+    const meta = p.kind === "story"
+      ? { story: { lineId: p.meta.lineId, label: p.meta.label, icon: p.meta.icon } }
+      : null;
+    herSay(p.text, p.expression, meta).then(() => { refreshRecentUI(); refreshStoryUI(); });
+  };
+  if (delay > 0) setTimeout(say, delay); else say();
+  return p;
+}
+
+/* 页面停留期间的主动想念：优先剧情，其次记忆关心，最后才是随机池 */
 setInterval(() => {
   if (herBusy || !S.firstMeet) return;
   const lastMsg = S.messages[S.messages.length - 1];
   const idleFor = Date.now() - (lastMsg ? lastMsg.t : 0);
-  if (idleFor > 3 * 60 * 1000 && Math.random() < 0.35) {
-    const msg = Engine.proactive("random", S);
-    if (msg) herSay(msg);
-  }
+  if (idleFor <= 3 * 60 * 1000) return;
+  // 剧情 / 记忆是"有理由"的，直接发；纯随机池仍保留原来的 0.35 概率，避免变吵
+  const peek = (() => {
+    try { return (Engine.proactivePlan(S, { now: Date.now(), hour: new Date().getHours(), idleMs: idleFor }) || [])[0]; }
+    catch (e) { return null; }
+  })();
+  if (!peek) return;
+  if (peek.kind === "random" && Math.random() >= 0.35) return;
+  dispatchProactive({ idleMs: idleFor });
 }, 90 * 1000);
 
 /* ================= 立绘气泡 & 特效 ================= */
@@ -1513,7 +1884,15 @@ async function callThink(text) {
     try { result = await localThink(text); } catch (e) {}
   }
   if (!result) {
-    const r = Engine.reply(text, { affection: S.affection, nick: S.nick, mood, memory: S.memory, persona: S.persona, lastReply: S.lastReply });
+    // v11：通话链路同样吃新能力（跨轮去重 / 话题 / 共情），并把新字段写回
+    const r = Engine.reply(text, {
+      affection: S.affection, nick: S.nick, mood, memory: S.memory, persona: S.persona,
+      lastReply: S.lastReply,
+      topic: S.topic, recentReplies: S.recentReplies, ue: S.ue, safety: S.safety, flags: S.flags,
+    });
+    if (r.recentReplies !== undefined) S.recentReplies = r.recentReplies;
+    if (r.topic !== undefined) S.topic = r.topic;
+    if (r.ue !== undefined) S.ue = r.ue;
     S.lastReply = r.replies[r.replies.length - 1]; save();
     return r.replies.join("\n");
   }
@@ -1705,6 +2084,7 @@ function refreshStoryUI() {
   const mc = $("#mood-calendar"); if (mc) mc.innerHTML = buildMoodCalendar();
   const dl = $("#diary-list"); if (dl) dl.innerHTML = buildDiaryList();
   const wl = $("#weekly-list"); if (wl) wl.innerHTML = buildWeeklyList();
+  const al = $("#arc-list"); if (al) al.innerHTML = buildArcList();
   const tl = $("#timeline");
   if (tl) {
     const list = (S.story || []).slice().sort((a, b) => a.t - b.t);
@@ -1714,10 +2094,36 @@ function refreshStoryUI() {
       tl.innerHTML = list.map(it => {
         const d = new Date(it.t);
         const ds = `${d.getMonth() + 1}月${d.getDate()}日`;
-        return `<div class="tl-item"><div class="tl-dot">${it.icon}</div><div class="tl-line"></div><div class="tl-body"><div class="tl-text">${esc(it.text)}</div><div class="tl-date">${ds}</div></div></div>`;
+        return `<div class="tl-item${it.type === "memory-dup" ? " tl-dup" : ""}"><div class="tl-dot">${it.icon}</div><div class="tl-line"></div><div class="tl-body"><div class="tl-text">${esc(it.text)}</div><div class="tl-date">${ds}</div></div></div>`;
       }).join("");
     }
   }
+}
+
+/* v11 · 故事页「🌱 我们的经历」（PRD 5.3⑤）：进行中 / 已完成的剧情线 + 专属回忆，
+ * 点一条线展开她讲过的每一段，形成可回看的"我们的故事书"。 */
+function buildArcList() {
+  let list = [];
+  try { list = Engine.Story.progress(S) || []; } catch (e) { list = []; }
+  const shown = list.filter(l => l.started);
+  if (!shown.length) {
+    return `<div class="memory-empty">你们的故事还没开场…多陪${currentChar().name}聊几天，她会开始跟你讲她的事 🌱</div>`;
+  }
+  return shown.map(l => {
+    const state = l.done ? "已完成" : "进行中";
+    const mem = l.memories.length
+      ? `<div class="arc-mem">└ 专属回忆：${l.memories.map(m => esc(m)).join("；")}</div>` : "";
+    const nodes = l.unlocked.map(n => `<div class="arc-node"><span class="arc-node-log">${esc(n.log)}</span><span class="arc-node-text">${esc(n.text)}</span></div>`).join("");
+    return `<div class="arc-item${l.done ? " done" : ""}" data-line="${esc(l.id)}">
+      <div class="arc-head">
+        <span class="arc-ico">${l.icon}</span>
+        <span class="arc-name">${esc(l.label)}</span>
+        <span class="arc-dots">${dotBar(l.stage, l.total)}</span>
+        <span class="arc-state">${state}</span>
+      </div>${mem}
+      <div class="arc-nodes hidden">${nodes}</div>
+    </div>`;
+  }).join("");
 }
 
 /* 心情日历：本月日历，每天色块由当天 emotionLog 平均 V 值映射（蓝→粉） */
@@ -1747,7 +2153,7 @@ function buildMoodCalendar() {
       label = Engine.Emotion.zone({ v: avgV, a: 0 }).label;
     }
     const isToday = (d === now.getDate());
-    html += `<div class="mood-cal-day${isToday ? " today" : ""}" style="background:${color}" title="${key}${label ? " · " + label : ""}">${d}</div>`;
+    html += `<div class="mood-cal-day${isToday ? " today" : ""}" data-date="${key}" style="background:${color}" title="${key}${label ? " · " + label : ""}">${d}</div>`;
   }
   html += `</div>`;
   html += `<div class="mood-cal-legend"><span class="lg-item"><i style="background:hsl(210,55%,78%)"></i>低落</span><span class="lg-item"><i style="background:hsl(275,55%,78%)"></i>平静</span><span class="lg-item"><i style="background:hsl(340,55%,78%)"></i>明亮</span></div>`;
@@ -1778,6 +2184,37 @@ function buildWeeklyList() {
   return entries.map(([wk, e]) =>
     `<div class="weekly-item"><div class="weekly-head">📋 ${wk}</div><div class="weekly-text">${esc(e.text)}</div></div>`
   ).join("");
+}
+
+/* 点日历某天 → 弹出当天汇总（心情 + 余温 + 日记 + 周小结），打通三块数据 */
+function showDayDetail(key) {
+  const [y, m, d] = key.split("-").map(Number);
+  const log = (S.emotionLog || {})[key] || [];
+  const avgV = log.length ? log.reduce((s, p) => s + p.v, 0) / log.length : null;
+  const moodTxt = avgV !== null ? Engine.Emotion.zone({ v: avgV, a: 0 }).label : "无记录";
+  const note = (S.dailyNotes || {})[key];
+  const diary = (S.diaryEntries || {})[key];
+  const wk = getWeekKey(new Date(y, m - 1, d));
+  const weekly = (S.weeklySummary || {})[wk];
+  let body = `<div class="dd-row"><span class="dd-k">心情</span><span class="dd-v">${moodTxt}</span></div>`;
+  if (note) body += `<div class="dd-row"><span class="dd-k">🌙 余温</span><span class="dd-v">${esc(note.text)}</span></div>`;
+  if (diary) body += `<div class="dd-row"><span class="dd-k">📔 日记</span><span class="dd-v">${esc(diary.text)}</span></div>`;
+  if (weekly) body += `<div class="dd-row"><span class="dd-k">📋 周小结</span><span class="dd-v">${esc(weekly.text)}</span></div>`;
+  if (!note && !diary && !weekly && avgV === null) body += `<div class="memory-empty">这一天还没有特别记录~</div>`;
+  const box = $("#day-detail");
+  box.querySelector(".dd-title").textContent = `${m}月${d}日 · ${currentChar().name}的这一天`;
+  box.querySelector(".dd-body").innerHTML = body;
+  box.classList.remove("hidden");
+}
+function bindDayDetail() {
+  const cal = $("#mood-calendar");
+  if (!cal) return;
+  cal.addEventListener("click", e => {
+    const cell = e.target.closest(".mood-cal-day[data-date]");
+    if (cell) showDayDetail(cell.dataset.date);
+  });
+  const box = $("#day-detail");
+  if (box) box.addEventListener("click", e => { if (e.target === box || e.target.classList.contains("dd-close")) box.classList.add("hidden"); });
 }
 
 /* 情绪晴雨表：把 emotionLog 里近 14 天的采样点画在 VA 平面散点图上 */
@@ -1861,6 +2298,60 @@ function refreshRelationshipUI() {
   const meTogether = $("#me-together"); if (meTogether) meTogether.textContent = dating ? `${daysDating()} 天` : "—";
   const meNext = $("#me-next-anni");
   if (meNext) meNext.textContent = dating ? nextDatingAnni() : "先确定关系吧～";
+}
+
+/* v11 · 人格卡即时试听：用规则层跑一句样例，让用户当场听出三张卡的差别。
+ * 走的是和真实对话完全相同的 Engine.reply 管线（含 T06 人格改写层），
+ * 但不写任何 state —— 传的是一份临时快照，试听不污染话题/去重窗口/好感度。 */
+let cardDemoTimer = null;
+function playCardDemo() {
+  const box = $("#card-demo");
+  if (!box) return;
+  const probes = ["一天没聊了，想我了没", "我想你了", "在干嘛呀"];
+  const probe = probes[Math.floor(Math.random() * probes.length)];
+  let line = "";
+  try {
+    const r = Engine.reply(probe, {
+      affection: S.affection, nick: S.nick, mood,
+      memory: S.memory, persona: S.persona, dating: S.dating,
+      lastReply: "", topic: null, recentReplies: [], ue: null,
+      safety: { lastCardAt: 0 }, flags: S.flags,
+    });
+    line = (r.replies || []).join(" ");
+  } catch (e) { line = ""; }
+  if (!line) return;
+  box.textContent = `💬「${line}」`;
+  box.classList.remove("hidden");
+  clearTimeout(cardDemoTimer);
+  cardDemoTimer = setTimeout(() => box.classList.add("hidden"), 2500);
+}
+
+/* v11 · 剧情线交互绑定（事件委托，动态节点无需重复绑定）：
+ *   · 聊天流里剧情气泡的尾注 → 跳故事页并高亮该线
+ *   · 她页「正在发生」那一行 → 跳故事页
+ *   · 故事页某条线 → 展开/收起她讲过的每一段 */
+function bindArcUI() {
+  document.addEventListener("click", e => {
+    const foot = e.target.closest && e.target.closest(".story-foot");
+    if (foot) { switchTab("story"); setTimeout(() => highlightArc(foot.dataset.line), 240); return; }
+    const arcRow = e.target.closest && e.target.closest("#recent-arc-row");
+    if (arcRow) { switchTab("story"); return; }
+    const head = e.target.closest && e.target.closest(".arc-head");
+    if (head) {
+      const nodes = head.parentElement.querySelector(".arc-nodes");
+      if (nodes) nodes.classList.toggle("hidden");
+    }
+  });
+}
+
+function highlightArc(lineId) {
+  const el = document.querySelector(`.arc-item[data-line="${lineId}"]`);
+  if (!el) return;
+  const nodes = el.querySelector(".arc-nodes");
+  if (nodes) nodes.classList.remove("hidden");
+  el.classList.add("arc-flash");
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  setTimeout(() => el.classList.remove("arc-flash"), 1600);
 }
 
 /* ================= 表白 ================= */
@@ -1992,6 +2483,7 @@ function bindTabs() {
         scrollBottom();
       }
       if (tab.dataset.page === "story") refreshStoryUI();
+      if (tab.dataset.page === "her") refreshRecentUI();
     });
   });
 }
@@ -2024,22 +2516,36 @@ function bindInput() {
       if (mem.likes) {
         S.memory.likes = S.memory.likes || [];
         for (const l of mem.likes) {
-          if (!S.memory.likes.includes(l)) {
-            S.memory.likes.push(l);
-            pushStory("memory", "💝", `你提到你喜欢「${l}」`);
+          // 近似去重：和已记喜好太像（含/编辑距离/字符重合）就不重复落库
+          const dup = Engine.findDuplicate(l, S.memory.likes);
+          if (dup) {
+            if (dup !== l) pushStory("memory-dup", "🔁", `「${l}」和之前记的「${dup}」太像啦，不重复记～`);
+            continue;
           }
+          S.memory.likes.push(l);
+          pushStory("memory", "💝", `你提到你喜欢「${l}」`);
+          scheduleReflection(); // 记忆有变化，增量生成余温/摘要
         }
       }
       if (mem.event) {
         S.memory.events = S.memory.events || [];
-        S.memory.events.push({ ...mem.event, at: Date.now(), importance: Engine.eventImportance(mem.event.topic) });
-        if (S.memory.events.length > 8) S.memory.events = S.memory.events.slice(-8);
+        // 事件去重只看近 6 小时：同一会话里反复说"好累"只记一次，跨天才重新关心
+        const recentTexts = S.memory.events.filter(e => Date.now() - e.at < 6 * 3600 * 1000).map(e => e.t);
+        const dup = Engine.findDuplicate(mem.event.t, recentTexts);
+        if (dup) {
+          pushStory("memory-dup", "🔁", `这条和刚才记的「${dup}」太像，不重复记啦`);
+        } else {
+          S.memory.events.push({ ...mem.event, at: Date.now(), importance: Engine.eventImportance(mem.event.topic) });
+          if (S.memory.events.length > 8) S.memory.events = S.memory.events.slice(-8);
+          scheduleReflection(); // 记忆有变化，增量生成余温/摘要
+        }
       }
       save(); refreshMemoryUI();
     };
 
     if (herBusy) { pendingQueue.push(text); pendingMemStores.push(flushMem); return; } // 她说话时排队，记忆待本轮回复后落库
-    setTimeout(async () => { await herReply(text); flushMem(); }, 300 + Math.random() * 500);
+    showThinking(); // 思考气泡：让她像真人在斟酌一下
+    setTimeout(async () => { removeThinking(); await herReply(text); flushMem(); }, 500 + Math.random() * 500);
   };
   $("#btn-send").addEventListener("click", send);
   input.addEventListener("keydown", e => { if (e.key === "Enter") send(); });
@@ -2209,6 +2715,739 @@ function bindCloudSave() {
   });
 }
 
+/* ================= ☁️ 云同步（端到端加密） =================
+ * 设计原则：服务器只存密文。存档在本机用「同步口令」派生的密钥加密，
+ * 口令永不上传；服务端拿到的永远是一串乱码，我也解不开。
+ *
+ * 流程：JSON → gzip → AES-GCM(256) 加密 → base64 → 上传
+ * 密钥：PBKDF2(口令, salt=SHA-256("xiaonuan-sync|"+同步码), 150000 轮, SHA-256)
+ *      salt 由同步码推导 ⇒ 换设备只要「同一同步码 + 同一口令」就能解开。
+ */
+const SYNC_KEY = "xiaonuan_sync_v1";
+const SYNC_TOKEN_LEN = 32;
+
+function randToken(n = SYNC_TOKEN_LEN) {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  const buf = crypto.getRandomValues(new Uint8Array(n));
+  let s = "";
+  for (let i = 0; i < n; i++) s += chars[buf[i] % chars.length];
+  return s;
+}
+
+function loadSyncCfg() {
+  let c = {};
+  try { c = JSON.parse(localStorage.getItem(SYNC_KEY) || "{}"); } catch (e) {}
+  return Object.assign({
+    enabled: false,
+    token: "",
+    pass: "",
+    rev: 0,
+    lastAt: 0,
+    endpoint: "",     // 空 = 用当前站点
+    auto: true,
+  }, c);
+}
+let SC = loadSyncCfg();
+const saveSyncCfg = () => localStorage.setItem(SYNC_KEY, JSON.stringify(SC));
+const syncBase = () => (SC.endpoint || location.origin).replace(/\/+$/, "");
+
+function deviceName() {
+  const ua = navigator.userAgent || "";
+  if (/iPhone/i.test(ua)) return "iPhone";
+  if (/iPad/i.test(ua)) return "iPad";
+  if (/Android/i.test(ua)) return "安卓手机";
+  if (/Macintosh/i.test(ua)) return "Mac";
+  if (/Windows/i.test(ua)) return "Windows";
+  return "浏览器";
+}
+
+/* ---- base64 <-> 字节（分块，避免大数组 spread 爆栈） ---- */
+function bytesToB64(u8) {
+  let s = "";
+  for (let i = 0; i < u8.length; i += 0x8000) {
+    s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  }
+  return btoa(s);
+}
+function b64ToBytes(b64) {
+  const bin = atob(b64);
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return u8;
+}
+
+/* ---- gzip（浏览器原生流，不支持则跳过压缩） ---- */
+async function gzipStr(str) {
+  if (typeof CompressionStream === "undefined") return null;
+  try {
+    const cs = new CompressionStream("gzip");
+    const ab = await new Response(new Blob([str]).stream().pipeThrough(cs)).arrayBuffer();
+    return new Uint8Array(ab);
+  } catch (e) { return null; }
+}
+async function gunzipBytes(u8) {
+  const ds = new DecompressionStream("gzip");
+  const ab = await new Response(new Blob([u8]).stream().pipeThrough(ds)).arrayBuffer();
+  return new TextDecoder().decode(ab);
+}
+
+/* ---- 密钥派生 ---- */
+async function deriveSyncKey(pass, token) {
+  const enc = new TextEncoder();
+  const saltBuf = await crypto.subtle.digest("SHA-256", enc.encode("xiaonuan-sync|" + token));
+  const base = await crypto.subtle.importKey("raw", enc.encode(pass), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: new Uint8Array(saltBuf), iterations: 150000, hash: "SHA-256" },
+    base,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+/* ---- 加解密：blob = "v1g.<ivB64>.<ctB64>"（g=已压缩 / r=未压缩） ---- */
+async function encryptBlob(plain, key) {
+  const gz = await gzipStr(plain);
+  const payload = gz || new TextEncoder().encode(plain);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, payload);
+  return `v1${gz ? "g" : "r"}.${bytesToB64(iv)}.${bytesToB64(new Uint8Array(ct))}`;
+}
+async function decryptBlob(blob, key) {
+  const [head, ivB64, ctB64] = String(blob).split(".");
+  if (!head || !ivB64 || !ctB64 || head.slice(0, 2) !== "v1") throw new Error("BAD_FORMAT");
+  const iv = b64ToBytes(ivB64);
+  const ct = b64ToBytes(ctB64);
+  const plainBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
+  const u8 = new Uint8Array(plainBuf);
+  return head[2] === "g" ? await gunzipBytes(u8) : new TextDecoder().decode(u8);
+}
+
+/* ---- 状态提示 ---- */
+function syncSay(msg, cls = "") {
+  const el = $("#sync-status");
+  if (el) { el.textContent = msg; el.className = "me-status " + cls; }
+}
+const fmtSyncTime = (t) => {
+  if (!t) return "从未";
+  const d = new Date(t);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+function renderSyncMeta() {
+  const el = $("#sync-meta");
+  if (el) el.textContent = SC.enabled
+    ? `版本 v${SC.rev} · 上次同步 ${fmtSyncTime(SC.lastAt)}`
+    : "未开启";
+  const f = $("#btn-sync-force");
+  if (f && !syncConflict) f.classList.add("hidden");
+}
+let syncConflict = false;
+let syncBusy = false;
+
+function syncReady() {
+  if (!SC.enabled) { syncSay("请先打开「启用云同步」开关", "err"); return false; }
+  if (!SC.token) { SC.token = randToken(); saveSyncCfg(); }
+  if (!SC.pass || SC.pass.length < 6) { syncSay("请先设置同步口令（至少 6 位，建议 12 位以上）", "err"); return false; }
+  return true;
+}
+
+/* ---- 上传 ---- */
+async function syncPush(force = false, silent = false) {
+  if (syncBusy) return;
+  if (!syncReady()) return;
+  syncBusy = true;
+  if (!silent) syncSay("正在加密并上传…");
+  try {
+    save(); // 确保当前状态已落 localStorage
+    const plain = localStorage.getItem(SAVE_KEY) || "{}";
+    const key = await deriveSyncKey(SC.pass, SC.token);
+    const blob = await encryptBlob(plain, key);
+    const r = await fetch(syncBase() + "/api/sync/push", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: SC.token, rev: SC.rev + 1, blob, device: deviceName(), force }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 409) {
+      syncConflict = true;
+      const f = $("#btn-sync-force"); if (f) f.classList.remove("hidden");
+      syncSay(`⚠️ 云端有更新的存档（${j.device || "其他设备"} · ${fmtSyncTime(j.updatedAt)}）。建议先「下载云端」；确定要用本机覆盖就点「强制覆盖云端」。`, "err");
+      return;
+    }
+    if (!r.ok || !j.ok) throw new Error(j.error || ("HTTP " + r.status));
+    SC.rev = j.rev; SC.lastAt = Date.now(); syncConflict = false; saveSyncCfg();
+    renderSyncMeta();
+    if (!silent) syncSay(`✓ 已加密上传（${(blob.length / 1024).toFixed(0)} KB 密文，版本 v${j.rev}）`, "ok");
+  } catch (e) {
+    if (!silent) syncSay("✗ 上传失败：" + friendlySyncErr(e), "err");
+  } finally {
+    syncBusy = false;
+  }
+}
+
+/* ---- 下载 ---- */
+async function syncPull(silent = false) {
+  if (syncBusy) return;
+  if (!syncReady()) return;
+  syncBusy = true;
+  if (!silent) syncSay("正在下载并解密…");
+  try {
+    const r = await fetch(`${syncBase()}/api/sync/pull?token=${encodeURIComponent(SC.token)}&since=${silent ? SC.rev : 0}`);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) throw new Error(j.error || ("HTTP " + r.status));
+    if (j.empty) {
+      if (!silent) syncSay("云端还没有存档，点「立即上传」先备份一份吧～");
+      return;
+    }
+    if (j.unchanged) {
+      SC.lastAt = Date.now(); saveSyncCfg(); renderSyncMeta();
+      if (!silent) syncSay("✓ 云端和本机一致，无需下载", "ok");
+      return;
+    }
+    if (silent && j.rev <= SC.rev) return;
+
+    const key = await deriveSyncKey(SC.pass, SC.token);
+    let plain;
+    try {
+      plain = await decryptBlob(j.blob, key);
+    } catch (e) {
+      syncSay("✗ 解密失败：同步口令不对（或存档来自另一个同步码）。口令区分大小写，检查后再试。", "err");
+      return;
+    }
+    const obj = JSON.parse(plain); // 校验是合法存档
+    if (!obj || typeof obj !== "object") throw new Error("BAD_SAVE");
+
+    if (!silent) {
+      const ok = confirm(
+        `云端存档：${j.device || "其他设备"} · ${fmtSyncTime(j.updatedAt)}（v${j.rev}）\n` +
+        `消息 ${(obj.messages || []).length} 条、故事 ${(obj.story || []).length} 条。\n\n` +
+        `下载后会覆盖本机当前存档，确定吗？`
+      );
+      if (!ok) { syncSay("已取消下载"); return; }
+    }
+    localStorage.setItem(SAVE_KEY, plain);
+    SC.rev = j.rev; SC.lastAt = Date.now(); syncConflict = false; saveSyncCfg();
+    syncSay("✓ 已恢复云端存档，正在重新加载…", "ok");
+    setTimeout(() => location.reload(), 700);
+  } catch (e) {
+    if (!silent) syncSay("✗ 下载失败：" + friendlySyncErr(e), "err");
+  } finally {
+    syncBusy = false;
+  }
+}
+
+function friendlySyncErr(e) {
+  const m = String((e && e.message) || e);
+  if (/Failed to fetch|NetworkError|load failed/i.test(m)) return "连不上同步服务（检查网络，或这个页面不是从同步服务地址打开的）";
+  if (/TOO_LARGE/.test(m)) return "存档太大了（超过 6MB），可以先清理一些聊天记录";
+  if (/RATE_LIMITED/.test(m)) return "请求太频繁，歇一分钟再试";
+  if (/BAD_TOKEN/.test(m)) return "同步码格式不对";
+  return m;
+}
+
+/* ---- 自动同步：进页面拉一次、离开页面推一次 ---- */
+let syncPushTimer = null;
+function scheduleSyncPush(delay = 3000) {
+  if (!SC.enabled || !SC.auto || !SC.pass) return;
+  clearTimeout(syncPushTimer);
+  syncPushTimer = setTimeout(() => syncPush(false, true), delay);
+}
+
+function bindSync() {
+  const en = $("#sync-enable"), tok = $("#sync-token"), pass = $("#sync-pass"),
+        auto = $("#sync-auto"), body = $("#sync-body");
+
+  const refresh = () => {
+    if (en) en.checked = !!SC.enabled;
+    if (tok) tok.value = SC.token || "";
+    if (pass) pass.value = SC.pass || "";
+    if (auto) auto.checked = SC.auto !== false;
+    if (body) body.classList.toggle("hidden", !SC.enabled);
+    renderSyncMeta();
+  };
+
+  if (en) en.addEventListener("change", () => {
+    SC.enabled = en.checked;
+    if (SC.enabled && !SC.token) SC.token = randToken();
+    saveSyncCfg(); refresh();
+    if (SC.enabled) syncSay("同步码已生成。设置一个同步口令，然后点「立即上传」。换设备时填同一组同步码 + 口令即可。");
+  });
+
+  if (tok) tok.addEventListener("change", () => {
+    const v = tok.value.trim();
+    if (!/^[A-Za-z0-9_-]{16,64}$/.test(v)) { syncSay("同步码格式不对（16~64 位字母数字）", "err"); tok.value = SC.token; return; }
+    SC.token = v; SC.rev = 0; saveSyncCfg(); renderSyncMeta();
+    syncSay("已切换同步码。点「立即下载」把那台设备的存档拉过来。", "ok");
+  });
+
+  if (pass) pass.addEventListener("change", () => {
+    SC.pass = pass.value; saveSyncCfg();
+    syncSay(SC.pass.length >= 6 ? "口令已保存在本机（不会上传）。" : "口令太短了，至少 6 位。", SC.pass.length >= 6 ? "ok" : "err");
+  });
+
+  if (auto) auto.addEventListener("change", () => { SC.auto = auto.checked; saveSyncCfg(); });
+
+  const btnNew = $("#btn-sync-new");
+  if (btnNew) btnNew.addEventListener("click", () => {
+    if (!confirm("重新生成同步码后，旧同步码上的云端存档就连不上了（本机数据不受影响）。确定吗？")) return;
+    SC.token = randToken(); SC.rev = 0; saveSyncCfg(); refresh();
+    syncSay("已生成新同步码。", "ok");
+  });
+
+  const btnCopy = $("#btn-sync-copy");
+  if (btnCopy) btnCopy.addEventListener("click", async () => {
+    if (!SC.token) return;
+    try { await navigator.clipboard.writeText(SC.token); syncSay("✓ 同步码已复制，去另一台设备粘贴", "ok"); }
+    catch (e) { if (tok) { tok.select(); } syncSay("请手动复制上方同步码"); }
+  });
+
+  const up = $("#btn-sync-up"); if (up) up.addEventListener("click", () => syncPush(false));
+  const down = $("#btn-sync-down"); if (down) down.addEventListener("click", () => syncPull(false));
+  const force = $("#btn-sync-force");
+  if (force) force.addEventListener("click", () => {
+    if (!confirm("强制覆盖会丢掉云端那台设备上的新内容，确定吗？")) return;
+    syncConflict = false; force.classList.add("hidden"); syncPush(true);
+  });
+  const del = $("#btn-sync-del");
+  if (del) del.addEventListener("click", async () => {
+    if (!SC.token) return;
+    if (!confirm("删除云端密文存档？本机数据不受影响。")) return;
+    try {
+      await fetch(`${syncBase()}/api/sync?token=${encodeURIComponent(SC.token)}`, { method: "DELETE" });
+      SC.rev = 0; saveSyncCfg(); renderSyncMeta();
+      syncSay("✓ 云端存档已删除", "ok");
+    } catch (e) { syncSay("✗ 删除失败：" + friendlySyncErr(e), "err"); }
+  });
+
+  refresh();
+
+  // 开着同步就先静默拉一次（只有云端版本更新才会覆盖）
+  if (SC.enabled && SC.auto !== false && SC.pass) setTimeout(() => syncPull(true), 1500);
+}
+
+
+/* ================= 主动推送（让小暖找到微信里的你）=================
+ *
+ * 这里有个绕不开的矛盾：存档是端到端加密的，服务器只有一坨密文，
+ * 它压根不知道你叫什么、好感度多少，那它凭什么知道"明早该说什么"？
+ *
+ * 解法是把"想"这一步留在浏览器里：
+ *   小暖在你这台设备上算好未来 3 天要说的几句话，
+ *   只把「时间 + 这句话」交给服务器，服务器退化成一个纯粹的闹钟。
+ *
+ * 于是存档依然谁也解不开，服务器也只知道"8 点发这一句"，
+ * 不知道你是谁、你们经历过什么。
+ */
+
+const PUSH_KEY = "xiaonuan_push_v1";
+
+function loadPushCfg() {
+  let c = {};
+  try { c = JSON.parse(localStorage.getItem(PUSH_KEY) || "{}"); } catch (e) {}
+  return Object.assign({
+    enabled: false,
+    channel: "",
+    cfg: {},           // 凭证只存本机一份，方便下次回填（服务器那份是打码回显的）
+    twoWay: false,     // 企业微信双向聊天（在微信里和小暖正经聊）
+    quietFrom: 23,
+    quietTo: 8,
+    lastPush: 0,       // 上次上报排期的时间
+  }, c);
+}
+let PC = loadPushCfg();
+const savePushCfg = () => localStorage.setItem(PUSH_KEY, JSON.stringify(PC));
+
+/* 各通道怎么拿凭证，一句话说清楚，别让人去翻文档 */
+const PUSH_GUIDE = {
+  wxpusher: {
+    tip: '手机浏览器打开 <a href="https://wxpusher.zjiecode.com/admin" target="_blank" rel="noopener">wxpusher.zjiecode.com/admin</a> → 微信扫码登录 → 新建应用拿 <b>appToken</b>（AT_ 开头）→ 用微信关注你自己应用的二维码，在「用户管理」里能看到 <b>UID</b>（UID_ 开头）。',
+    fields: [
+      { k: "appToken", label: "appToken", ph: "AT_xxxxxxxx", type: "text" },
+      { k: "uid", label: "UID", ph: "UID_xxxxxxxx", type: "text" },
+    ],
+  },
+  pushplus: {
+    tip: '手机浏览器打开 <a href="https://www.pushplus.plus" target="_blank" rel="noopener">pushplus.plus</a> → 微信扫码登录 → 个人中心直接看到 <b>token</b>，复制过来就行。',
+    fields: [{ k: "token", label: "token", ph: "一串 32 位字符", type: "text" }],
+  },
+  serverchan: {
+    tip: '手机浏览器打开 <a href="https://sct.ftqq.com" target="_blank" rel="noopener">sct.ftqq.com</a> → 微信扫码登录 → 「SendKey」页面复制 <b>SCT 开头</b>那串。免费版每天 5 条。',
+    fields: [{ k: "sendKey", label: "SendKey", ph: "SCTxxxxxxxx", type: "text" }],
+  },
+  wecom_bot: {
+    tip: '手机装「企业微信」→ 注册企业（<b>个人也能注册</b>，填自己名字）→ 建一个群（需要 2 个人，可以拉个小号）→ 群设置 → 群机器人 → 添加 → 复制 <b>Webhook 地址</b>，整条粘进来就行。',
+    fields: [{ k: "key", label: "Webhook 地址或 key", ph: "https://qyapi.weixin.qq.com/...?key=xxx", type: "text" }],
+  },
+  wecom_app: {
+    tip: '需要电脑、或手机浏览器切桌面版打开 <a href="https://work.weixin.qq.com" target="_blank" rel="noopener">work.weixin.qq.com</a>：<br>· <b>CorpID</b> → 我的企业 → 企业信息 → 底部「企业ID」<br>· <b>AgentID / Secret</b> → 应用管理 → 自建应用（先建一个）→ 里面能看到<br>⚠️ 还要在应用里把服务器 IP 加进「企业可信IP」，否则会报 60020。<br>想<b>双向聊天</b>（在微信里和小暖正经聊）就勾下面「开启双向聊天」，再把「回调 URL」粘到应用里的「接收消息服务器」，Token 和 EncodingAESKey 填上面那两个。',
+    fields: [
+      { k: "corpid", label: "CorpID", ph: "ww 开头", type: "text" },
+      { k: "secret", label: "Secret", ph: "应用的 Secret", type: "password" },
+      { k: "agentid", label: "AgentID", ph: "一串数字", type: "text" },
+      { k: "touser", label: "收信人（可留空）", ph: "@all", type: "text" },
+      { k: "token", label: "回调 Token", ph: "企业微信后台填的那个 Token", type: "text" },
+      { k: "aeskey", label: "EncodingAESKey", ph: "43 位字符", type: "text" },
+    ],
+  },
+  webhook: {
+    tip: '任意能收 POST JSON 的 https 地址。默认发 <code>{title, content, from}</code>；想自定义就填模板，用 <code>{{title}}</code> <code>{{content}}</code> 占位。',
+    fields: [
+      { k: "url", label: "Webhook 地址", ph: "https://...", type: "text" },
+      { k: "template", label: "自定义 body（可留空）", ph: '{"text":"{{content}}"}', type: "text" },
+    ],
+  },
+};
+
+const pushBase = () => (SC.endpoint || location.origin).replace(/\/+$/, "");
+
+function pushSay(msg, cls = "") {
+  const el = $("#push-status");
+  if (!el) return;
+  el.textContent = msg;
+  el.className = "me-status " + cls;
+}
+
+/* ---- 排期生成：小暖在这台设备上想好未来 3 天说什么 ---- */
+
+/** 某天某个钟点的时间戳 */
+function atHour(dayOffset, hour, minute = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + dayOffset);
+  d.setHours(hour, minute, 0, 0);
+  return d.getTime();
+}
+
+/**
+ * 生成未来 3 天的推送计划
+ * 复用 Engine.proactive，保证微信里收到的话和网页里的她是同一个人
+ */
+function buildSchedule() {
+  const items = [];
+  const now = Date.now();
+  const lv = Engine.getLevel(S.affection).lv;
+
+  // 好感度越高她越黏人；刚认识就一天三条会吓跑人
+  const slots = lv >= 5 ? ["morning", "noon", "night"]
+    : lv >= 3 ? ["morning", "night"]
+      : ["morning"];
+
+  const SLOT_HOUR = { morning: 8, noon: 12, afternoon: 15, night: 22 };
+
+  for (let day = 0; day < 3; day++) {
+    for (const slot of slots) {
+      const at = atHour(day, SLOT_HOUR[slot], 5 + Math.floor(Math.random() * 25));
+      if (at <= now + 60e3) continue;                 // 已经过去的钟点跳过
+      let text = null;
+      try { text = Engine.proactive(slot, S); } catch (e) {}
+      if (!text) continue;
+      items.push({ id: slot + "-" + new Date(at).toDateString(), at, title: "小暖", text });
+    }
+  }
+
+  // 纪念日：当天早上单独提一句
+  try {
+    if (S.dating && S.dating.since) {
+      const days = Math.floor((now - S.dating.since) / 86400000);
+      for (const mark of [30, 100, 200, 365, 520, 1000]) {
+        const at = atHour(mark - days, 9, 0);
+        if (at > now && at < now + 3 * 86400e3) {
+          const msg = Engine.proactive("anniversary", S, { days: mark });
+          if (msg) items.push({ id: "anni-" + mark, at, title: "小暖", text: msg });
+        }
+      }
+    }
+  } catch (e) {}
+
+  // 太久没聊的想念：只在最后一天挂一条，且得是聊过几句的关系
+  if ((S.stats.msgs || 0) > 5) {
+    const at = atHour(2, 20, 30);
+    if (at > now) {
+      let msg = null;
+      try { msg = Engine.proactive("longNoSee1d", S, { gap: "" }); } catch (e) {}
+      if (msg) items.push({ id: "miss-" + new Date(at).toDateString(), at, title: "小暖", text: msg });
+    }
+  }
+
+  return items.sort((a, b) => a.at - b.at).slice(0, 20);
+}
+
+/** 把排期交给服务器（静默，失败不打扰用户） */
+async function uploadSchedule(silent = true) {
+  if (!PC.enabled || !PC.channel || !SC.token) return;
+  const items = buildSchedule();
+  try {
+    const r = await fetch(pushBase() + "/api/notify/schedule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: SC.token, tz: new Date().getTimezoneOffset(), items }),
+    });
+    const j = await r.json();
+    PC.lastPush = Date.now(); savePushCfg();
+    if (!silent) {
+      pushSay("✓ 已安排 " + (j.pending || 0) + " 条", "ok");
+      renderPushMeta(j);
+    }
+    return j;
+  } catch (e) {
+    if (!silent) pushSay("✗ 排期上传失败：" + friendlySyncErr(e), "err");
+  }
+}
+
+function fmtPushTime(ts) {
+  if (!ts) return "—";
+  const d = new Date(ts), now = new Date();
+  const hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  if (d.toDateString() === now.toDateString()) return "今天 " + hm;
+  const tmr = new Date(now.getTime() + 86400e3);
+  if (d.toDateString() === tmr.toDateString()) return "明天 " + hm;
+  return (d.getMonth() + 1) + "/" + d.getDate() + " " + hm;
+}
+
+function renderPushMeta(st) {
+  const el = $("#push-meta");
+  if (!el) return;
+  if (!st || st.empty) { el.textContent = "还没配置"; return; }
+  const bits = [];
+  if (st.channelName) bits.push("通道：" + st.channelName);
+  bits.push(st.enabled ? "已开启" : "已暂停");
+  if (st.pending) {
+    bits.push("排队 " + st.pending + " 条");
+    bits.push("下一条 " + fmtPushTime(st.nextAt) + "：「" + (st.nextText || "").slice(0, 18) + "」");
+  } else {
+    bits.push("暂无排期");
+  }
+  if (st.quietNow) bits.push("（现在是静默时段，到点也不吵你）");
+  if (st.stats && (st.stats.ok || st.stats.fail)) {
+    bits.push("累计成功 " + (st.stats.ok || 0) + " / 失败 " + (st.stats.fail || 0));
+  }
+  if (st.stats && st.stats.lastMsg) bits.push("最近一次：" + st.stats.lastMsg);
+  el.innerHTML = bits.join("<br>");
+}
+
+/** 按选中的通道渲染凭证输入框 */
+function renderPushFields() {
+  const wrap = $("#push-fields"), howto = $("#push-howto");
+  if (!wrap) return;
+  const ch = $("#push-channel").value;
+  wrap.innerHTML = "";
+  if (howto) howto.innerHTML = ch ? ((PUSH_GUIDE[ch] || {}).tip || "") : "";
+  if (!ch) return;
+
+  for (const f of ((PUSH_GUIDE[ch] || {}).fields || [])) {
+    const lab = document.createElement("div");
+    lab.className = "me-sub";
+    lab.style.marginTop = "8px";
+    lab.textContent = f.label;
+    const inp = document.createElement("input");
+    inp.type = f.type || "text";
+    inp.id = "push-f-" + f.k;
+    inp.placeholder = f.ph || "";
+    inp.spellcheck = false;
+    inp.autocomplete = "off";
+    inp.value = (PC.channel === ch && PC.cfg && PC.cfg[f.k]) || "";
+    wrap.appendChild(lab);
+    wrap.appendChild(inp);
+  }
+
+  // 企业微信专属：双向聊天开关 + 回调 URL
+  const tw = $("#push-twoway");
+  if (tw) tw.classList.toggle("hidden", ch !== "wecom_app");
+  if (ch === "wecom_app") {
+    const urlEl = $("#push-callback-url");
+    if (urlEl && SC.token) urlEl.value = pushBase() + "/api/notify/wecom/callback?token=" + encodeURIComponent(SC.token);
+  }
+}
+
+/** 把小暖的「脑快照」上传到服务器，让微信里的她也是「她」 */
+async function uploadBrain() {
+  if (!PC.enabled || PC.channel !== "wecom_app" || !PC.twoWay || !SC.token) return;
+  const brain = {
+    persona: S.persona,
+    memory: S.memory,
+    affection: S.affection,
+    nick: S.nick,
+    moodKey: S.moodKey,
+    emotion: S.emotion,
+    messages: (S.messages || []).slice(-60),
+    lastReply: S.lastReply,
+    dating: S.dating,
+  };
+  try {
+    await fetch(pushBase() + "/api/notify/wecom/state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: SC.token, brain }),
+    });
+  } catch (e) { /* 脑快照失败不影响推送，下次再传 */ }
+}
+
+function collectPushCfg() {
+  const ch = $("#push-channel").value;
+  const out = {};
+  for (const f of ((PUSH_GUIDE[ch] || {}).fields || [])) {
+    const el = $("#push-f-" + f.k);
+    if (el && el.value.trim()) out[f.k] = el.value.trim();
+  }
+  return out;
+}
+
+function bindPush() {
+  const body = $("#push-body"), need = $("#push-need-sync");
+  if (!body) return;
+
+  // 小时下拉
+  for (const sel of [$("#push-quiet-from"), $("#push-quiet-to")]) {
+    if (!sel) continue;
+    for (let h = 0; h < 24; h++) {
+      const o = document.createElement("option");
+      o.value = h;
+      o.textContent = String(h).padStart(2, "0") + ":00";
+      sel.appendChild(o);
+    }
+  }
+
+  const gate = () => {
+    // 以 SC 为主，但同步卡片的 UI 状态（checkbox + token 输入）也作为兜底，
+    // 避免用户刚打开同步、SC 已写入但 UI 刷新节奏不同步导致推送卡片仍锁着。
+    const en = $("#sync-enable"), tok = $("#sync-token");
+    const uiReady = !!(en && en.checked && tok && /^[A-Za-z0-9_-]{16,64}$/.test(tok.value.trim()));
+    const stateReady = !!(SC.enabled && SC.token);
+    const ready = uiReady || stateReady;
+    body.classList.toggle("hidden", !ready);
+    if (need) need.classList.toggle("hidden", ready);
+    return ready;
+  };
+
+  // 同步状态变化时自动刷新推送卡片门控
+  const refreshGate = () => { try { gate(); } catch (e) {} };
+  for (const id of ["sync-enable", "sync-token"]) {
+    const el = $(id);
+    if (el) el.addEventListener("change", refreshGate);
+  }
+  window.addEventListener("focus", refreshGate);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshGate(); });
+
+  // 回填
+  $("#push-enable").checked = !!PC.enabled;
+  $("#push-channel").value = PC.channel || "";
+  $("#push-quiet-from").value = PC.quietFrom;
+  $("#push-quiet-to").value = PC.quietTo;
+  const twEn = $("#push-twoway-en");
+  if (twEn) twEn.checked = !!PC.twoWay;
+  renderPushFields();
+  gate();
+
+  $("#push-channel").addEventListener("change", renderPushFields);
+
+  // 复制回调 URL
+  const copyUrl = $("#btn-push-copy-url");
+  if (copyUrl) copyUrl.addEventListener("click", async () => {
+    const v = $("#push-callback-url").value;
+    if (!v) return;
+    try { await navigator.clipboard.writeText(v); pushSay("✓ 回调 URL 已复制", "ok"); }
+    catch (e) { const el = $("#push-callback-url"); if (el) { el.select(); } pushSay("请手动复制上面的 URL"); }
+  });
+
+  $("#btn-push-save").addEventListener("click", async () => {
+    if (!gate()) return;
+    const ch = $("#push-channel").value;
+    if (!ch) return pushSay("先选一个推送通道", "err");
+
+    const twoWay = ch === "wecom_app" && $("#push-twoway-en") && $("#push-twoway-en").checked;
+    const cfg = collectPushCfg();
+    // 单向推送不需要回调密钥；只有开了双向才要求填 Token / EncodingAESKey
+    const reqFields = (PUSH_GUIDE[ch].fields || []).filter((x) => {
+      if (/可留空/.test(x.label)) return false;
+      if (!twoWay && (x.k === "token" || x.k === "aeskey")) return false;
+      return true;
+    });
+    for (const f of reqFields) {
+      if (!cfg[f.k]) return pushSay("「" + f.label + "」还没填", "err");
+    }
+
+    PC.enabled = $("#push-enable").checked;
+    PC.channel = ch;
+    PC.cfg = cfg;
+    PC.twoWay = twoWay;
+    PC.quietFrom = parseInt($("#push-quiet-from").value, 10);
+    PC.quietTo = parseInt($("#push-quiet-to").value, 10);
+    savePushCfg();
+
+    pushSay("保存中…");
+    try {
+      const r = await fetch(pushBase() + "/api/notify/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: SC.token, channel: ch, cfg,
+          enabled: PC.enabled,
+          twoWay,
+          quietFrom: PC.quietFrom, quietTo: PC.quietTo,
+          tz: new Date().getTimezoneOffset(),
+        }),
+      });
+      const j = await r.json();
+      if (!j.ok) return pushSay("✗ 保存失败：" + (j.error || "未知"), "err");
+      pushSay("✓ 已保存", "ok");
+
+      // 双向聊天：把脑快照推给服务器，让微信里的她也是「她」
+      if (twoWay) await uploadBrain();
+      const s = await uploadSchedule(false);
+      renderPushMeta(s || j);
+    } catch (e) {
+      pushSay("✗ 保存失败：" + friendlySyncErr(e), "err");
+    }
+  });
+
+  $("#btn-push-test").addEventListener("click", async () => {
+    if (!gate()) return;
+    pushSay("正在发送…");
+    try {
+      const r = await fetch(pushBase() + "/api/notify/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: SC.token,
+          text: "在的呀，我一直都在～这是" + currentChar().name + "发来的测试消息 🌸",
+        }),
+      });
+      const j = await r.json();
+      pushSay(j.ok ? "✓ " + j.msg + "（去微信看看）" : "✗ " + j.msg, j.ok ? "ok" : "err");
+    } catch (e) {
+      pushSay("✗ 发送失败：" + friendlySyncErr(e), "err");
+    }
+  });
+
+  $("#btn-push-del").addEventListener("click", async () => {
+    if (!SC.token) return;
+    if (!confirm("删除推送配置？服务器上的凭证和排期都会清掉。")) return;
+    try {
+      await fetch(pushBase() + "/api/notify?token=" + encodeURIComponent(SC.token), { method: "DELETE" });
+      PC.enabled = false; PC.channel = ""; PC.cfg = {};
+      savePushCfg();
+      $("#push-enable").checked = false;
+      $("#push-channel").value = "";
+      renderPushFields();
+      pushSay("✓ 已删除", "ok");
+      renderPushMeta(null);
+    } catch (e) {
+      pushSay("✗ 删除失败：" + friendlySyncErr(e), "err");
+    }
+  });
+
+  // 进页面时同步一次状态和排期
+  if (gate() && PC.enabled && PC.channel) {
+    setTimeout(async () => {
+      try {
+        const r = await fetch(pushBase() + "/api/notify/stat?token=" + encodeURIComponent(SC.token));
+        renderPushMeta(await r.json());
+      } catch (e) {}
+      uploadSchedule(true);
+    }, 2000);
+  }
+}
+
 /* ================= 端侧模型设置页 =================
  * 启用开关 + 模型选择 + 加载按钮 + 进度/状态。模型只按需加载，
  * 后台自动加载时通过 LocalModel.onProgress 实时刷新状态。 */
@@ -2274,6 +3513,53 @@ function bindLocalModel() {
 }
 
 /* ================= 设置页 ================= */
+/* 同步设置页人设芯片高亮（导入人设后调用） */
+function syncPersonaChips() {
+  const p = S.persona;
+  const tg = $("#tone-group"); if (tg) tg.querySelectorAll(".chip").forEach(c => c.classList.toggle("active", c.dataset.tone === (p.tone || "gentle")));
+  const thg = $("#theme-group"); if (thg) thg.querySelectorAll(".chip").forEach(c => c.classList.toggle("active", c.dataset.theme === (p.theme || "sakura")));
+  const cg = $("#card-group"); if (cg) cg.querySelectorAll(".chip").forEach(c => c.classList.toggle("active", c.dataset.card === (p.card || "xiaonuan")));
+  const gg = $("#gender-group"); if (gg) gg.querySelectorAll(".chip").forEach(c => c.classList.toggle("active", c.dataset.gender === (p.gender || "female")));
+}
+
+/* 人设卡导入/导出（借鉴 coread 的 persona 文件思路）：配置不含记忆，可安全分享 */
+function exportPersona() {
+  const data = {
+    app: "xiaonuan", version: 1, exportedAt: new Date().toISOString(),
+    persona: S.persona, tts: S.tts, voiceName: S.voiceName,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `小暖人设_${S.persona.gender === "male" ? "阿言" : "小暖"}_${S.persona.card}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function importPersona(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!data || data.app !== "xiaonuan" || !data.persona || typeof data.persona !== "object") throw new Error("不是有效的小暖人设卡");
+      const p = data.persona;
+      if (!["female", "male"].includes(p.gender)) throw new Error("缺少有效的性别");
+      S.persona = Object.assign({ gender: "female", tone: "gentle", theme: "sakura", card: "xiaonuan" }, p);
+      if (typeof data.tts === "boolean") S.tts = data.tts;
+      if (typeof data.voiceName === "string") S.voiceName = data.voiceName;
+      save();
+      refreshCharacter();
+      syncPersonaChips();
+      const skin = (Engine.getCard(S.persona).label.split(" · ").slice(1).join(" · ") || Engine.getCard(S.persona).label);
+      const tip = document.createElement("div");
+      tip.className = "msg her sys-tip";
+      tip.innerHTML = `<div class="bubble-wrap"><div class="bubble">（已应用「${currentChar().name} · ${skin}」人设卡 ✨）</div></div>`;
+      $("#chat-body").appendChild(tip); scrollBottom();
+      setTimeout(() => tip.remove(), 2600);
+    } catch (e) { alert("导入失败：" + e.message); }
+  };
+  reader.readAsText(file);
+}
+
 function bindSettings() {
   $("#me-nickname").value = S.nick;
   $("#save-nickname").addEventListener("click", () => {
@@ -2331,6 +3617,9 @@ function bindSettings() {
         tip.innerHTML = `<div class="bubble-wrap"><div class="bubble">（${currentChar().name}换上了「${skinName}」皮肤 ✨）</div></div>`;
         $("#chat-body").appendChild(tip); scrollBottom();
         setTimeout(() => tip.remove(), 2600);
+        // v11 · 即时试听（PRD 5.4⑥ / US-B3）：走规则层现生成一句该卡的示例回复，
+        // 断网、无 Key 同样成立。展示 2.5 秒后自动收起。
+        playCardDemo();
       });
     });
   }
@@ -2419,6 +3708,18 @@ function bindSettings() {
       location.reload();
     }
   });
+
+  // 人设卡导入/导出
+  const expBtn = $("#btn-export-persona"), impBtn = $("#btn-import-persona"), pf = $("#persona-file");
+  if (expBtn) expBtn.addEventListener("click", exportPersona);
+  if (impBtn && pf) {
+    impBtn.addEventListener("click", () => pf.click());
+    pf.addEventListener("change", () => {
+      const f = pf.files && pf.files[0];
+      pf.value = "";
+      if (f) importPersona(f);
+    });
+  }
 }
 
 /* ================= 性别 / 角色切换 ================= */
@@ -2497,12 +3798,56 @@ function bindGender() {
   });
 }
 
+/* ================= 全文聊天搜索 ================= */
+function bindSearch() {
+  const btn = $("#btn-search"), panel = $("#search-panel"), inp = $("#search-input"),
+        close = $("#search-close"), res = $("#search-results");
+  const toggle = (show) => {
+    panel.classList.toggle("hidden", !show);
+    if (show) { inp.value = ""; res.innerHTML = ""; inp.focus(); }
+    else res.innerHTML = "";
+  };
+  btn.addEventListener("click", () => toggle(panel.classList.contains("hidden")));
+  close.addEventListener("click", () => toggle(false));
+  inp.addEventListener("input", () => {
+    const q = inp.value.trim().toLowerCase();
+    if (!q) { res.innerHTML = ""; return; }
+    const hits = [];
+    S.messages.forEach(m => { if (m.text && m.text.toLowerCase().includes(q)) hits.push(m); });
+    if (!hits.length) { res.innerHTML = `<div class="search-empty">没有找到「${esc(q)}」</div>`; return; }
+    res.innerHTML = hits.slice(-50).reverse().map(m => {
+      const idx = S.messages.indexOf(m);
+      return `<div class="search-hit" data-idx="${idx}"><span class="sh-from">${m.from === "me" ? "你" : currentChar().name}</span><span class="sh-text">${esc(m.text)}</span><span class="sh-time">${fmtTime(m.t)}</span></div>`;
+    }).join("");
+    res.querySelectorAll(".search-hit").forEach(el => el.addEventListener("click", () => {
+      toggle(false);
+      document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+      document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+      document.querySelector('.tab[data-page="chat"]').classList.add("active");
+      $("#page-chat").classList.add("active");
+      let target = document.querySelector(`.msg[data-idx="${el.dataset.idx}"]`);
+      if (!target) { renderAllMessages(); target = document.querySelector(`.msg[data-idx="${el.dataset.idx}"]`); }
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        target.classList.add("search-flash");
+        setTimeout(() => target.classList.remove("search-flash"), 1600);
+      }
+    }));
+  });
+}
+
 /* ================= 初始化 ================= */
 function init() {
   // 今日心情
   const today = todayStr();
   if (S.moodDate !== today) {
-    mood = Engine.moodOfDay(today);
+    // v12 · T3/T4：跨天先结算慢层（self 在前——moodTick 要读今天的 self），再由
+    // moodProject 把心境投影成 MOODS 原对象；投影为空则原样兜底 moodOfDay（V-63c）。
+    S.self = Engine.selfTick(S, today, { now: Date.now() });
+    S.moodDay = Engine.moodTick(S, today, { now: Date.now() });
+    // v12 · T6：跨天补一条离线生活痕迹（G3 四校验 + 关系钩子），供 daylife 动机通道引用
+    try { S.dayLife = Engine.dayLifeGen(S, { now: Date.now(), hour: new Date().getHours() }) || S.dayLife; } catch (e) { /* 失败不阻断跨天 */ }
+    mood = Engine.moodProject(S.moodDay) || Engine.moodOfDay(today);
     S.moodDate = today; S.moodKey = mood.key; save();
   } else {
     mood = Engine.MOODS.find(m => m.key === S.moodKey) || Engine.moodOfDay(today);
@@ -2515,16 +3860,29 @@ function init() {
   applyOutfit(S.wardrobe.outfit || "default");
   updateAura();
 
-  bindTabs(); bindInput(); bindActions(); bindSettings(); bindCall(); bindGames(); bindPropose(); bindOutfit(); bindGender();
-  bindVoice(); bindNotify(); bindCloudSave(); bindLocalModel();
+  bindTabs(); bindInput(); bindActions(); bindSettings(); bindCall(); bindGames(); bindPropose(); bindOutfit(); bindGender(); bindSearch(); bindDayDetail();
+  bindVoice(); bindNotify(); bindCloudSave(); bindLocalModel(); bindSync(); bindPush();
+  bindArcUI();
   if (S.localModel.enabled) ensureLocalModelLoaded(); // 后台自动加载，用户打开"我的"时可能已就绪
   maybeConsolidate();
   renderAllMessages();
   refreshAffectionUI();
   refreshStoryUI();
+  refreshRecentUI();
+  refreshNavStatus();
 
   // 离线整理：每天一次；切回页面 / 每 30 分钟顺带检查是否需要整理
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) maybeConsolidate(); });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) maybeConsolidate();
+    else {
+      scheduleReflection();
+      scheduleSyncPush(1200);
+      // 关页面前把未来 3 天要说的话交代给服务器，这样你不开小暖她也能按时找你
+      uploadSchedule(true);
+      // 双向聊天：顺手把脑快照也交代给服务器，微信里她才有「记忆」
+      uploadBrain();
+    }
+  });
   setInterval(maybeConsolidate, 30 * 60000);
 
   // 日记提醒 & 周小结：每 5 分钟检查一次（21-23 点问日记、周日 20-22 点出周小结）

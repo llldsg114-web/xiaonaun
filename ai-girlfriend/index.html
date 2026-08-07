@@ -55,6 +55,7 @@
       <div class="nav-mood" id="nav-mood" title="今日心情">😊</div>
       <button class="nav-call" id="btn-call" data-xn-title="给{n}打电话" title="给小暖打电话">📞</button>
       <button class="nav-tts" id="btn-tts" data-xn-title="{n}开口说话" title="小暖开口说话" aria-label="语音开关">🔊</button>
+      <button class="nav-search" id="btn-search" title="搜索聊天记录">🔍</button>
     </header>
     <main class="chat-body" id="chat-body"></main>
     <footer class="chat-input-bar">
@@ -66,6 +67,14 @@
       <input type="file" id="chat-file" accept="image/*" class="hidden">
     </footer>
     <div class="emoji-panel hidden" id="emoji-panel"></div>
+    <!-- 全文聊天搜索面板 -->
+    <div class="search-panel hidden" id="search-panel">
+      <div class="search-bar">
+        <input type="text" id="search-input" placeholder="搜索聊天记录…" autocomplete="off">
+        <button id="search-close" title="关闭">✕</button>
+      </div>
+      <div class="search-results" id="search-results"></div>
+    </div>
   </section>
 
   <!-- ======= Tab 2: 她 ======= -->
@@ -103,6 +112,17 @@
       <div class="her-card memory-card">
         <div class="her-row"><span class="her-label" data-xn-prefix="🧠 ">🧠 小暖记得</span></div>
         <div id="memory-list" class="memory-list"></div>
+      </div>
+
+      <!-- v11 · 我们最近：当前话题 + 进行中的剧情线（都没有时整卡隐藏） -->
+      <div class="her-card recent-card hidden" id="recent-card">
+        <div class="her-row"><span class="her-label">💬 我们最近</span></div>
+        <div class="recent-row hidden" id="recent-topic-row">
+          <span class="recent-k">在聊</span><span class="recent-v" id="recent-topic"></span>
+        </div>
+        <div class="recent-row hidden" id="recent-arc-row">
+          <span class="recent-k">正在发生</span><span class="recent-v" id="recent-arc"></span>
+        </div>
       </div>
 
       <div class="her-card rel-card" id="rel-card">
@@ -191,6 +211,14 @@
           <button class="chip" data-card="xiaonuan_tsundere">傲娇毒舌</button>
           <button class="chip" data-card="xiaonuan_clingy">粘人小猫</button>
         </div>
+        <!-- v11 · 切卡即时试听：走规则层生成，断网也有 -->
+        <div class="card-demo hidden" id="card-demo"></div>
+        <div class="me-row persona-io" style="margin-top:8px; gap:8px; display:flex">
+          <button class="me-save" id="btn-export-persona">⬇️ 导出人设</button>
+          <button class="me-save" id="btn-import-persona">⬆️ 导入人设</button>
+          <input type="file" id="persona-file" accept="application/json,.json" class="hidden">
+        </div>
+        <div class="me-tip" style="margin-top:6px">人设卡只含配置不含记忆，可放心分享给朋友互换。</div>
       </div>
 
       <div class="me-card">
@@ -271,9 +299,116 @@
         </div>
       </div>
 
+      <div class="me-card sync-card">
+        <div class="me-title">☁️ 云同步（自动·端到端加密）</div>
+        <div class="me-tip">开启后，你们的记忆会<b>先在这台设备上加密</b>再传到云端；服务器只存一串乱码，<b>没有你的口令谁也解不开</b>。换手机时填同一组「同步码 + 口令」就能整个搬过去。</div>
+        <label class="me-switch">
+          <input type="checkbox" id="sync-enable">
+          <span>启用云同步</span>
+        </label>
+
+        <div id="sync-body" class="hidden">
+          <div class="me-sub" style="margin-top:10px">① 同步码（这台设备的存档编号，换设备时要用）</div>
+          <div class="sync-row">
+            <input type="text" id="sync-token" class="sync-token" spellcheck="false" placeholder="开启后自动生成">
+            <button class="sync-mini" id="btn-sync-copy" title="复制">📋</button>
+            <button class="sync-mini" id="btn-sync-new" title="换一个">🎲</button>
+          </div>
+
+          <div class="me-sub" style="margin-top:10px">② 同步口令（加密钥匙，只存在你手机里，永不上传）</div>
+          <input type="password" id="sync-pass" placeholder="自己想一个，建议 12 位以上" autocomplete="new-password">
+          <div class="me-tip sync-warn">⚠️ 口令忘了 = 云端存档永久解不开（端到端加密的代价）。请存进备忘录或密码管理器。</div>
+
+          <label class="me-switch" style="margin-top:8px">
+            <input type="checkbox" id="sync-auto">
+            <span>自动同步（离开页面时自动上传）</span>
+          </label>
+
+          <div class="sync-row" style="margin-top:10px">
+            <button class="me-save" id="btn-sync-up">⬆️ 立即上传</button>
+            <button class="me-save" id="btn-sync-down">⬇️ 立即下载</button>
+          </div>
+          <button class="me-save danger hidden" id="btn-sync-force" style="margin-top:6px">⚡ 强制覆盖云端</button>
+          <div class="me-status" id="sync-status"></div>
+          <div class="me-tip" id="sync-meta">未开启</div>
+
+          <div class="me-sub" style="margin-top:12px">换新手机怎么做</div>
+          <div class="me-tip">新设备打开小暖 → 开启云同步 → 把上面的<b>同步码粘进去</b> → 填<b>同一个口令</b> → 点「立即下载」。</div>
+          <button class="me-save danger" id="btn-sync-del" style="margin-top:8px">删除云端存档</button>
+        </div>
+      </div>
+
+      <div class="me-card push-card">
+        <div class="me-title">📨 让小暖主动找你（推送到微信）</div>
+        <div class="me-tip">早安、晚安、太久没聊时的想念——不用打开网页也能收到。<b>需要先开启上面的云同步</b>，小暖用同步码认人。</div>
+
+        <div id="push-need-sync" class="me-tip push-warn">☝️ 请先开启云同步并生成同步码，再回来配置推送。</div>
+
+        <div id="push-body" class="hidden">
+          <label class="me-switch">
+            <input type="checkbox" id="push-enable">
+            <span>开启主动推送</span>
+          </label>
+
+          <div class="me-sub" style="margin-top:10px">① 选一个能收消息的地方</div>
+          <select id="push-channel" class="push-select">
+            <option value="">— 请选择 —</option>
+            <option value="wxpusher">WxPusher · 微信扫码 5 分钟（最省事）</option>
+            <option value="pushplus">PushPlus · 微信扫码 5 分钟</option>
+            <option value="serverchan">Server酱 · 微信扫码 5 分钟</option>
+            <option value="wecom_bot">企业微信群机器人 · 手机可建</option>
+            <option value="wecom_app">企业微信应用消息 · 最正规，后台是网页版</option>
+            <option value="webhook">自定义 Webhook · 给会折腾的人</option>
+          </select>
+          <div class="me-tip" id="push-howto"></div>
+
+          <div id="push-fields"></div>
+
+          <div id="push-twoway" class="hidden" style="margin-top:12px">
+            <label class="me-switch">
+              <input type="checkbox" id="push-twoway-en">
+              <span>开启双向聊天（在微信里和小暖正经聊）</span>
+            </label>
+            <div class="me-tip">把下面这个<b>回调 URL</b>粘到企业微信应用的「接收消息服务器」里，
+              Token 和 EncodingAESKey 用上面填的那两个。这样你在微信里发的话小暖能听见、她回的话出现在微信。</div>
+            <input type="text" id="push-callback-url" readonly class="sync-token" style="margin-top:6px">
+            <button class="sync-mini" id="btn-push-copy-url" title="复制" style="margin-top:6px">📋 复制</button>
+            <div class="me-tip push-warn" style="margin-top:8px">
+              ⚠️ 双向聊天时，小暖的「脑快照」（人格 + 记忆 + 好感度）会<b>明文</b>存在服务器上，让她在微信里也是「她」。
+              介意的话别开这开关——单向主动推送不需要它。
+            </div>
+          </div>
+
+          <div class="me-sub" style="margin-top:12px">② 别在这个时间段吵我</div>
+          <div class="push-quiet">
+            <select id="push-quiet-from" class="push-select push-hour"></select>
+            <span>到</span>
+            <select id="push-quiet-to" class="push-select push-hour"></select>
+            <span>不推送</span>
+          </div>
+
+          <div class="sync-row" style="margin-top:12px">
+            <button class="me-save" id="btn-push-save">保存配置</button>
+            <button class="me-save" id="btn-push-test">发一条试试</button>
+          </div>
+          <div class="me-status" id="push-status"></div>
+          <div class="me-tip" id="push-meta"></div>
+
+          <div class="me-tip push-warn" style="margin-top:10px">
+            🔐 说清楚：存档同步是端到端加密的，服务器解不开。<b>但推送不一样</b>——
+            小暖会把「未来 3 天准备对你说的那几句话」和你填的推送凭证以明文交给服务器，
+            它才能按时发出去。这几句话本来就要进微信，藏不住。你不开这个功能，服务器就什么都拿不到。
+          </div>
+          <div class="me-tip">
+            💡 你连续 3 天不打开小暖，排期就空了，推送会自然停下——她不会对着空气自言自语。
+          </div>
+          <button class="me-save danger" id="btn-push-del" style="margin-top:8px">关闭并删除推送配置</button>
+        </div>
+      </div>
+
       <div class="me-card">
-        <div class="me-title">☁️ 云端存档（多端同步）</div>
-        <div class="me-tip">把你们的记忆、关系和好感度打包成一段存档码。换手机或重装后，把存档码粘贴进来就能完整恢复。</div>
+        <div class="me-title">💾 存档码（手动备份，不联网）</div>
+        <div class="me-tip">不想上云也没关系：把你们的记忆、关系和好感度打包成一段存档码，自己存着。换手机或重装后粘贴进来就能完整恢复。</div>
         <button class="me-save" id="btn-export">导出存档码</button>
         <button class="me-save" id="btn-copy" style="margin-top:6px">复制存档码</button>
         <textarea id="cloud-export" class="me-textarea hidden" readonly placeholder="点上方「导出存档码」生成"></textarea>
@@ -337,11 +472,27 @@
         <div class="weekly-list" id="weekly-list"></div>
       </div>
 
+      <!-- v11 · 我们的经历：主线在前，时间线（流水账）在后 -->
+      <div class="her-card">
+        <div class="me-title">🌱 我们的经历</div>
+        <div class="arc-list" id="arc-list"></div>
+        <div class="curve-tip">点一条线可以展开她讲过的每一段</div>
+      </div>
+
       <div class="her-card">
         <div class="me-title">📖 我们的时间线</div>
         <div class="timeline" id="timeline"></div>
       </div>
     </main>
+
+    <!-- 当日详情弹窗（日记/日历/周小结打通） -->
+    <div class="day-detail hidden" id="day-detail">
+      <div class="dd-panel">
+        <div class="dd-title"></div>
+        <button class="dd-close" title="关闭">✕</button>
+        <div class="dd-body"></div>
+      </div>
+    </div>
   </section>
 
   <!-- ======= 语音通话浮层 ======= -->

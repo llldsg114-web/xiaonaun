@@ -574,6 +574,9 @@ body::after { width: 55vw; height: 55vw; right: -12vw; bottom: -8vh;
 .tl-body { flex: 1; padding-top: 3px; }
 .tl-text { font-size: 13.5px; line-height: 1.5; }
 .tl-date { font-size: 11px; color: var(--text-light); margin-top: 2px; }
+/* 记忆去重提示：淡化展示，不打扰主线 */
+.tl-item.tl-dup { opacity: .5; }
+.tl-item.tl-dup .tl-text { font-size: 12.5px; }
 
 /* ===== 心情日历 ===== */
 .mood-calendar-wrap { display: flex; flex-direction: column; align-items: center; }
@@ -657,3 +660,227 @@ body::after { width: 55vw; height: 55vw; right: -12vw; bottom: -8vh;
 .gp-avatar svg { width: 88px; height: auto; }
 .gp-name { font-size: 15px; font-weight: 700; color: #444; }
 .gp-desc { font-size: 11.5px; color: #b08; opacity: .8; }
+
+/* ===== Phase 1 新增样式：思考气泡 / 工具卡片 / 搜索 / 当日详情 ===== */
+/* 思考气泡（思考链手感） */
+.bubble.thinking { display: inline-flex; gap: 4px; padding: 12px 14px; }
+.bubble.thinking i { width: 6px; height: 6px; border-radius: 50%; background: #ff9bbd; opacity: .5; animation: blink 1.2s infinite; }
+.bubble.thinking i:nth-child(2) { animation-delay: .2s; }
+.bubble.thinking i:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+
+/* 工具卡片 */
+.tool-card { display: inline-flex; align-items: center; gap: 8px; padding: 9px 13px; border-radius: 16px; background: linear-gradient(135deg, #fff, #fff5fa); border: 1px solid #ffd9e8; box-shadow: 0 3px 10px rgba(255,140,180,.12); font-size: 13px; }
+.tool-ico { font-size: 16px; }
+.tool-label { font-weight: 600; color: #c64b86; }
+.tool-status { font-size: 11px; color: #9bb; padding: 1px 7px; border-radius: 10px; background: #eafaf3; }
+
+/* 全文搜索面板 */
+.nav-search { background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px 6px; opacity: .8; }
+.nav-search:hover { opacity: 1; }
+.search-panel { position: absolute; left: 0; right: 0; bottom: 0; top: 0; background: rgba(255,255,255,.98); display: flex; flex-direction: column; z-index: 30; padding: 10px; }
+.search-bar { display: flex; gap: 8px; }
+.search-bar input { flex: 1; padding: 10px 12px; border: 1.5px solid #ffc6dc; border-radius: 12px; font-size: 14px; outline: none; }
+.search-bar #search-close { width: 40px; border: none; background: #ffe3ee; border-radius: 12px; font-size: 14px; cursor: pointer; }
+.search-results { margin-top: 10px; overflow-y: auto; flex: 1; }
+.search-hit { display: flex; gap: 8px; align-items: baseline; padding: 9px 10px; border-radius: 10px; cursor: pointer; }
+.search-hit:hover { background: #fff0f6; }
+.sh-from { font-size: 11px; color: #fff; background: #ff9bbd; border-radius: 8px; padding: 1px 7px; white-space: nowrap; }
+.sh-text { flex: 1; font-size: 13px; color: #444; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sh-time { font-size: 11px; color: #bbb; white-space: nowrap; }
+.search-empty { text-align: center; color: #bbb; padding: 30px 0; font-size: 13px; }
+.msg.search-flash .bubble { animation: flashBg 1.6s ease; }
+@keyframes flashBg { 0%, 100% { background: #fff; } 30% { background: #fff3b0; } }
+
+/* 人设卡导入导出按钮 */
+.persona-io .me-save { flex: 1; margin: 0; padding: 8px 0; font-size: 13px; }
+
+/* 当日详情弹窗 */
+.day-detail { position: absolute; inset: 0; background: rgba(60,30,50,.35); display: flex; align-items: center; justify-content: center; z-index: 40; }
+.dd-panel { width: min(420px, 88%); max-height: 70%; overflow-y: auto; background: #fff; border-radius: 18px; padding: 18px 20px; position: relative; box-shadow: 0 16px 40px rgba(0,0,0,.18); }
+.dd-title { font-size: 15px; font-weight: 700; color: #444; margin-bottom: 12px; }
+.dd-close { position: absolute; top: 12px; right: 12px; width: 28px; height: 28px; border: none; background: #ffe3ee; border-radius: 50%; cursor: pointer; font-size: 14px; }
+.dd-row { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px dashed #f2d9e5; font-size: 13px; }
+.dd-row:last-child { border-bottom: none; }
+.dd-k { flex: 0 0 56px; color: #c64b86; font-weight: 600; }
+.dd-v { flex: 1; color: #555; line-height: 1.55; }
+
+/* 心情日历格子可点 */
+.mood-cal-day[data-date] { cursor: pointer; transition: transform .12s; }
+.mood-cal-day[data-date]:hover { transform: scale(1.08); box-shadow: 0 2px 8px rgba(255,140,180,.3); }
+
+/* ============ 云同步卡片 ============ */
+.sync-card .me-switch { margin-top: 10px; }
+.sync-row { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.sync-row .me-save { flex: 1; margin: 0; padding: 9px 0; font-size: 13px; }
+.sync-token {
+  flex: 1; min-width: 0; font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px; letter-spacing: .3px;
+}
+.sync-mini {
+  flex: 0 0 auto; width: 36px; height: 36px; border: none; cursor: pointer;
+  background: #ffe3ee; border-radius: 10px; font-size: 15px; line-height: 1;
+}
+.sync-mini:active { opacity: .8; }
+.sync-warn { color: #c25a5a; background: #fff4f4; border-radius: 10px; padding: 8px 10px; margin-top: 6px; }
+#sync-meta { margin-top: 4px; color: #b09aa5; font-size: 11px; }
+#sync-status { word-break: break-word; line-height: 1.5; }
+
+/* ---------- 主动推送设置卡片 ---------- */
+.push-card .push-warn {
+  background: rgba(255, 176, 32, .12);
+  border-left: 3px solid #ffb020;
+  padding: 8px 10px;
+  border-radius: 0 8px 8px 0;
+  margin-top: 8px;
+  line-height: 1.75;
+}
+.push-select {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line, #e6d9dd);
+  background: var(--card, #fff);
+  color: var(--fg, #3a2f33);
+  font-size: 14px;
+  margin-top: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8'><path d='M1 1l5 5 5-5' stroke='%23b09098' stroke-width='1.8' fill='none' stroke-linecap='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+.push-quiet {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted, #9c848b);
+}
+.push-quiet .push-hour {
+  width: auto;
+  flex: 0 0 auto;
+  min-width: 88px;
+  margin-top: 0;
+}
+#push-fields input {
+  width: 100%;
+  padding: 9px 11px;
+  border-radius: 9px;
+  border: 1px solid var(--line, #e6d9dd);
+  background: var(--card, #fff);
+  color: var(--fg, #3a2f33);
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  margin-top: 4px;
+}
+#push-howto {
+  line-height: 1.8;
+  margin-top: 6px;
+}
+#push-howto a { color: var(--accent, #e88ba0); text-decoration: underline; }
+#push-howto code {
+  background: rgba(0, 0, 0, .05);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+#push-meta { line-height: 1.85; margin-top: 6px; }
+#push-status { min-height: 18px; }
+
+/* ============================================================
+   v11 · 对话人格系统升级（T08）
+   原则：不新增 Tab、不改既有信息架构，新样式全部是"加法"。
+   ============================================================ */
+
+/* —— 顶栏话题指示器（复用 #nav-status 的第三态）—— */
+.nav-status.on-topic { color: #fff; opacity: .95; font-weight: 500; letter-spacing: .2px; }
+
+/* —— 剧情气泡：仍是聊天气泡，只加淡色竖条 + 尾注（PRD 5.1②）—— */
+.msg.her.story-bubble .bubble {
+  border-left: 3px solid var(--purple);
+  background: linear-gradient(90deg, rgba(179, 136, 255, .07), var(--bubble-her) 42%);
+}
+.story-foot {
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: var(--purple);
+  opacity: .9;
+  cursor: pointer;
+  user-select: none;
+}
+.story-foot:active { opacity: .6; }
+
+/* —— 危机帮助卡：聊天流内独立系统卡片（非她的气泡、不带头像、不阻断输入，Q4 裁定）—— */
+.msg.safety-wrap { padding: 0 4px; }
+.safety-card {
+  position: relative;
+  width: 100%;
+  border-radius: 14px;
+  padding: 13px 14px 12px;
+  background: #f6f7fb;                 /* 中性系统浅灰蓝，明显区别于小暖粉色气泡 */
+  border: 1px solid #e0e4f0;
+  box-shadow: 0 2px 10px rgba(90, 110, 160, .08);
+}
+.safety-head { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
+.safety-icon { width: 20px; height: 20px; flex-shrink: 0; color: #8a93b8; }
+.safety-tag { font-size: 11px; font-weight: 600; letter-spacing: .4px; color: #8a93b8; }
+.safety-close {
+  margin-left: auto;
+  width: 24px; height: 24px; line-height: 22px;
+  border: none; background: transparent; cursor: pointer;
+  font-size: 18px; color: #b3b8c8;
+}
+.safety-close:active { color: #8a93b8; }
+.safety-title { font-size: 14.5px; font-weight: 600; color: #4a5168; }
+.safety-desc { font-size: 13px; line-height: 1.65; color: #5d647a; margin-top: 5px; }
+.safety-tels { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.safety-tel {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  padding: 7px 10px; border-radius: 9px;
+  background: #fff; border: 1px solid #e8ebf2;
+  text-decoration: none; color: inherit;
+}
+.st-name { font-size: 12.5px; color: #5d647a; }
+.st-num { font-size: 14px; font-weight: 700; color: #5b6cc4; letter-spacing: .5px; }
+.st-note { font-size: 11px; color: #a6acc0; }
+.safety-foot { margin-top: 9px; font-size: 11px; line-height: 1.6; color: #a6acc0; }
+
+/* —— 她页「💬 我们最近」—— */
+.recent-row { display: flex; align-items: center; gap: 10px; font-size: 13.5px; line-height: 1.9; }
+.recent-k { color: var(--text-light); flex: 0 0 52px; font-size: 12.5px; }
+.recent-v { flex: 1; color: var(--text); }
+#recent-arc-row { cursor: pointer; }
+#recent-arc-row:active { opacity: .6; }
+.arc-dots { letter-spacing: 2px; color: var(--pink); font-size: 11px; }
+
+/* —— 故事页「🌱 我们的经历」—— */
+.arc-list { display: flex; flex-direction: column; gap: 10px; }
+.arc-item {
+  border: 1px solid #f2e2e8; border-radius: 12px;
+  padding: 10px 12px; background: #fffafc;
+  transition: box-shadow .3s ease, background .3s ease;
+}
+.arc-item.done { background: #fbf7ff; border-color: #ece2f6; }
+.arc-item.arc-flash { box-shadow: 0 0 0 2px var(--pink-soft); background: #fff2f7; }
+.arc-head { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.arc-ico { font-size: 16px; }
+.arc-name { flex: 1; font-size: 14px; font-weight: 600; }
+.arc-state { font-size: 11.5px; color: var(--text-light); }
+.arc-mem { margin-top: 6px; font-size: 12px; color: var(--text-light); line-height: 1.6; padding-left: 24px; }
+.arc-nodes { margin-top: 9px; display: flex; flex-direction: column; gap: 9px; }
+.arc-node { padding-left: 10px; border-left: 2px solid var(--pink-soft); }
+.arc-node-log { display: block; font-size: 11.5px; color: var(--text-light); }
+.arc-node-text { display: block; font-size: 13px; line-height: 1.65; margin-top: 2px; }
+
+/* —— 我的页 · 人格卡即时试听 —— */
+.card-demo {
+  margin-top: 10px; padding: 10px 12px;
+  border-radius: 12px 12px 12px 3px;
+  background: #fff; border: 1px solid var(--pink-soft);
+  font-size: 13px; line-height: 1.65; color: var(--text);
+  animation: demoIn .22s ease;
+}
+@keyframes demoIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }

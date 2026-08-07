@@ -1,5 +1,5 @@
 /* 小暖 PWA Service Worker —— 缓存应用外壳，支持离线打开 + 触发"安装到主屏幕" */
-const CACHE = "xiaonuan-v6";
+const CACHE = "xiaonuan-v16";   // v16 边缘词补齐：ai_ask 检测 + 回声护栏补 虚拟/数字人/GPT/Siri/算法/电子人/聊天机器人/语言模型/代码/训练/app/bot（带词边界，不误伤正常对话）；必须递增否则老用户拿不到新代码
 const ASSETS = [
   "/", "/index.html", "/style.css", "/engine.js", "/app.js", "/localmodel.js",
   "/manifest.json", "/icon-192.png", "/icon-512.png"
@@ -28,6 +28,8 @@ self.addEventListener("activate", e => {
 
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET") return;
+  // 同步接口一律直连网络，绝不进缓存（否则会读到过期的存档版本）
+  if (new URL(e.request.url).pathname.startsWith("/api/")) return;
   // 优先缓存，回退网络，再回退首页
   e.respondWith(
     caches.match(e.request).then(hit =>

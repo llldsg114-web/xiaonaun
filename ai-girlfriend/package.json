@@ -1,0 +1,14 @@
+{
+  "name": "xiaonuan",
+  "version": "10.0.0",
+  "private": true,
+  "description": "小暖 · AI 恋人 PWA + 端到端加密同步网关",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
