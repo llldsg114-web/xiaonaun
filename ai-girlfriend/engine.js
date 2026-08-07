@@ -141,6 +141,14 @@ const Engine = (() => {
   function safeArr(v) { return Array.isArray(v) ? v : []; }
   function safeObj(v) { return (v && typeof v === "object" && !Array.isArray(v)) ? v : {}; }
 
+  /* v13 模块注册表：缺模块即 null，逐位回落 v12。详见 DESIGN §2.2 */
+  const _mods = Object.create(null);
+  function use(n, m) { if (n && m) _mods[n] = m; return m; }
+  function mod(n) { return _mods[n] || null; }
+
+  /* ★ S0-a 慢层回传：每个出口都要带。详见 DESIGN §1.4 */
+  function stateBack(s) { return { moodDay: s.moodDay, self: s.self, inner: s.inner, voice: s.voice, dayLife: s.dayLife, negGate: s.negGate }; }
+
   /* ---- v12 · M0 安全访问器（R1）。补 migrateState 的三个缺口（老档 self 为 null / 字段
    * 写坏 / bridge 不走迁移）：只读不写、每次返新引用、任何输入不抛错 ---- */
   function intensityOf(state) { return (state && state.intensity === "restrained") ? "restrained" : "real"; }
@@ -2866,8 +2874,12 @@ const Engine = (() => {
     const crisis = detectCrisis(text);
     if (crisis.level !== "none") {
       const pcard = (st.persona && st.persona.tone) ? { tone: st.persona.tone } : getCard(st.persona);
-      return crisisReply(crisis.level, st, Date.now(), rng, pcard);
+      return Object.assign(crisisReply(crisis.level, st, Date.now(), rng, pcard), stateBack(st));
     }
+
+    // v13 ① 在场（危机之后挂载）。详见 DESIGN §3.2
+    const _P = mod("presence"); let presence = null;
+    if (_P && flagOn(st, "presence")) { try { presence = _P.presenceOf(st, { now: Date.now(), rng, lv, text }); } catch (e) { presence = null; } }
 
     // ② 用户情绪（只用于挑句 + 调制冲量，不改 V-A 模型本身）
     const ue = flagOn(st, "empathyVA") ? detectUserEmotion(text) : null;
@@ -2878,12 +2890,17 @@ const Engine = (() => {
 
     // ④ 先在记忆里捞一捞：这轮话题若撞上旧事，自然接起（"记得你说过"）
     // 提前返回的分支也要带上 recentReplies，否则调用方回写时会把去重窗口清成 undefined
-    const rec = recallMemory(text, st);
+    // v13 ② 融入式召回：null → 回落 recallMemory。详见 DESIGN §2.4
+    let rv = null; const _M = mod("memory");
+    if (_M && flagOn(st, "memory2")) { try { rv = _M.recallV2(text, st, { now: Date.now(), rng, lv }); } catch (e) { rv = null; } }
+    const rec = (rv && rv.line)
+      ? { replies: [rv.line], delta: 1, intent: "recall", expression: "happy", moodOverride: null, factId: rv.factId }
+      : recallMemory(text, st);
     if (rec) {
       const guarded = Object.assign({}, rec, { replies: guardPersonaReplies(rec.replies, uname) });
       return Object.assign(
         { intentEx: "recall", ue, topic, recentReplies: recentList(st).slice(0, RECENT_REPLY_MAX) },
-        guarded,
+        stateBack(st), guarded,
       );
     }
 
@@ -3029,7 +3046,18 @@ const Engine = (() => {
     // （不写回也不会崩，只是退化成 v10 的单条去重——旧调用点零改动仍可用）
     const recentReplies = pushRecent(window, tplKey);
 
-    return { replies: guardPersonaReplies(replies, uname), delta, intent, intentEx, expression, moodOverride, recentReplies, ue, topic };
+    // v13 ③ 微行为（只改 replies[0]）+ ④ 节奏。详见 DESIGN §4.3
+    let tx = null; const _T = mod("texture");
+    if (_T && replies.length && flagOn(st, "texture")) {
+      try { tx = _T.texturePass(replies[0], st, { rng, lv, ue, intent, intentEx, crisis: false }); } catch (e) { tx = null; }
+      if (tx && tx.text) replies[0] = tx.text;
+      if (tx && tx.split && tx.split.length) replies.splice(0, 1, ...tx.split);
+    }
+    let pacing = null;
+    if (_P) { try { pacing = _P.pacingOf(text, replies, { st, ue, lv, crisis: false }); } catch (e) { pacing = null; } }
+
+    return Object.assign({ replies: guardPersonaReplies(replies, uname), delta, intent, intentEx, expression, moodOverride, recentReplies, ue, topic,
+      presence: presence || undefined, pacing: pacing || undefined, tx: tx ? { kind: tx.kind } : undefined }, stateBack(st));
   }
 
   /* ---------- 主动消息生成 ---------- */
@@ -3967,5 +3995,7 @@ const Engine = (() => {
     voicePlan,
     jealousAllow, jealousTick, JEALOUS_TRIGGER_RE, ACCUSE_RE, JEALOUS_DISMISS_RE,
     JEALOUS_REPORT_HEAD, JEALOUS_FEEL, JEALOUS_EXIT, JEALOUS_FOLLOWUP, JEALOUS_DISMISS_REPLY,
+    /* v13 注册表 + 共用工具 */
+    use, mod, safeObj, safeArr, flagOn, tokenize, vec, cosine,
   };
 })();

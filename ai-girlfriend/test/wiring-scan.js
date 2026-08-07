@@ -147,4 +147,108 @@ function scan(src) {
   return { rows, dangling, guards: rows.filter((r) => r.guard) };
 }
 
-module.exports = { scan, stripComments, splitExports, collectDefs, callSites, isGuard, ALLOW, ENGINE_PATH };
+/* ================= v13 · 装载拓扑与体积（S0-g） =================
+ * 沿用本文件的同一套哲学：不验证"模块算得对不对"，验证"模块会不会被装进来"。
+ * 一个写得完美但 index.html 没写 <script>、或 sw.js 没进 ASSETS 的模块，
+ * 在 Node 测试里全绿（helpers 走 engine.files.json 拼接），在浏览器里恒缺席。
+ * 两条装载路径必须交叉校验，任何一条漏了都是"线上不生效"。 */
+
+const MANIFEST_PATH = path.join(ROOT, "engine.files.json");
+
+/* 体积配额（DESIGN §11 锁定）。engine.js 只放薄接线，语料/算法必须待在模块里；
+ * 配额写死在这里而不是从文件读，是为了让"改配额"这件事必须走代码评审。 */
+const SIZE_BUDGET = {
+  engineBase: 245737,      // v12 收线时的 engine.js 字节数（T1 基线）
+  engineNetMax: 2048,      // T1 净增硬上限
+  "memory.js": 8192,
+  "presence.js": 4096,
+  "texture.js": 4096,
+  moduleSumMax: 16384,     // 三模块合计
+  totalMax: 272384,        // engine + 三模块 合计天花板
+};
+
+/* 读装载清单。缺文件 → 返回 null，调用方据此判定"退化为单文件模式"。 */
+function loadManifest() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(MANIFEST_PATH, "utf8"));
+    return {
+      order: Array.isArray(cfg.order) ? cfg.order : [],
+      optional: Array.isArray(cfg.optional) ? cfg.optional : [],
+    };
+  } catch (e) { return null; }
+}
+
+/* 从 index.html 抠出 <script src="xxx.js"> 的顺序（只取同目录相对路径，忽略 CDN/绝对 URL）。 */
+function htmlScripts() {
+  const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+  const out = [];
+  const re = /<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    const s = m[1].trim();
+    if (/^(https?:)?\/\//.test(s) || s.startsWith("/")) continue;
+    out.push(s.replace(/^\.\//, ""));
+  }
+  return out;
+}
+
+/* 从 sw.js 抠出 CACHE 版本号与 ASSETS 清单（纯文本，不执行 SW 代码）。 */
+function swManifest() {
+  const src = fs.readFileSync(path.join(ROOT, "sw.js"), "utf8");
+  const mv = src.match(/const\s+CACHE\s*=\s*["']xiaonuan-v(\d+)["']/);
+  const ma = src.match(/const\s+ASSETS\s*=\s*\[([\s\S]*?)\]/);
+  const assets = [];
+  if (ma) {
+    const re = /["']([^"']+)["']/g;
+    let m;
+    while ((m = re.exec(ma[1]))) assets.push(m[1]);
+  }
+  return { version: mv ? parseInt(mv[1], 10) : -1, assets };
+}
+
+/* WR-13 的取证主体：把「清单 / HTML / sw」三方对齐结果算成一张表。 */
+function scanLoaders() {
+  const man = loadManifest();
+  const scripts = htmlScripts();
+  const sw = swManifest();
+  const order = man ? man.order : [];
+  const modules = order.filter((f) => f !== "engine.js");
+  return {
+    manifest: man,
+    scripts,
+    sw,
+    modules,
+    // 清单里声明的每个文件都得真的存在（否则浏览器 404、Node 静默跳过 → 半更新态）
+    missingFiles: order.filter((f) => !fs.existsSync(path.join(ROOT, f))),
+    // HTML 里必须按清单顺序出现（子序列比对：允许 localmodel/app 等夹在后面）
+    htmlOrder: scripts.filter((s) => order.includes(s)),
+    // sw ASSETS 必须逐个覆盖（带 "/" 前缀）
+    missingAssets: order.filter((f) => !sw.assets.includes("/" + f)),
+  };
+}
+
+/* V-90 的取证主体：逐文件字节数 + 三层配额判定。 */
+function scanSizes() {
+  const sizeOf = (f) => {
+    const p = path.join(ROOT, f);
+    return fs.existsSync(p) ? fs.statSync(p).size : 0;
+  };
+  const mods = ["memory.js", "presence.js", "texture.js"];
+  const each = {};
+  for (const f of mods) each[f] = sizeOf(f);
+  const engine = sizeOf("engine.js");
+  const moduleSum = mods.reduce((a, f) => a + each[f], 0);
+  return {
+    each,
+    engine,
+    engineNet: engine - SIZE_BUDGET.engineBase,
+    moduleSum,
+    total: engine + moduleSum,
+    over: mods.filter((f) => each[f] > SIZE_BUDGET[f]),
+  };
+}
+
+module.exports = {
+  scan, stripComments, splitExports, collectDefs, callSites, isGuard, ALLOW, ENGINE_PATH,
+  MANIFEST_PATH, SIZE_BUDGET, loadManifest, htmlScripts, swManifest, scanLoaders, scanSizes,
+};

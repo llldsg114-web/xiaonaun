@@ -1,7 +1,9 @@
 /* 小暖 PWA Service Worker —— 缓存应用外壳，支持离线打开 + 触发"安装到主屏幕" */
-const CACHE = "xiaonuan-v16";   // v16 边缘词补齐：ai_ask 检测 + 回声护栏补 虚拟/数字人/GPT/Siri/算法/电子人/聊天机器人/语言模型/代码/训练/app/bot（带词边界，不误伤正常对话）；必须递增否则老用户拿不到新代码
+const CACHE = "xiaonuan-v17";   // v17 真人感优化：新增 memory/presence/texture 三模块，必须整体换缓存键，否则老用户拿到 v16 的 index.html（无三个 script 标签）配 v17 的 engine.js，模块恒缺席
 const ASSETS = [
   "/", "/index.html", "/style.css", "/engine.js", "/app.js", "/localmodel.js",
+  // v13 三模块：与 engine.files.json 的 order 对齐（WR-13 交叉校验）
+  "/memory.js", "/presence.js", "/texture.js",
   "/manifest.json", "/icon-192.png", "/icon-512.png"
 ];
 

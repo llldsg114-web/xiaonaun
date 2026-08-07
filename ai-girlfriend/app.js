@@ -1067,11 +1067,18 @@ async function herReply(userText, img) {
         dating: S.dating, lastReply: S.lastReply,
         topic: S.topic, recentReplies: S.recentReplies, ue: S.ue,
         safety: S.safety, flags: S.flags,
+        // ★ S0-a：慢层六字段必须入参。缺 moodDay 时 innerLeak 恒判 hint 档；
+        // inner/voice/negGate 缺席时引擎在临时对象上自建，配额与吃醋阶段落不了盘。
+        moodDay: S.moodDay, self: S.self, inner: S.inner,
+        voice: S.voice, dayLife: S.dayLife, negGate: S.negGate,
       });
       result = {
         replies: r.replies, delta: r.delta, expression: r.expression, moodOverride: r.moodOverride,
         intent: r.intent, intentEx: r.intentEx,
         topic: r.topic, recentReplies: r.recentReplies, ue: r.ue, safety: r.safety,
+        moodDay: r.moodDay, self: r.self, inner: r.inner,
+        voice: r.voice, dayLife: r.dayLife, negGate: r.negGate,
+        presence: r.presence, pacing: r.pacing,
       };
     }
 
@@ -1079,6 +1086,21 @@ async function herReply(userText, img) {
     if (result.recentReplies !== undefined) S.recentReplies = result.recentReplies;
     if (result.topic !== undefined) S.topic = result.topic;
     if (result.ue !== undefined) S.ue = result.ue;
+
+    // ★ S0-a 回写：innerLeak/jealousTick 在这些对象上原地写状态，不回写 = 日配额与
+    // 吃醋阶段每轮清零。云端/端侧分支不返这些字段（undefined），逐字段判空即可共用。
+    //
+    // 这里的 save() 不是本回合末尾那次的重复：从这行到末尾之间隔着若干次 await herSay()
+    // （逐条气泡 + 500~1100ms 停顿，整回合可达数秒）。这中间用户刷新页面，或 herSay/TTS
+    // 抛错让末尾 save() 走不到，配额与吃醋阶段就又丢了 —— 正是本次要修的那个洞的窄版。
+    // 状态在这一行就已权威，落盘时机必须跟着它，不能跟着渲染完成。
+    if (result.moodDay !== undefined) S.moodDay = result.moodDay;
+    if (result.self !== undefined) S.self = result.self;
+    if (result.inner !== undefined) S.inner = result.inner;
+    if (result.voice !== undefined) S.voice = result.voice;
+    if (result.dayLife !== undefined) S.dayLife = result.dayLife;
+    if (result.negGate !== undefined) S.negGate = result.negGate;
+    save();
 
     if (result.moodOverride) { mood = result.moodOverride; S.moodKey = mood.key; save(); refreshAffectionUI(); }
 
@@ -1889,10 +1911,24 @@ async function callThink(text) {
       affection: S.affection, nick: S.nick, mood, memory: S.memory, persona: S.persona,
       lastReply: S.lastReply,
       topic: S.topic, recentReplies: S.recentReplies, ue: S.ue, safety: S.safety, flags: S.flags,
+      // ★ S0-a 同源修复（对齐文字链路 :1065）：通话此前只传 11 字段，慢层六字段缺席 →
+      // innerLeak 拿不到 moodDay 恒判 hint 档；inner/voice/negGate 由引擎在临时对象上自建自灭，
+      // 于是「通话期间说的心里话不烧配额」，挂断回文字又从零开始 —— 同一个人格在两条链路上失忆。
+      moodDay: S.moodDay, self: S.self, inner: S.inner,
+      voice: S.voice, dayLife: S.dayLife, negGate: S.negGate,
     });
     if (r.recentReplies !== undefined) S.recentReplies = r.recentReplies;
     if (r.topic !== undefined) S.topic = r.topic;
     if (r.ue !== undefined) S.ue = r.ue;
+    // ★ S0-a 回写：引擎是纯函数，innerLeak/jealousTick 原地写在这些对象上，不回写 =
+    // 日配额与吃醋阶段每轮清零。云端/端侧分支走不到这里，逐字段 `!== undefined` 判空与 :1065 同口径。
+    // 落盘跟着下面那次 save()：它就在本函数同步段内，调用方的 TTS/await 都在其之后。
+    if (r.moodDay !== undefined) S.moodDay = r.moodDay;
+    if (r.self !== undefined) S.self = r.self;
+    if (r.inner !== undefined) S.inner = r.inner;
+    if (r.voice !== undefined) S.voice = r.voice;
+    if (r.dayLife !== undefined) S.dayLife = r.dayLife;
+    if (r.negGate !== undefined) S.negGate = r.negGate;
     S.lastReply = r.replies[r.replies.length - 1]; save();
     return r.replies.join("\n");
   }

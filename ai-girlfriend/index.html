@@ -545,6 +545,11 @@
 </div>
 
 <script src="engine.js"></script>
+<!-- v13 三模块：必须在 engine.js 之后（要 Engine.use 注册），app.js 之前（首轮 reply 就得查到表）。
+     顺序与 engine.files.json 的 order 一致，由 WR-13 交叉校验。缺任一个只是该层不生效，不白屏。 -->
+<script src="memory.js"></script>
+<script src="presence.js"></script>
+<script src="texture.js"></script>
 <script src="localmodel.js"></script>
 <script src="caption.js"></script>
 <script src="app.js"></script>

@@ -9,13 +9,34 @@ const path = require("node:path");
 const ROOT = path.resolve(__dirname, "..");
 const ENGINE_PATH = path.join(ROOT, "engine.js");
 
+/* ---------- S0-c：装载清单唯一真相源 ----------
+ * engine.files.json 的 order 决定 Node 侧拼接顺序，index.html / sw.js 与它对齐（WR-13 交叉校验）。
+ * 缺 json → 退回单文件 engine.js；order 里缺文件 → 跳过该文件（半更新态不白屏）。
+ * optional 内的文件存在才拼，不存在不报错。 */
+function engineSources(root = ROOT) {
+  let list = ["engine.js"];
+  try {
+    const raw = fs.readFileSync(path.join(root, "engine.files.json"), "utf8");
+    const cfg = JSON.parse(raw);
+    if (Array.isArray(cfg.order) && cfg.order.length) list = cfg.order.slice();
+    if (Array.isArray(cfg.optional)) list = list.concat(cfg.optional);
+  } catch (e) { /* 无清单即单文件模式，等价 v12 */ }
+  const out = [];
+  for (const f of list) {
+    const p = path.join(root, f);
+    if (fs.existsSync(p)) out.push(fs.readFileSync(p, "utf8"));
+  }
+  if (!out.length) throw new Error("engineSources: 未找到任何引擎文件");
+  return out.join("\n;\n");
+}
+
 /* ---------- 引擎加载 ----------
  * engine.js 是 `const Engine = (() => {...})()` 结构，模块内没有 export，
  * vm.runInContext 拿不到 const 绑定（const 不挂 globalThis）。
  * bridge/xiaonuan-bridge.js:99 与 openclaw.js:40 都用 `new Function(src + "\nreturn Engine;")()`，
  * 测试层与生产层保持完全一致的加载方式。 */
 function loadEngine() {
-  const src = fs.readFileSync(ENGINE_PATH, "utf8");
+  const src = engineSources(ROOT);
   const E = new Function(`${src}\nreturn Engine;`)();
   if (!E || typeof E.reply !== "function") throw new Error("engine.js 未导出 Engine.reply");
   return E;
@@ -25,7 +46,7 @@ function loadEngine() {
  * 若引擎真的读了 document/window/localStorage/navigator，立即抛错。
  * 这是 V-30 / 工程约束 1 的运行时证据（静态 grep 只能证明文本，不能证明行为）。 */
 function loadEngineTrapped() {
-  const src = fs.readFileSync(ENGINE_PATH, "utf8");
+  const src = engineSources(ROOT);
   const trap = (name) => new Proxy({}, {
     get() { throw new Error(`引擎触碰了浏览器全局: ${name}`); },
     has() { throw new Error(`引擎触碰了浏览器全局: ${name}`); },
@@ -119,6 +140,7 @@ function turn(E, state, text) {
 
 module.exports = {
   ROOT, ENGINE_PATH, CARD_IDS,
+  engineSources,
   loadEngine, loadEngineTrapped, makeRng,
   freshState, legacyStateV10, withCard,
   pct, fmtPct, overlapRate, turn,

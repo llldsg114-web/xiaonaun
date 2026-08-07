@@ -174,3 +174,126 @@ test("WR-09 台阶句过得了人格护栏与出口漏斗", () => {
     }
   }
 });
+
+/* ============ v13 · S0-g 装载拓扑与体积闸门 ============
+ * 命名说明：W-13 在 v12-writeback.test.js 已被「地点语料同名扫描」占用，
+ * 为免两条同号断言在报告里混淆，本条沿用本文件的 WR- 前缀记作 WR-13。
+ *
+ * 为什么装载也要结构性断言：一个写得完美的模块，只要 index.html 漏了 <script>，
+ * 在 Node 测试里依然全绿（helpers 走 engine.files.json 拼接），在浏览器里恒缺席。
+ * 两条装载路径语义不同、必须交叉校验 —— 这正是本文件开篇说的那类盲区。 */
+
+test("WR-13 三模块装载拓扑：engine.files.json / index.html / sw.js 三方对齐", () => {
+  const L = W.scanLoaders();
+
+  // 1) 清单必须存在且以 engine.js 打头 —— 注册表得先建好，模块才能 Engine.use
+  assert.ok(L.manifest, "engine.files.json 缺失（装载真相源丢了）");
+  assert.strictEqual(L.manifest.order[0], "engine.js", "engine.js 必须排在 order 首位");
+  assert.deepStrictEqual(
+    L.manifest.order, ["engine.js", "memory.js", "presence.js", "texture.js"],
+    "order 与 DESIGN §1 约定不符",
+  );
+
+  // 2) 清单声明的文件必须真的在盘上（否则浏览器 404、Node 静默跳过 → 半更新态）
+  assert.deepStrictEqual(L.missingFiles, [], "清单声明但文件不存在：" + L.missingFiles.join(","));
+
+  // 3) index.html 的 <script> 顺序必须与清单逐位一致
+  assert.deepStrictEqual(
+    L.htmlOrder, L.manifest.order,
+    "index.html script 顺序 [" + L.htmlOrder.join(",") + "] ≠ 清单 [" + L.manifest.order.join(",") + "]",
+  );
+
+  // 4) 三模块必须排在 app.js 之前 —— app.js 首轮 reply 就要查得到注册表
+  const scripts = L.scripts;
+  const appAt = scripts.indexOf("app.js");
+  assert.ok(appAt >= 0, "index.html 没有 app.js");
+  for (const f of L.modules) {
+    const at = scripts.indexOf(f);
+    assert.ok(at >= 0 && at < appAt, f + " 必须在 app.js 之前加载（现 idx=" + at + ", app=" + appAt + "）");
+  }
+
+  // 5) sw.js：CACHE 必须 ≥ v17，且 ASSETS 覆盖清单全部文件
+  assert.ok(L.sw.version >= 17, "sw.js CACHE 版本 v" + L.sw.version + " < v17，老用户拿不到三模块");
+  assert.deepStrictEqual(L.missingAssets, [], "sw.js ASSETS 漏了：" + L.missingAssets.join(","));
+});
+
+/* WR-14 是 S0-a 的守门人：S0-a 修的是"引擎改了状态但没告诉宿主"。
+ * 这里不写"某个出口应该返什么"，而写一条对**任意出口**都成立的不变量：
+ *   某个慢层字段这一轮变了 → 它就必须出现在返回值里。没变则允许缺席
+ *   （宿主的 `!== undefined` 守卫会跳过，不会拿 undefined 覆盖旧值）。
+ * 这样 T2–T5 无论新增出口、还是把 presenceOf 挪到危机之前，破了约束就自己红。
+ *
+ * 变异测试结论（务必保留，别把它当成比实际更强的保护）：
+ *   · 摘掉正常出口的 stateBack（= 修复前的 v12 行为）→ 180/180 采样全部被抓 ✓
+ *   · 摘掉 recall 出口的 stateBack → 31 次命中一次都抓不到。
+ *     原因是 innerLeak/jealousTick 都排在 recall 提前返回之后，该出口今天确实不改这六个字段，
+ *     引擎里那处 stateBack 是给 T2 的 recallV2 预留的防御，不是在修一个活缺陷。
+ *     T2 若让 recallV2 写了慢层，这条断言才会真正开始守 recall 出口。 */
+test("WR-14 [S0-a 不变量] reply() 每个出口：要么回传全部慢层字段，要么根本没改过它们", () => {
+  const SIX = ["moodDay", "self", "inner", "voice", "dayLife", "negGate"];
+  // 覆盖三个出口：危机短路 / 记忆召回 / 正常模板
+  const probes = [
+    ["crisis", "我不想活了"], ["crisis", "活着好没意思，想结束这一切"],
+    ["recall", "你还记得我喜欢草莓蛋糕吗"], ["recall", "我跟你说过我升职了"],
+    ["normal", "你今天心情怎么样"], ["normal", "我好累啊"],
+    ["normal", "你是不是跟别人聊天了"], ["normal", "你怎么这么烦"],
+  ];
+  const exits = new Set();
+  let checked = 0;
+  for (let seed = 1; seed <= 60; seed++) {
+    for (const [, text] of probes) {
+      const st = H.freshState({ rng: H.makeRng(seed), affection: 300 });
+      st.firstMeet = Date.now() - 100 * 86400000;
+      st.memory = { userName: "阿明", likes: ["草莓蛋糕", "看电影"], events: [{ t: "升职", at: Date.now() - 5 * 86400000 }] };
+      st.moodDay = { date: "x", vBias: 0.2, aBias: 0, energy: 0.7, focus: 0.6, carry: 0, patched: false };
+      st.inner = { dayCount: 0, date: null, lastAt: 0 };
+      st.voice = { lastMotiveAt: {}, dismissed: {}, jealousStage: 0, jealousAt: 0 };
+      st.negGate = { date: null, count: 0, lastByFamily: {}, streak: 0 };
+
+      const ref = {}, deep = {};
+      for (const k of SIX) { ref[k] = st[k]; deep[k] = JSON.stringify(st[k]); }
+
+      const r = E.reply(text, st);
+      exits.add(r.intentEx === "crisis" ? "crisis" : (r.intentEx === "recall" ? "recall" : "normal"));
+      checked++;
+
+      // 逐字段判定（不是整体二选一）：某字段变了，它就必须出现在返回值里。
+      // 未变的字段返 undefined 是合规的 —— 宿主的 `!== undefined` 守卫会跳过，不覆盖旧值。
+      for (const k of SIX) {
+        const changed = st[k] !== ref[k] || JSON.stringify(st[k]) !== deep[k];
+        if (!changed) continue;
+        assert.notStrictEqual(r[k], undefined,
+          `出口 ${r.intentEx} 改了 st.${k} 却没回传 → 宿主落不了盘（seed ${seed}，输入「${text}」）`);
+        assert.strictEqual(JSON.stringify(r[k]), JSON.stringify(st[k]),
+          `出口 ${r.intentEx} 回传的 ${k} 与引擎实际写入的不一致（seed ${seed}）`);
+      }
+    }
+  }
+  // 探针本身得真的覆盖到三个出口，否则这条断言是空转的
+  assert.ok(exits.has("crisis"), "探针没覆盖到 crisis 出口");
+  assert.ok(exits.has("recall"), "探针没覆盖到 recall 出口");
+  assert.ok(exits.has("normal"), "探针没覆盖到 normal 出口");
+  assert.ok(checked >= 400, "采样量不足：" + checked);
+});
+
+test("V-90 三层体积配额：模块各自达标 + 合计达标 + engine.js 净增 ≤2048B", () => {
+  const S = W.scanSizes();
+  const B = W.SIZE_BUDGET;
+
+  // 逐模块：语料/算法必须待在自己的预算里，不许互相挤占
+  for (const f of ["memory.js", "presence.js", "texture.js"]) {
+    assert.ok(S.each[f] > 0, f + " 不存在或为空");
+    assert.ok(S.each[f] <= B[f], f + " = " + S.each[f] + "B > 配额 " + B[f] + "B");
+  }
+
+  // 合计：防"三个都刚好卡线"叠出来的总量失控
+  assert.ok(S.moduleSum <= B.moduleSumMax,
+    "三模块合计 " + S.moduleSum + "B > " + B.moduleSumMax + "B");
+
+  // engine.js 净增：T1 只许放薄接线与注册表，语料/算法一律搬进模块
+  assert.ok(S.engineNet <= B.engineNetMax,
+    "engine.js 净增 " + S.engineNet + "B > " + B.engineNetMax + "B（语料/算法请搬进模块）");
+
+  // 天花板：与 V-33 的 HEAD 增量闸门互为双保险
+  assert.ok(S.total <= B.totalMax, "引擎总量 " + S.total + "B > " + B.totalMax + "B");
+});

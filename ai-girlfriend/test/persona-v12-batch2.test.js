@@ -15,7 +15,10 @@ const H = require("./helpers.js");
 
 const E = H.loadEngine();
 const DAY = 86400000;
-const now0 = Date.now();
+// S0-b：钉死到「今天本地 09:00」。裸 Date.now() 时 V-55 第三次探针（+182min）在
+// 22:58 之后会跨本地午夜，innerLeak 按 dayKey 判日 → 合法重置配额，ok 得 3 而非 2。
+// 钉在 09:00 后最远只到 12:02，恒不跨日；仍属"今天"，其余用例的相对时间语义不变。
+const now0 = (() => { const d = new Date(); d.setHours(9, 0, 0, 0); return d.getTime(); })();
 
 /* ============ T6 · 离线生活 + G3 ============ */
 

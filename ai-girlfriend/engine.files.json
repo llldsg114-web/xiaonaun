@@ -1,0 +1,5 @@
+{
+  "order": ["engine.js", "memory.js", "presence.js", "texture.js"],
+  "optional": ["contingency.js"],
+  "note": "v13 唯一装载真相源。依赖序即装载序，禁止调整：engine 最先（提供工具与注册表），texture 最后（消费 memory 与 presence）。Node 侧三处装载点直接读本文件；index.html / sw.js 只能静态展开，由 test/v12-wiring.test.js 的 WR-13 断言（扫描逻辑在 test/wiring-scan.js）逐项锁死漂移。order 缺一即降级（运行时注册表兜底），optional 允许缺失。"
+}
