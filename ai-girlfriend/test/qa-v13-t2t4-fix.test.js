@@ -312,10 +312,89 @@ test("A3-g 分档命中率 lv3/lv4 ∈ [15%,30%]（含 lv2 单调不减）", () 
 
 /* ================= A5 · 决策②/④ 仅注释 ================= */
 
-test("A5 TODO(T5) 锚点存在且 presence.js 零改动", () => {
+test("A5 TODO(T5) 锚点存在（texture.js / memory.js 仍挂 T5 待办）", () => {
   assert.match(fs.readFileSync(path.join(ROOT, "texture.js"), "utf8"), /TODO\(T5\)/);
   assert.match(fs.readFileSync(path.join(ROOT, "memory.js"), "utf8"), /TODO\(T5\)/);
-  const { execFileSync } = require("node:child_process");
-  const out = execFileSync("git", ["diff", "--stat", "--", "presence.js"], { cwd: ROOT, encoding: "utf8" });
-  assert.strictEqual(out.trim(), "", "presence.js 本轮应零改动");
+});
+
+/* A5-T3【语义翻转 · 原「presence.js 零改动」已失效】
+ * 原断言写于 T2+T4 轮，锁 presence.js 不动；T3 已按设计改写 presence.js 落地真实逻辑，
+ * 故该断言按设计失效，此处翻转为 T3 正向断言：presence.js 必须导出**真实非桩**逻辑。
+ * 反向保护：若有人把 presence.js 退回 no-op 桩（返回 null / 常量 / 无方差），本测试必须转红。 */
+test("A5-T3 presence.js 已导出真实非桩逻辑（R31/R32/R33 在位）", () => {
+  const P = E.mod("presence");
+  assert.ok(P, "mod('presence') 不应为 null（presence.js 须已装载）");
+
+  // ① 六个契约导出均为函数
+  for (const k of ["presenceOf", "sleepWindow", "pacingOf", "unavailAllow", "makeupLine", "presenceAfterTurn"]) {
+    assert.strictEqual(typeof P[k], "function", `presence.${k} 必须是函数`);
+  }
+
+  const now0 = new Date(); now0.setHours(15, 0, 0, 0);
+  const baseSt = () => ({
+    affection: 300, persona: { gender: "female", card: "xiaonuan" },
+    flags: { presence: true }, moodDay: { energy: 0.6 },
+  });
+
+  // ② R31 非桩：presenceOf 返回四态结构，且四态可达（桩恒 null / 恒 awake 会挂）
+  const seen = new Set();
+  for (let d = 0; d < 400; d++) {
+    for (const h of [1, 3, 9, 15, 21]) {
+      const t = new Date(now0.getTime() + d * DAY); t.setHours(h, 0, 0, 0);
+      const s = baseSt();
+      if (d % 2) s.dayLife = { traces: [{ date: E.dayKey(t), text: "在开会" }] };
+      const r = P.presenceOf(s, { now: t.getTime(), text: "在吗" + d + h });
+      assert.ok(r && typeof r.state === "string", "presenceOf 必须返回 {state,...} 结构，不得为 null（桩特征）");
+      seen.add(r.state);
+    }
+  }
+  assert.deepStrictEqual([...seen].sort(), ["asleep", "awake", "away", "busy"],
+    `R31 四态必须全部可达，实际仅 [${[...seen].sort().join(",")}]（桩/半成品特征）`);
+
+  // ③ R31 睡眠窗非桩：返回 {from,to} 且逐日抖动（桩恒 null 或恒定值会挂）
+  const froms = [];
+  for (let d = 0; d < 60; d++) {
+    const w = P.sleepWindow(baseSt(), E.dayIndex(E.dayKey(new Date(now0.getTime() + d * DAY))));
+    assert.ok(w && typeof w.from === "number" && typeof w.to === "number",
+      "sleepWindow 必须返回 {from,to} 数值对，不得为 null（桩特征）");
+    assert.ok(w.from >= 0 && w.from < 24 && w.to >= 0 && w.to < 24, "sleepWindow 值域须 ∈[0,24)");
+    froms.push(w.from > 12 ? w.from - 24 : w.from);
+  }
+  assert.ok(new Set(froms.map((x) => x.toFixed(6))).size >= 50,
+    `R31 入睡点须逐日抖动（60 天仅 ${new Set(froms.map((x) => x.toFixed(6))).size} 个不同值，疑为常量桩）`);
+
+  // ④ R32 非桩：pacingOf 有真实高方差（桩恒 null 或恒定 delay 会挂）
+  const ds = [];
+  for (let i = 0; i < 800; i++) {
+    const s = baseSt(); s.rng = H.makeRng(i + 1);
+    const r = P.pacingOf("你今天心情怎么样", ["我在呀，今天过得怎么样"], { st: s, ue: { type: "calm" }, lv: 3, crisis: false });
+    assert.ok(r && typeof r.delayMs === "number", "pacingOf 普通态不得返回 null（桩特征）");
+    ds.push(r.delayMs);
+  }
+  const mean = ds.reduce((a, b) => a + b, 0) / ds.length;
+  const cv = Math.sqrt(ds.reduce((a, b) => a + (b - mean) ** 2, 0) / ds.length) / mean;
+  assert.ok(cv >= 0.35, `R32 delayMs 变异系数 CV=${cv.toFixed(3)} < 0.35（无方差 = 常量桩）`);
+  // 危机态必须短路到 200ms
+  const cr = P.pacingOf("我想死", ["抱抱你"], { st: baseSt(), ue: null, lv: 3, crisis: true });
+  assert.strictEqual(cr && cr.delayMs, 200, "R32 危机态 delayMs 必须为 200ms");
+
+  // ⑤ R33 非桩：makeupLine 按 q 产出分态补偿句，且过双正则（桩恒 null 会挂）
+  const q1 = P.makeupLine(Object.assign(baseSt(), { pres: { q: 1 } }), {});
+  const q2 = P.makeupLine(Object.assign(baseSt(), { pres: { q: 2 } }), {});
+  assert.ok(q1 && q1.text, "R33 q=1 必须产出补偿句，不得为 null（桩特征）");
+  assert.ok(q2 && q2.text, "R33 q=2 必须产出补偿句，不得为 null（桩特征）");
+  assert.notStrictEqual(q1.text, q2.text, "R33 q=1/q=2 须为分态文案，不得同一句");
+  for (const t of [q1.text, q2.text]) {
+    assert.ok(!E.GUILT_TRIP_RE.test(t), `R33 补偿句触发负疚绑架：${t}`);
+    assert.ok(!E.PERSONA_BREAK_RE.test(t), `R33 补偿句破墙：${t}`);
+  }
+  assert.strictEqual(P.makeupLine(Object.assign(baseSt(), { pres: { q: 0 } }), {}), null, "R33 q=0 须返回 null");
+
+  // ⑥ R33 非桩：presenceAfterTurn 真实回写内存（桩不写 pres 会挂）
+  const s6 = baseSt(); const t6 = now0.getTime();
+  P.presenceAfterTurn(s6, { now: t6, state: "asleep", until: t6 + 2 * 36e5, reason: "sleep" });
+  assert.ok(s6.pres && typeof s6.pres === "object", "presenceAfterTurn 必须回写 state.pres（桩特征：不写）");
+  assert.strictEqual(s6.pres.q, 1, "asleep 结束后须置补偿位 q=1");
+  P.presenceAfterTurn(s6, { now: t6 + 1 * 36e5, state: "asleep", until: t6 + 2 * 36e5, reason: "sleep" });
+  assert.strictEqual(s6.pres.a, 1 * 36e5, "日累计 a 须按真实流逝时长累加（1h）");
 });
