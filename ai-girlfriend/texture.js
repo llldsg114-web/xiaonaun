@@ -1,5 +1,4 @@
-/* v13 texture.js T4 · §2.5 · R28门禁→R29微行为→R30频率；破墙即回退原句 | V-90 ≤5120B
-   T5a：R30 基频 .2→.25＋ramp 梯度（遗留-4）；ctx.nosplit 供 memory 走查表调用。*/
+/* 小暖 texture.js · §2.5 · R28门禁→R29微行为→R30频率 · 破墙即回退原句 · V-90 ≤5120B */
 (function (E) {
 "use strict";
 if (!E || typeof E.use !== "function") return;
@@ -24,8 +23,6 @@ function textureAllow(state, ctx) {
   if (N(E.UE_POLARITY[ue.type], 0) < 0 && N(E.UE_AROUSAL[ue.type], 0) > .3) return OFF;   // ④ 负向高唤醒
   const day = Math.floor(now / DAY), fresh = N(tex.d, -1) === day;   // ⑥ 配额冷却
   if (fresh && N(tex.n, 0) >= CAP) return OFF;
-  /* 遗留-4：原 .75+.2(lv-1) 三档挤在 16~18% 一条线。改 .6+.2(lv-1)＋基频 .25 拉出梯度，
-     且 lv2 水位不降反升（.95×.2 → .8×.25），R2 提的 lv2 贴下限一并缓解。*/
   return { ok: true, banTypo: !!(fresh && N(tex.ty, 0) >= TYCAP) || N(tex.t, 0) - N(tex.tyAt, -99) < 20,
    ramp: Math.min(1, .6 + .2 * (lv - 1)), en: ue.type === "tired" ? .8 : 1 };
  } catch (e) { return OFF; }
@@ -37,10 +34,10 @@ function build(k, t, st, rng) {
  if (k === "fix") return { text: t.slice(0, 3) + "…嗯，" + t };
  if (k === "frag") { const i = t.search(CUT);
   return (i > 0 && i < t.length - 2) ? { split: [t.slice(0, i + 1), t.slice(i + 1)] } : null; }
- if (k === "typo") {   // 白名单必自纠
+ if (k === "typo") {
   for (const p of TYPO_TABLE) if (t.indexOf(p[0]) >= 0) return { text: t.replace(p[0], p[1]) + "  *" + p[0] };
   return null; }
- if (k === "drift") { const tr = String(O(st.dayLife).trace || "");   // 须挂已落地 trace
+ if (k === "drift") { const tr = String(O(st.dayLife).trace || "");
   return tr ? { text: t + "…啊对了，" + tr } : null; }
  return null;
 }
@@ -51,21 +48,21 @@ function texturePass(text, state, ctx) {
   const st = O(state), c = O(ctx), g = textureAllow(st, c);
   if (!g.ok || E.detectCrisis(t).level !== "none") return null;
   const rng = RG(c);
-  if (!CW(.25 * g.ramp * g.en, rng)) return null;   // R30 频率（遗留-4：基频 .2→.25）
-  const pool = ["hes", "tic", "fix"], ci = t.search(CUT);   // 只把可用类入池，空转会掉出命中带
-  if (!c.nosplit && ci > 0 && ci < t.length - 2) pool.push("frag");   // 无切点不入池；nosplit＝只收单条
+  if (!CW(.25 * g.ramp * g.en, rng)) return null;
+  const pool = ["hes", "tic", "fix"], ci = t.search(CUT);
+  if (!c.nosplit && ci > 0 && ci < t.length - 2) pool.push("frag");
   if (O(st.dayLife).trace) pool.push("drift");
   if (!g.banTypo && !KEY.test(t) && TYPO_TABLE.some((p) => t.indexOf(p[0]) >= 0)) pool.push("typo");   // ⑤ 关键信息禁错字；无白名单词不入池
   const k = PW(pool, rng), r = build(k, t, st, rng);
   if (!r) return null;
   const full = r.text || (r.split || []).join("");
-  if (!full || full.length > 140 || E.PERSONA_BREAK_RE.test(full)) return null;   // 破墙回退原句
+  if (!full || full.length > 140 || E.PERSONA_BREAK_RE.test(full)) return null;
+  O(st.tex).hAt = N(O(st.tex).t, 0);   // v14 R-S1 门③：本轮质感已命中的唯一同轮信号（tex.t 只在 afterTurn 自增，故 hAt===t ⟺ 本轮）
   return { text: r.text || "", kind: k, split: r.split || null };
  } catch (e) { return null; }
 }
 
-/* R30 回写补丁 → 宿主落盘后配额才生效。待决点④ 已闭环：engine 冻结不加调用点，由 app.js 在
-   reply() 末尾经 Engine.mod("texture") 查表调用并写回 state.tex（见 app.js「v13 待决点④」段）。*/
+/* R30 回写契约：engine 冻结不加调用点，由 app.js 在 reply() 末尾经 mod("texture") 查表回写 state.tex */
 function textureAfterTurn(state, hit) {
  try {
   const tex = O(O(state).tex), day = Math.floor(Date.now() / DAY), fresh = N(tex.d, -1) === day;

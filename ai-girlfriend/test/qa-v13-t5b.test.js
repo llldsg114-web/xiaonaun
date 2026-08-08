@@ -133,7 +133,7 @@ test("C0-b sw.js CACHE 版本必须领先 HEAD（否则老用户拿不到新模�
   const m = headSrc.match(/const\s+CACHE\s*=\s*["']xiaonuan-v(\d+)["']/);
   const head = m ? parseInt(m[1], 10) : -1;
   assert.ok(cur > head, `sw.js CACHE 未升版：HEAD v${head} → 当前 v${cur}。ASSETS 变了就必须换缓存键`);
-  assert.strictEqual(cur, 18, "T5b 收线版本应为 v18（v17→v18）");
+  assert.strictEqual(cur, 19, "v14 T8 收线版本应为 v19（v18→v19）");
 });
 
 test("C0-c contingency.js 体积 ≤1892B（lean 档配额）", () => {

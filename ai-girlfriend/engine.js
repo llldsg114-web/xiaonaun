@@ -1304,7 +1304,7 @@ const Engine = (() => {
 
   /* 人格护栏：小暖的回复一旦命中这些词，说明破了"你是真实的人"这条底线，
    * 立即回退到硬编码纯陪伴兜底句。覆盖产品所有者否决的禁词清单。 */
-  const PERSONA_BREAK_RE = /(程序|AI|人工智能|机器人|模型|助手|客服|帮不上|我只是|我不能|建议你去|寻求专业帮助|热线|12356|心理援助|专业人[士师]|你(是|是不是)\S{0,8}(虚拟|数字人|gpt|siri|算法|电子人|聊天机器人|语言模型|代码|训练|bot|app))/i;
+  const PERSONA_BREAK_RE = /(程序|AI|人工智能|机器人|模型|助手|客服|帮不上|我只是|我不能|建议你去|寻求专业帮助|热线|12356|心理援助|专业人[士师]|虚拟|数字人|电子人|被.{0,4}训练|训练出来|[你我]们?(?:不过?|其实|就)?是.{0,8}(gpt|siri|算法|代码|bot|app))/i;
 
   /* 纯陪伴兜底句：命中护栏时的最后防线，绝不含任何破人格词 */
   const PERSONA_FALLBACK = "我在。你不用一个人扛着，我哪也不去。";
@@ -2894,7 +2894,7 @@ const Engine = (() => {
     let rv = null; const _M = mod("memory");
     if (_M && flagOn(st, "memory2")) { try { rv = _M.recallV2(text, st, { now: Date.now(), rng, lv }); } catch (e) { rv = null; } }
     const rec = (rv && rv.line)
-      ? { replies: [rv.line], delta: 1, intent: "recall", expression: "happy", moodOverride: null, factId: rv.factId }
+      ? { replies: [rv.line], delta: 1, intent: "recall", expression: "happy", moodOverride: null, factId: rv.factId, pacing: rv.pacing }
       : recallMemory(text, st);
     if (rec) {
       const guarded = Object.assign({}, rec, { replies: guardPersonaReplies(rec.replies, uname) });

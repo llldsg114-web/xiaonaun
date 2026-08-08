@@ -1,5 +1,5 @@
 /* 小暖 PWA Service Worker —— 缓存应用外壳，支持离线打开 + 触发"安装到主屏幕" */
-const CACHE = "xiaonuan-v18";   // v18 T5b：新增 contingency.js。同 v17 的道理——只要 index.html 的 script 清单变了就必须整体换缓存键，否则老用户拿到旧 index.html（无该 script 标签）配新 engine.js，模块恒缺席
+const CACHE = "xiaonuan-v19";   // v19 T8 收线：ASSETS 清单未变，但 engine/memory/texture/presence/contingency 五个文件全部改过（R-P0 破墙补洞 · R-P2 召回补两层 · R-C4 反呛 · R-S1 自我表达）。缓存键不换＝老用户 fetch 命中旧缓存，新旧模块混装 —— 这正是 v13 C0-b 事故的成因，故只要任一被缓存文件的内容变了就升版，不只是清单变了才升
 const ASSETS = [
   "/", "/index.html", "/style.css", "/engine.js", "/app.js", "/localmodel.js",
   // v13 三模块：与 engine.files.json 的 order 对齐（WR-13 交叉校验）

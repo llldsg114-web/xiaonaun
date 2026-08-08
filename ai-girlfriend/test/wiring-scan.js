@@ -172,15 +172,37 @@ const MANIFEST_PATH = path.join(ROOT, "engine.files.json");
  *         使 T5b 的 contingency.js 有满额 contingency 空间；天花板 totalMax 本身**一个字节都没动**。
  *     memory/presence/texture 三项配额本轮**不动** —— A6-b 的 tex.n 回写必须靠 memory.js 内部等量
  *     trim 自筹字节，不许用"顺手抬配额"绕过。 */
+/*   · v14 体积决议轮（R-B0，路径 C「trim + 抬天花板」组合）：
+ *     totalMax 272384→276480 / engineNetMax 2060→2200 / moduleSumMax 24643→28525 /
+ *     contingency.js 1892→4096，由主理人 Qi 于 v14 立项评审批准（D-1 / D-2）；
+ *     moduleSumMax 取值由架构师依算术勘误裁定为 28525，并经主理人 U-1 追认。
+ *     ★ 这是 v13「266KB 硬约束」被**有意放宽**的一次 deliberate 决策，经天花板评审，非失守。
+ *     四项各有精确来源，不是「拍脑袋加一点」：
+ *       - totalMax +4096（266KB→270KB）：本期需求池估算上限 3.2KB，trim 后仍需的最小增量。
+ *         前置义务已履行：先执行 T1 trim（memory 14326→12711 / texture 4850→4194，共 −2271B），
+ *         天花板抬升只是「已尽全力压缩后仍需的部分」，用于对冲 PRD §5.4 指出的棘轮效应。
+ *         trim 验收口径是机器断言：剥注释 + 去空白后代码体与 trim 前**逐位一致**（sha256 同值），
+ *         被删注释原样迁入 DESIGN-v14 §13 注释档案（文档不计入体积预算，见 S-12）。
+ *       - engineNetMax +140：**第二把独立锁**。trim 模块对 engine net 零帮助（两者是独立配额），
+ *         而 R-P0（:1307 +16B）与 R-P2（:2897 +19B）必须改 engine.js，v13 余量仅 4B。
+ *         实占 +35B，留 105B。V-33 ≤247955 同时锁死，两把锁谁先响都算越界。
+ *       - moduleSumMax = totalMax − V33 = 276480 − 247955 = 28525。
+ *         ★ 不是 276480 − 247793（当前 engine 体积）= 28687：后者会让
+ *         engineBase + engineNetMax + moduleSumMax 之和越过 totalMax 162B，
+ *         被 A1-a 的结构性断言判红。取 28525 保证三锁自洽（打满时 total 恰等于 276480）。
+ *       - contingency.js 1892→4096：恢复 v13 §2.6 原始规划配额。R-C4/R-C5/R-S1 三项
+ *         全部落此模块（PRD N3 不新建模块文件，避免装载序 + 缓存键的 C0-b 同族事故）。
+ *     memory/presence/texture 三项配额本轮**不动** —— trim 已腾出足够空间，
+ *     不许用「顺手抬配额」绕过 trim 义务。 */
 const SIZE_BUDGET = {
-  engineBase: 245737,      // v12 收线时的 engine.js 字节数（T1 基线）
-  engineNetMax: 2060,      // 改配额必须走代码评审 · 主理人 Qi 于 v13 T5b 批准 2048→2060（A6-a 解冻 :1322）
-  "memory.js": 14336,      // 改配额必须走代码评审 · 主理人 Qi 于 v13 T5a 集成修复轮批准 12288→14336
-  "presence.js": 4096,
-  "texture.js": 5120,      // 改配额必须走代码评审 · 主理人 Qi 于 v13 T5a 集成修复轮批准 4608→5120
-  "contingency.js": 1892,  // 改配额必须走代码评审 · 主理人 Qi 于 v13 T5b 批准新建（lean 档，只做 R-C1~C3）
-  moduleSumMax: 24643,     // 改配额必须走代码评审 · 主理人 Qi 于 v13 T5b 批准 24576→24643 · 四模块合计
-  totalMax: 272384,        // engine + 四模块 合计天花板（系统级天花板不变，T5b 新模块吃这里的余量）
+  engineBase: 245737,      // 反向保护项，永不许动（v12 收线时的 engine.js 字节数）
+  engineNetMax: 2200,      // 改配额必须走代码评审 · 主理人 Qi 于 v14 批准 2060→2200（R-P0 :1307 / R-P2 :2897）
+  "memory.js": 14336,      // v14 不动（trim 后 12711；T3 −6 / T4 +460 后余量仍充裕）
+  "presence.js": 4096,     // v14 零改动
+  "texture.js": 5120,      // v14 不动（trim 后 4194，余 926）
+  "contingency.js": 4096,  // 改配额必须走代码评审 · 主理人 Qi 于 v14 批准 1892→4096（R-C4/C5/S1 三项载体）
+  moduleSumMax: 28525,     // 改配额必须走代码评审 · 主理人 Qi 于 v14 批准 24643→28525 = totalMax − V33（U-1 追认）
+  totalMax: 276480,        // 改天花板必须走代码评审 · 主理人 Qi 于 v14 批准 272384→276480（266KB→270KB）
 };
 
 /* 读装载清单。缺文件 → 返回 null，调用方据此判定"退化为单文件模式"。 */
