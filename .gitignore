@@ -16,3 +16,7 @@ ai-girlfriend/wecom_crypto.js
 # 仓库根目录两个微信聊天记录 dump（git 能正确识别其中文名，显式屏蔽防误提交）
 微信_*.md
 微信_聊天记录*.md
+
+# 微信 聊天记录 dump (GBK 文件名，UTF-8 通配失效，用 GBK 字节匹配)
+΢��_*.md
+΢��_�����¼*.md
