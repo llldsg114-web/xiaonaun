@@ -194,16 +194,54 @@ const MANIFEST_PATH = path.join(ROOT, "engine.files.json");
  *         全部落此模块（PRD N3 不新建模块文件，避免装载序 + 缓存键的 C0-b 同族事故）。
  *     memory/presence/texture 三项配额本轮**不动** —— trim 已腾出足够空间，
  *     不许用「顺手抬配额」绕过 trim 义务。 */
+/*   · v15 R-C5 落地轮：contingency.js 4096→4973，**且仅此一项**，
+ *     由主理人 Qi 于 v15 立项评审批准（裁定 U-3）。取值有精确推导，不是「拍脑袋加一点」：
+ *       - 必要性：v14 交付态 contingency.js = 4086B，距 4096 仅余 10B。R-C5（c4 好奇追问 /
+ *         c5 共同回忆 + :43 选择器 find→PW(filter) 修复）实测净增 428B → 落地 4514B，
+ *         原配额必红。PRD 估算值是 420B，实测 428B，差 8B 已由主理人按实测口径追认（U-3）：
+ *         验收改钉「增量 ≤470B **且** contingency.js ≤4973」—— 硬锁是 4973，不是 420。
+ *       - 取值：4973 = moduleSumMax − memory − presence − texture = 28525 − 14336 − 4096 − 5120。
+ *         即把模块侧配额的**全部剩余额度**一次划给 contingency，四项配额之和恰等于 moduleSumMax，
+ *         moduleSum 打满时不多不少 = 28525，与 A1-a 的三锁自洽结构断言保持一致。
+ *     ⚠ v16 预警（U-7 存档，不阻塞 v15）：本次取满后 contingency 已顶到 **moduleSum 自洽天花板**。
+ *       v16 若还要动 contingency，只能谈抬 moduleSumMax，或从 memory/presence/texture 让渡额度
+ *       —— 两者都属破锁决策，必须单独立项评审，不许在实现轮里顺手改这一行。
+ *     ★ 体积四锁除本项外**一个字节都没动**：totalMax 276480 / engineNetMax 2200 /
+ *       moduleSumMax 28525 / V-33(engine.js ≤247955) 全部原值锁死。NOTE-2 的 +13B 走
+ *       engineNet 既有余量（2087→2100，仍在 2200 以内），不申请任何配额。 */
+/*   · v15 Q-V15-1 修复轮（H13 一票否决项回补）：**配额一个字节都没动**，只重置基线数字。
+ *     背景：NOTE-2 删掉段 1 裸词 `模型|` 后，段 3 副词槽 `(?:不过?|其实|就)?` 接不住
+ *     「我们**都**是模型训练的」—— 匹配在系动词位断裂，195 条组合成为本期引入的新回归。
+ *     修复是 :1307 单行逐位替换（副词槽补全为 `(?:不过?|其实|确实|本来|终究|无非|毕竟|真的)?
+ *     [都也还只就]{0,2}`），实测净 +60B ⇒ engineNet 2100→2160，**仍在 engineNetMax 2200 以内**，
+ *     故属「花既有余量」而非「抬配额」，不需要新的配额审批（S-2 只管配额，不管余量怎么花）。
+ *     ★ 严禁用「加裸词 `模型训练|`」的方式绕过 —— 那会触犯 T2·U-5 破墙表裸词守卫。
+ *   · QA 方法学纠正（QA-ACCEPTANCE-v15 NOTE-1）：engine.js 的**真实硬上限**是
+ *     engineBase + engineNetMax = 245737 + 2200 = **247937**，不是 v13/v14 文档沿用的 247955。
+ *     两者差 18B —— 247955 是 v13 时期写死的**兜底锁**，比 engineNet 锁宽 18B，永远不会先响，
+ *     照它排预算会**超卖 18B**。故本轮把真实上限提升为 SIZE_BUDGET 的派生字段 `engineMax`，
+ *     由本文件单一供给（DESIGN-v15 §7 S-2：配额真相源只此一处），测试侧不再硬编码 247955。
+ *     ⚠ 唯一保留 247955 字面量的地方是 qa-v13-t2t4-fix.test.js A1-a 的「三锁自洽」会计恒等式：
+ *       该式断言「未分配余量(18B) 恰等于两把 engine 锁的设计性间隙(V33 − engineCap)」，
+ *       是 v14 D-2 有意留下的结构，改它等于改 moduleSumMax 配额，必须单独立项评审。 */
 const SIZE_BUDGET = {
   engineBase: 245737,      // 反向保护项，永不许动（v12 收线时的 engine.js 字节数）
   engineNetMax: 2200,      // 改配额必须走代码评审 · 主理人 Qi 于 v14 批准 2060→2200（R-P0 :1307 / R-P2 :2897）
+  engineMax: 247937,       // 派生量 = engineBase + engineNetMax（V-33 真实硬上限；非配额项，改上面两项即自动失配，见下方自洽断言）
   "memory.js": 14336,      // v14 不动（trim 后 12711；T3 −6 / T4 +460 后余量仍充裕）
   "presence.js": 4096,     // v14 零改动
   "texture.js": 5120,      // v14 不动（trim 后 4194，余 926）
-  "contingency.js": 4096,  // 改配额必须走代码评审 · 主理人 Qi 于 v14 批准 1892→4096（R-C4/C5/S1 三项载体）
+  "contingency.js": 4973,  // 改配额必须走代码评审 · 主理人 Qi 于 v15 批准 4096→4973（R-C5 载体 · U-3）
   moduleSumMax: 28525,     // 改配额必须走代码评审 · 主理人 Qi 于 v14 批准 24643→28525 = totalMax − V33（U-1 追认）
   totalMax: 276480,        // 改天花板必须走代码评审 · 主理人 Qi 于 v14 批准 272384→276480（266KB→270KB）
 };
+
+/* engineMax 是派生量，不是独立配额 —— 一旦有人只改 engineBase/engineNetMax 而忘了它，
+ * 上限就会悄悄失真（正是 247955 这个错值当年的成因）。加载期即刻自证，不给漂移留窗口。 */
+if (SIZE_BUDGET.engineMax !== SIZE_BUDGET.engineBase + SIZE_BUDGET.engineNetMax) {
+  throw new Error("SIZE_BUDGET.engineMax 与 engineBase + engineNetMax 失配："
+    + SIZE_BUDGET.engineMax + " ≠ " + (SIZE_BUDGET.engineBase + SIZE_BUDGET.engineNetMax));
+}
 
 /* 读装载清单。缺文件 → 返回 null，调用方据此判定"退化为单文件模式"。 */
 function loadManifest() {

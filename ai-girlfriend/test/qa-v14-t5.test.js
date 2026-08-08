@@ -296,5 +296,6 @@ test("V-108 · 体积四锁全绿，over = []", () => {
   assert.ok(z.engineNet <= W.SIZE_BUDGET.engineNetMax, "engineNet " + z.engineNet);
   assert.ok(z.moduleSum <= W.SIZE_BUDGET.moduleSumMax, "moduleSum " + z.moduleSum);
   assert.ok(z.total <= W.SIZE_BUDGET.totalMax, "total " + z.total);
-  assert.strictEqual(z.engineNet, 2087, "T5 是纯模块改动，engine 净增不得再动");
+  assert.strictEqual(z.engineNet, 2160,
+    "T5 是纯模块改动；2160 = 2087 + v15 NOTE-2 的 13B + Q-V15-1 副词槽的 60B（均落 :1307 单行）");
 });

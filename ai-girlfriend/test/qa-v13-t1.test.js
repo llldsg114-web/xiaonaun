@@ -87,9 +87,12 @@ describe("v13 T1 回归锁定（地基不可动）", () => {
     assert.ok(seq.indexOf(0) === -1, "dayCount 在任一中间轮都不得归零（六字段回写生效）");
   });
 
-  it("3. V-33：engine.js 字节数 ≤ 247955B（打印剩余）", () => {
+  /* ★ v15 口径纠正（QA-ACCEPTANCE-v15 NOTE-1）：真实硬上限是 engineBase + engineNetMax
+   * = 247937，不是历史沿用的 247955（宽 18B，永远不会先响）。照 247955 打印"剩余"会
+   * 系统性超卖 18B，后续轮次按它排预算就会撞 V-90。改走 SIZE_BUDGET.engineMax 单一真源（S-2）。 */
+  it("3. V-33：engine.js 字节数 ≤ 247937B（真实硬上限，打印剩余）", () => {
     const size = fs.statSync(ENGINE).size;
-    const CAP = 247955, left = CAP - size;
+    const CAP = W.SIZE_BUDGET.engineMax, left = CAP - size;
     console.log(`[V-33] engine.js = ${size}B / 上限 ${CAP}B，剩余 ${left}B`);
     assert.ok(size <= CAP, `engine.js 超体积配额：${size} > ${CAP}`);
   });
@@ -100,7 +103,8 @@ describe("v13 T1 回归锁定（地基不可动）", () => {
     const net = s.engine - BASE, left = CAP - net;
     console.log(`[V-90] engine 净增 = ${net}B / 硬上限 ${CAP}B，剩余 ${left}B（比 V-33 更紧）`);
     assert.ok(net <= CAP, `engine 净增 ${net}B 超 ${CAP}B`);
-    assert.ok(s.engine <= 247955, "V-90 与 V-33 双重锁：engine 仍须 ≤247955B");
+    assert.ok(s.engine <= W.SIZE_BUDGET.engineMax,
+      `V-90 与 V-33 双重锁：engine 仍须 ≤${W.SIZE_BUDGET.engineMax}B`);
   });
 
   it("5. 半更新态：只加载 engine.js，mod('memory'/'presence'/'texture')===null，reply() 正常返回不抛", () => {

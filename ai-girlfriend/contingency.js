@@ -4,6 +4,7 @@
 const O=E.safeObj,A=E.safeArr,PW=E.pickWith,N=(v,d)=>typeof v==="number"&&isFinite(v)?v:d;
 const MS=[["好久不见了呀，你还好吧","这些天没消息，怪想你的"],["有点想你了","刚还在想你呢"]];
 const WM=["看你这么带劲，我也高兴","嘿嘿，你今天话多，我爱听"];
+const QS=["这个我挺好奇的","后来呢？我想听"],RM=["你说的#还顺利吗","我还记着#呢"];
 const HOT=/(哈哈|嘿嘿|太好了|开心|激动|爽|耶|[!！]{2,})/;
 const CRI=(c,u)=>!!c.crisis||E.detectCrisis(u).level!=="none";
 /* R-C4 sn 反呛B档 4门：lv≥3／ue非负非危机／属调侃／CAP2合并·≤1次/10轮 */
@@ -40,7 +41,11 @@ function contingencePass(reply,replies,ctx){try{
  if(g>=12)cd.push(["c1",PW(MS[g>=72?0:1],r)]);
  if(HOT.test(u)||u.length>19)cd.push(["c2",PW(WM,r)]);
  if(!a&&!cd.length){const G=selfAllow(s,c,u),x=G.ok?selfOf(G.tier,r):"";if(x)cd.push(["sf",x]);}
- if(!a&&cd.length&&E.chanceWith(.55,r)){const p=cd.find(x=>x[0]!==q.k)||cd[0];k=p[0];a=p[1];}
+ /* ★R-C5 c4追问/c5回忆：CRI 闸让位安抚，走 q.k 降权 */
+ if(!CRI(c,u)){if(u.length>7&&!/[？?]$/.test(u))cd.push(["c4",PW(QS,r)]);
+  const F=A(O(s.mem).facts).filter(f=>f&&f.value&&!f.negatedAt&&u.indexOf(f.value)<0);
+  if(F.length)cd.push(["c5",PW(RM,r).replace("#",()=>PW(F,r).value)]);}
+ if(!a&&cd.length&&E.chanceWith(.55,r)){const G=cd.filter(x=>x[0]!==q.k),p=PW(G.length?G:cd,r);k=p[0];a=p[1];}
  if(!a)return null;
  const o=t.replace(/[。！？…]$/,"")+"，"+a;
  /* L5：v14 加挂 ACCUSE_RE；破墙前 A6-a 折叠(同 engine:1322)；sf 加 A3 钩子 */

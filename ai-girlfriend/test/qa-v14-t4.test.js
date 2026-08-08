@@ -122,19 +122,31 @@ test("T4 · V-103b 延迟分布：recall 轮与非 recall 轮均值差 ≤10%、
   const recSamples = sampleRecall(600).filter((x) => x.r.pacing);
   const rec = recSamples.map((x) => x.r.pacing.delayMs);
   assert.ok(rec.length >= 100, `recall 样本过少(${rec.length})`);
-  /* 非 recall 侧：同一句用户输入、同档 lv/ue，回复长度对齐 recall 侧实测均长 ——
+  /* 非 recall 侧：同一句用户输入、同档 lv/ue，回复长度对齐 recall 侧 ——
    * pacingOf 的 delay 本就与回复长度 L 成正比（设计如此），不控长度就是在测「句子长短」，
-   * 而不是测「recall 轮有没有被区别对待」。 */
+   * 而不是测「recall 轮有没有被区别对待」。
+   *
+   * ── v15 量纲修正 ────────────────────────────────────────────────
+   * v14 这里用「均长 avgLen」造一条定长对照句。当时 recall 侧的句长分布很窄，
+   * 对齐均值≈对齐分布，CV 差恰好落在 ±0.05 内。R-C5 让 contingencePass 在
+   * recall 轮的命中率上去了（c4/c5 入池），带尾巴与不带尾巴的两种句长形成双峰，
+   * recall 侧的**长度方差**被拉大 —— 而定长对照侧的长度方差恒为 0。
+   * 于是 CV 差 0.068 > 0.05 偶发转红：测出来的是「句长分布不同」，
+   * 不是「recall 轮被区别对待」，正是本用例注释自己反对的那件事。
+   *
+   * 处置：改为**逐样本等长配对** —— 对照侧不再用一个均值，而是照抄 recall 侧
+   * 每一条的实际句长。这样两侧的长度分布逐位一致，剩下的差异才真的只剩
+   * 「走没走 recall 分支」。这是收紧不是放松：配对法把 v14 靠均值掩盖掉的
+   * 长度方差也一并控住了。 */
   const P = E.mod("presence");
-  const avgLen = Math.round(
-    recSamples.map((x) => x.r.line.length).reduce((a, b) => a + b, 0) / recSamples.length);
   const nonRec = [];
-  for (let i = 0; i < 400; i++) {
+  for (const x of recSamples) {
     const st = recallState();
-    const pc = P.pacingOf("今天上班好累", ["嗯".repeat(avgLen)],
+    const pc = P.pacingOf("今天上班好累", ["嗯".repeat(x.r.line.length)],
       { st, ue: E.detectUserEmotion("今天上班好累"), lv: 4, crisis: false });
     if (pc) nonRec.push(pc.delayMs);
   }
+  assert.ok(nonRec.length >= 100, `非 recall 对照样本过少(${nonRec.length})`);
   const a = stat(rec), b = stat(nonRec);
   const diff = Math.abs(a.mean - b.mean) / b.mean;
   assert.ok(diff <= 0.10,
@@ -299,14 +311,16 @@ test("T4 · 体积：engine :2897 +19B、memory R-P2 净增 ≤700B，四把锁�
   assert.deepStrictEqual(s.over, [], "单文件配额越界: " + JSON.stringify(s.over));
   assert.ok(s.engineNet <= WS.SIZE_BUDGET.engineNetMax,
     `engine net 越界: ${s.engineNet} > ${WS.SIZE_BUDGET.engineNetMax}`);
-  assert.ok(s.engine <= 247955, `V-33 越界: ${s.engine}`);
+  assert.ok(s.engine <= WS.SIZE_BUDGET.engineMax,
+    `V-33 越界: ${s.engine} > ${WS.SIZE_BUDGET.engineMax}`);
   assert.ok(s.moduleSum <= WS.SIZE_BUDGET.moduleSumMax, `moduleSum 越界: ${s.moduleSum}`);
   assert.ok(s.total <= WS.SIZE_BUDGET.totalMax, `total 越界: ${s.total}`);
   /* R-P2 在 memory 侧的净增（相对 T3 收线 12705B）。DESIGN 估 460B，实交付偏大，
    * 上限放到 700B —— 超过就说明有语料/逻辑本该下沉却写在了 skin 里。 */
   assert.ok(s.each["memory.js"] - 12705 <= 700,
     `R-P2 memory 净增 ${s.each["memory.js"] - 12705}B > 700B`);
-  // engine 侧就是那 19B，一个字节都不许多
-  assert.strictEqual(s.engineNet, 2087,
-    `engine net 应为 2056(T5b) + 12(R-P0) + 19(R-P2) = 2087，实际 ${s.engineNet}`);
+  /* engine 侧就是那 19B，一个字节都不许多；v15 T2 再加 NOTE-2 的 13B（:1307 单行）；
+   * v15 Q-V15-1 再加副词槽补全的 60B（仍是 :1307 单行，修 H13 破墙漏网，不申请配额）。 */
+  assert.strictEqual(s.engineNet, 2160,
+    `engine net 应为 2056(T5b) + 12(R-P0) + 19(R-P2) + 13(v15 NOTE-2) + 60(Q-V15-1) = 2160，实际 ${s.engineNet}`);
 });

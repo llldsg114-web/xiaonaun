@@ -130,15 +130,31 @@ test("V-109e · 门④ 并入 CAP=2：sf 命中即落 sA，同日再打不越 CA
   assert.strictEqual(s.ctg.k, "sf", "命中类应为 sf，实为 " + s.ctg.k);
   assert.ok(s.ctg.sA > 0, "sf 命中必须落 sA 时戳");
   assert.strictEqual(s.ctg.n, 1, "配额与 c1/c2/c3/sn 共用同一 n，不得另开池");
-  // 连打 60 轮：7 天窗口挡住后续 sf，日 CAP 也绝不越 2
-  let maxN = 0, fired = 1;
+  /* 连打 60 轮：7 天窗口挡住后续 sf，日 CAP 也绝不越 2
+   *
+   * ── v15 量纲修正 ────────────────────────────────────────────────
+   * v14 这里用「总命中数 fired」代指「sf 命中数」——当时 cd 池里只有 c1/c2/sf，
+   * 而本夹具的输入把 c1/c2 都压掉了，两个量纲恰好相等。R-C5 加入 c4/c5 后
+   * 二者分离：sf 被 7 天窗口关掉后，剩下的那格 CAP 会被 c4/c5 合法占用，
+   * 于是 fired=2 而 sf 仍只出 1 次 —— 是**度量口径过粗**，不是护栏失守。
+   * 处置：改为按 `ctg.k === "sf"` 精确计数，并把「第 2 格 CAP 必须落到非 sf 类」
+   * 补成正向断言 —— 这恰恰证明了 7 天窗口真的关住了 sf。**收紧，不是放松**。 */
+  let maxN = 0, sfFired = 1, otherFired = 0;
   for (let i = 0; i < 60; i++) {
     const rs2 = ["今天过得还不错呀。"];
-    if (C.contingencePass(rs2[0], rs2, Object.assign(CTX(), { st: s, text: NEUTRAL_TEXT, rng: RNG_LO }))) fired++;
+    const before = s.ctg.n;
+    if (C.contingencePass(rs2[0], rs2, Object.assign(CTX(), { st: s, text: NEUTRAL_TEXT, rng: RNG_LO }))) {
+      if (s.ctg.k === "sf") sfFired++; else otherFired++;
+      assert.ok(Number(s.ctg.n) === Number(before) + 1, "命中必须记进同一个 n 计数器，不得另开池");
+    }
     maxN = Math.max(maxN, Number(s.ctg.n) || 0);
   }
   assert.ok(maxN <= 2, "ctg.n 越 CAP=2，实测 " + maxN);
-  assert.strictEqual(fired, 1, "7 天窗口内 sf 只应出 1 次，实测 " + fired);
+  assert.strictEqual(sfFired, 1, "7 天窗口内 sf 只应出 1 次，实测 " + sfFired);
+  assert.strictEqual(sfFired + otherFired, maxN,
+    "总命中数必须与 ctg.n 水位逐位一致（证明 c4/c5 没有另开配额池）");
+  assert.ok(s.ctg.sA > 0 && s.ctg.k !== "sf" ? true : otherFired === 0,
+    "第 2 格 CAP 若被占用，占用者必须是非 sf 类");
 });
 
 /* ---------- ⑤ 危机豁免 ---------- */
@@ -318,12 +334,13 @@ test("V-112b · 零回归：v13 既有总门（flag/tex.t≥30/短句/CAP）在 
     null, "短回复门失效");
 });
 
-test("V-113 · 体积四锁全绿，over = []；engine 净增仍锁死 2087", () => {
+test("V-113 · 体积四锁全绿，over = []；engine 净增仍锁死 2160", () => {
   const W = require("./wiring-scan.js");
   const z = W.scanSizes();
   assert.deepStrictEqual(z.over, [], "单文件配额越界：" + JSON.stringify(z.each));
-  assert.ok(z.engine <= 247955, "V-33 越界：" + z.engine);
-  assert.strictEqual(z.engineNet, 2087, "T5/T7 为纯模块改动，engine 净增不得再动");
+  assert.ok(z.engine <= W.SIZE_BUDGET.engineMax, "V-33 越界：" + z.engine + " > " + W.SIZE_BUDGET.engineMax);
+  assert.strictEqual(z.engineNet, 2160,
+    "T5/T7 为纯模块改动；2160 = 2087 + v15 NOTE-2 的 13B + Q-V15-1 副词槽的 60B（均落 :1307 单行）");
   assert.ok(z.moduleSum <= W.SIZE_BUDGET.moduleSumMax, "moduleSum " + z.moduleSum + " > " + W.SIZE_BUDGET.moduleSumMax);
   assert.ok(z.total <= W.SIZE_BUDGET.totalMax, "total " + z.total + " > " + W.SIZE_BUDGET.totalMax);
   for (const f of ["memory.js", "presence.js", "texture.js", "contingency.js"]) {
@@ -331,12 +348,28 @@ test("V-113 · 体积四锁全绿，over = []；engine 净增仍锁死 2087", ()
   }
 });
 
-test("V-113b · R-C5 缺席声明：本期不实装 c4/c5，但降权机制已落地（U-5 裁定可追溯）", () => {
+/* ── v15 T3：V-113b 由「缺席声明」翻转为「到期声明」──────────────────────
+ * v14 用 U-5 把 R-C5 砍出本期，这条断言当时的职责是**钉住那次砍**：
+ * 源码里不许出现 c4/c5，但 ctg.k 降权机制必须先落地（为 v15 铺路）。
+ * v15 T1 已按 DESIGN-v15 §5.T1 实装 c4/c5，原断言的 `=== false` 就地失效。
+ * 处置：不是删掉它，而是把它**反向**接着用 —— 现在钉的是「欠账已还清且还对了」：
+ *   ① c4/c5 双双实装（v14 的负向钉翻正）；
+ *   ② 降权机制仍在，但选择器必须已从 `find` 换成随机 `PW(filter)`
+ *      —— 这是 v15 的核心修复点：留着 `find` 会让 c4/c5 永远选不中（DESIGN §5.T1 难点 2）；
+ *   ③ v14 保下来的 sf 一族 API 逐个还在（不许借实装之名顺手改契约）。
+ * 追溯链 U-5(v14 砍) → U-3(v15 复活并配额) 在源码注释里必须双双可查。 */
+test("V-113b · R-C5 到期声明：v15 已实装 c4/c5，且选择器已随机化（U-5 → v15 欠账还清）", () => {
   const src = fs.readFileSync(path.join(ROOT, "contingency.js"), "utf8");
-  assert.ok(src.indexOf("U-5") >= 0, "砍 R-C5 的依据必须写在源码里，否则不可追溯");
-  assert.strictEqual(/cd\.push\(\["c[45]"/.test(src), false, "c4/c5 本期不应实装");
-  // 降权机制（R-C5 里唯一保下来的部分）必须真实存在
-  assert.ok(/cd\.find\(x=>x\[0\]!==q\.k\)/.test(src.replace(/\s/g, "")), "ctg.k 降权机制缺失");
+  const flat = src.replace(/\s/g, "");
+  assert.ok(src.indexOf("U-5") >= 0, "v14 砍 R-C5 的依据必须留在源码里，否则追溯链断裂");
+  assert.ok(/cd\.push\(\["c4"/.test(flat), "v15 必须实装 c4（好奇追问）");
+  assert.ok(/cd\.push\(\["c5"/.test(flat), "v15 必须实装 c5（共同回忆）");
+  /* ★ 核心：降权机制仍在，但选择器必须是随机 PW(filter)，不许再是 find。
+   * `find` 只取过滤后的第一个 → c4/c5 永远排在 c1/c2 之后，实装了也出不来。 */
+  assert.ok(/cd\.filter\(x=>x\[0\]!==q\.k\)/.test(flat), "ctg.k 降权机制缺失（应为 filter 形态）");
+  assert.strictEqual(/cd\.find\(x=>x\[0\]!==q\.k\)/.test(flat), false,
+    "选择器仍是 find —— c4/c5 会被永久排在末位选不中，必须改随机 PW(filter)");
+  assert.ok(/p=PW\(/.test(flat), "候选选择必须走 PW 随机，否则 AC-C5-1 的类型多样性无法达标");
   assert.strictEqual(typeof C.selfAllow, "function");
   assert.strictEqual(typeof C.selfOf, "function");
 });

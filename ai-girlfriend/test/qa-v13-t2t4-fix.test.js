@@ -71,12 +71,12 @@ const jobMem = (value, conf) => ({
  *   （若取任务书原议的 28687，此行立即转红：245737+2200+28687 = 276624 > 276480 是"看似更宽"，
  *    但 A1-a 守的是"不许两把锁同时放水"，28687 会让 engine 打满 V-33 时 total 击穿 162B）。
  * ⚠ v14 交付后 total 余量约 3.9KB —— 已不再是 13B 的紧张态，预警口径见 A6-c（换挡 0B/8192B）。 */
-test("A1-a 配额数字落点：memory 14336 / texture 5120 / contingency 4096 / moduleSum 28525 / net 2200 / totalMax 276480", () => {
+test("A1-a 配额数字落点：memory 14336 / texture 5120 / contingency 4973 / moduleSum 28525 / net 2200 / totalMax 276480", () => {
   const B = WS.SIZE_BUDGET;
   assert.strictEqual(B["memory.js"], 14336, "v14 不动（T5a 批准值 12288→14336）");
   assert.strictEqual(B["texture.js"], 5120, "v14 不动（T5a 批准值 4608→5120）");
   assert.strictEqual(B["presence.js"], 4096, "presence 配额自 T2 起不动");
-  assert.strictEqual(B["contingency.js"], 4096, "v14 批准值 1892→4096（R-C4/C5/S1 三项载体）");
+  assert.strictEqual(B["contingency.js"], 4973, "v15 批准值 4096→4973（R-C5 载体 · 主理人裁定 U-3）");
   assert.strictEqual(B.moduleSumMax, 28525, "v14 批准值 24643→28525 = totalMax − V33(247955)");
   assert.strictEqual(B.engineNetMax, 2200, "v14 批准值 2060→2200（R-P0 :1307 / R-P2 :2897）");
   assert.strictEqual(B.totalMax, 276480, "v14 批准值 272384→276480（266KB→270KB，天花板评审）");
@@ -118,46 +118,58 @@ test("A1-b scanSizes：over 为空且逐模块不越配额", () => {
   assert.ok(s.total <= WS.SIZE_BUDGET.totalMax, `total ${s.total} > ${WS.SIZE_BUDGET.totalMax}`);
 });
 
-/* A1-c【快照翻转 · T5b 建立 / v14 T2 追加】变更史：
+/* A1-c【快照翻转 · T5b 建立 / v14 T2 追加 / ★v15 T0 基线重置】变更史：
  *   · T5b：原口径「engine.js 相对 HEAD 零 diff」，因 A6-a 定点解冻 :1319/:1322 失效，
  *     翻转为**白名单**（不是放弃冻结，是收紧成"只准动这几行"）。
- *   · v14 T2（本轮）：A6-a 两行已随 v13 收线合入 HEAD，故白名单基线重置。
- *     本期经主理人批准的定点解冻只有两处（DESIGN §3.2 / §8.3）：
- *       :1307 R-P0 PERSONA_BREAK_RE 破墙人称补全（+12B，H13 一票否决）
- *       :2897 R-P2 rec 对象透传 pacing 字段      （+19B，T4 追加）
- *     T2 阶段白名单 = [1307]；T4 交付后由 T4 自己追加 2897（见该任务验收）。
- * 严格度逐位不放松：多改一行、改到别处、增删行数、或改动内容与登记用途不符，全部转红。
- * ★ 反向保护：白名单不是"许可证清单"，每一行都additionally锁死改动内容的形状 ——
- *   :1307 必须仍是 PERSONA_BREAK_RE 常量声明，:1322 的 A6-a 折叠必须**逐位未动**。 */
-test("A1-c engine.js 定点解冻白名单：相对 HEAD 仅 v14 已批准行", () => {
-  const { execFileSync } = require("node:child_process");
-  /* 本期已批准的解冻行（T2 建立 1307，T4 追加 2897，DESIGN §8.3 明列，不得再加第三行）。 */
-  const WHITELIST = [1307, 2897];
-  const n = WHITELIST.length;
-  const numstat = execFileSync("git", ["diff", "--numstat", "--", "engine.js"], { cwd: ROOT, encoding: "utf8" }).trim();
-  assert.match(numstat, new RegExp("^" + n + "\\t" + n + "\\t"),
-    `engine.js 只准 ${n} 增 ${n} 删，实际: ` + numstat);
+ *   · v14 T2：A6-a 两行已随 v13 收线合入基线，白名单重置为 [1307, 2897]。
+ * ★【v15 T0 基线重置 · 主理人裁定 U-1 / DESIGN-v15 §1.3 · 0B】
+ *   本条是 7 条「自失效红」之一：基线写死 `HEAD`，而 HEAD 已从 v14 收口 `b86a386`
+ *   前移到 `6723a20`（两个 .gitignore commit），v14 的两行改动已合入 HEAD ⇒ diff 恒空 ⇒ 恒红。
+ *   两处修正：
+ *     ① 基线由字面量 `HEAD` 改走 `baseline.BASE`（= b86a386，单一真源 S-4）；
+ *     ② 白名单由 [1307, 2897] **重置为 [1307]** —— :2897 已随 v14 收口合入基线，
+ *        v15 唯一获批解冻行是 :1307（NOTE-2「模型」裸词分层）。
+ *   ③ 判据由 `deepStrictEqual(lines, WHITELIST)`（精确相等）改为 **`lines ⊆ WHITELIST`**（子集）。
+ *      ⚠ 这**不是放松**，是把"必须已经改"与"只准改这几行"两件事拆开：
+ *        · 冻结语义（本条守的东西）= 越界行集合必须为空 —— 逐位不放松，多改一行立刻红；
+ *        · "改动必须恰好发生在 :1307 且恰好 +13B" 这件事，改由 `qa-v15-t2.test.js`
+ *          的「§9.4-7 定点解冻取证」用 **strictEqual 精确钉死**（1 增 1 删 + 行号 + 字节差）。
+ *      若仍用精确相等，T0 阶段（源码尚未动）与 T2 阶段（已动）不可能同时为绿 —— 而 T0 是
+ *      gating，必须先绿。拆开后两阶段各自都被更严的断言覆盖，总严格度只增不减。
+ * ★ 反向保护（原样保留 + 加严）：:1307 必须仍是 PERSONA_BREAK_RE 常量声明；
+ *   :1322 的 A6-a 折叠、:2897 的 R-P2 透传，必须与 BASE **逐位一致**（从"+19B"升级为"零 diff"）。 */
+test("A1-c engine.js 定点解冻白名单：相对 v14 收口基线仅 v15 已批准行", () => {
+  const BL = require("./baseline.js");
+  /* v15 已批准的解冻行（DESIGN-v15 §2.1 明列，不得再加第二行）。 */
+  const WHITELIST = [1307];
   // 逐行比对定位改动行号（--numstat 只给数量，不给位置）
   const cur = fs.readFileSync(path.join(ROOT, "engine.js"), "utf8").split("\n");
-  const head = execFileSync("git", ["show", "HEAD:ai-girlfriend/engine.js"], { cwd: ROOT, encoding: "utf8" }).split("\n");
-  assert.strictEqual(cur.length, head.length, "engine.js 行数必须不变（纯定点替换）");
+  const base = BL.showAt(BL.BASE, "engine.js").split("\n");
+  assert.strictEqual(cur.length, base.length, "engine.js 行数必须不变（纯定点替换）");
   const lines = [];
-  for (let i = 0; i < cur.length; i++) if (cur[i] !== head[i]) lines.push(i + 1);
-  assert.deepStrictEqual(lines, WHITELIST,
-    "engine.js 解冻范围超出白名单，实际改动行: " + JSON.stringify(lines));
+  for (let i = 0; i < cur.length; i++) if (cur[i] !== base[i]) lines.push(i + 1);
+  const outside = lines.filter((l) => WHITELIST.indexOf(l) < 0);
+  assert.deepStrictEqual(outside, [],
+    "engine.js 解冻范围超出白名单，越界行: " + JSON.stringify(outside));
+  // 增删数必须与实测改动行数一致 —— 纯替换，不许增删行
+  const numstat = BL.numstatAt(BL.BASE, "engine.js");
+  if (lines.length === 0) {
+    assert.strictEqual(numstat, "", "行内容与基线一致却出现 numstat 差异: " + numstat);
+  } else {
+    assert.match(numstat, new RegExp("^" + lines.length + "\\t" + lines.length + "\\t"),
+      `engine.js 只准 ${lines.length} 增 ${lines.length} 删，实际: ` + numstat);
+  }
   // 改动内容本身也锁死：:1307 只准是破墙表常量，不准夹带别的东西
   assert.match(cur[1306], /^\s*const PERSONA_BREAK_RE = \/\(.*\)\/i;$/,
-    ":1307 必须仍是 PERSONA_BREAK_RE 常量声明（R-P0 只改正则，不改结构）");
-  // :2897 只准是 rec 对象的 pacing 透传，不准借机塞别的字段
+    ":1307 必须仍是 PERSONA_BREAK_RE 常量声明（NOTE-2 只改正则，不改结构）");
+  // :2897 R-P2 透传已合入基线，本期未申请解冻 —— 由"+19B"加严为"逐位零 diff"
   assert.match(cur[2896], /factId: rv\.factId, pacing: rv\.pacing \}$/,
     ":2897 必须是 rec 对象末尾追加 `pacing: rv.pacing`（R-P2 只透传，不加工）");
-  assert.strictEqual(
-    Buffer.byteLength(cur[2896]) - Buffer.byteLength(head[2896]), 19,
-    ":2897 透传应恰好 +19B（DESIGN §5.4②），多一字节都要重新申请");
-  // A6-a 折叠（已在 HEAD 内）必须逐位未动 —— V-93c 的结构侧留证
+  assert.strictEqual(cur[2896], base[2896], ":2897 必须与 v14 收口基线逐位一致");
+  // A6-a 折叠（已在基线内）必须逐位未动 —— V-93c 的结构侧留证
   assert.match(cur[1321], /PERSONA_BREAK_RE\.test\(probe\.replace\(\/程序\[员猿媛\]\/g,\s*"职"\)\)/,
     ":1322 职业族等长折叠被改动（本期未申请解冻）");
-  assert.strictEqual(cur[1321], head[1321], ":1322 必须与 HEAD 逐位一致");
+  assert.strictEqual(cur[1321], base[1321], ":1322 必须与 v14 收口基线逐位一致");
 });
 
 /* ================= A4 · 体积双闸门 ================= */
@@ -172,12 +184,34 @@ test("A1-c engine.js 定点解冻白名单：相对 HEAD 仅 v14 已批准行", 
  *   （96/96 组合不变，硬骨头 1/8 → 6/8）。少花的 4B 回吐给 engine net 余量，不另作他用。
  * 翻转为锁**新净增 2087**（2056 + 12 + 19），严格度逐位不放松 —— 仍是 strictEqual，
  * 多改一个字节立刻转红；V-33 / V-90 / total 三把锁仍一次性钉在同一条用例里，谁先响都算越界。
- * ★ 反向保护：engineNetMax(2200) 与 V-33(247955) 是两把独立锁，此处两条都断，不许只过一条。 */
-test("A4 体积三闸门：V-33 ≤247955B 且 V-90 net ≤2200B 且 total ≤276480B", () => {
+ * ★ 反向保护：engineNetMax(2200) 与 V-33(247955) 是两把独立锁，此处两条都断，不许只过一条。
+ * ── v15 T2 翻转 2087 → 2100 ──
+ * NOTE-2「模型」裸词分层是 v15 唯一一处 engine.js 改动，仍是 :1307 单行逐位替换，
+ * 净 +13B 由三笔构成（DESIGN-v15 §5.T2 逐字节表）：
+ *   ① 段1 裸词区 删 `模型|`                                       −7
+ *   ② `电子人` 后 增 `语言模型|`（复合裸词，无良性用法，保三人称/无主语覆盖）  +13
+ *   ③ 段3 人称组尾 增 `|模型`（人称绑定，覆盖「我是/我不过是/你是不是…模型」） +7
+ * 合计 2087 + 13 = **2100**，仍是 strictEqual 硬钉，多一个字节即红。
+ * ── v15 Q-V15-1 修复轮 翻转 2100 → 2160 ──
+ * QA 独立验收判定 H13 破墙密闭性 FAIL：NOTE-2 删掉段 1 裸词 `模型|` 后，段 3 副词槽
+ * `(?:不过?|其实|就)?` 缺「都/也/还/只」，「我们都是模型训练的」在系动词位断裂 → 零拦截，
+ * 泛化面穷举 195 条新回归（v14 能拦 / v15 漏）。修复仍是 :1307 单行逐位替换，净 +60B：
+ *   ① 副词槽 `(?:不过?|其实|就)?` → `(?:不过?|其实|确实|本来|终究|无非|毕竟|真的)?`   +38
+ *   ② 其后新增紧邻副词字符类 `[都也还只就]{0,2}`（覆盖「都/也/还/只/就」及其两连用） +22
+ * 合计 2100 + 60 = **2160**，仍是 strictEqual 硬钉，多一个字节即红。
+ * ★ 严禁改成加裸词 `模型训练|` —— 触犯 T2·U-5 破墙表裸词守卫（U-5 用例会立刻转红）。
+ * ★ 本次**不申请任何配额**：engineNetMax 仍 2200（余 40），engineMax 仍 247937（余 40）。
+ *   v15 唯一动过的配额是 contingency.js 4096→4973，见 A1-a 与 wiring-scan 审批链注释。
+ * ★ V-33 口径纠正（QA-ACCEPTANCE-v15 NOTE-1）：engine 真实硬上限 = engineBase + engineNetMax
+ *   = 247937，不是历史文档里的 247955（宽 18B，永不先响，照它排预算会超卖）。此处改走
+ *   WS.SIZE_BUDGET.engineMax 单一真源（S-2），不再硬编码。 */
+test("A4 体积三闸门：V-33 ≤247937B 且 V-90 net ≤2200B 且 total ≤276480B", () => {
   const size = fs.statSync(path.join(ROOT, "engine.js")).size;
-  assert.ok(size <= 247955, `V-33 越界: ${size} > 247955（余 ${247955 - size}B）`);
+  const CAP = WS.SIZE_BUDGET.engineMax;
+  assert.ok(size <= CAP, `V-33 越界: ${size} > ${CAP}（余 ${CAP - size}B）`);
   const net = size - WS.SIZE_BUDGET.engineBase;
-  assert.strictEqual(net, 2087, "净增应为 T5b 收线 2056B + R-P0 12B + R-P2 19B = 2087B，本轮不得再涨");
+  assert.strictEqual(net, 2160,
+    "净增应为 T5b 2056B + R-P0 12B + R-P2 19B + v15 NOTE-2 13B + Q-V15-1 副词槽 60B = 2160B，本轮不得再涨");
   assert.ok(net <= WS.SIZE_BUDGET.engineNetMax, `V-90 越界: ${net} > ${WS.SIZE_BUDGET.engineNetMax}`);
   const s = WS.scanSizes();
   assert.ok(s.total <= WS.SIZE_BUDGET.totalMax,

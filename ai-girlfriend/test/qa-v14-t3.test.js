@@ -77,15 +77,17 @@ test("T3 · V-102 端到端：会计入库后「今天上班好累」能召回",
   assert.ok(hits[0].score >= 0.45, "召回分过低: " + hits[0].score);
 });
 
-/* 反证：这条链路在 v13 是断的（证明用例测的是真缺陷，不是恒真） */
+/* 反证：这条链路在 v13 是断的（证明用例测的是真缺陷，不是恒真）
+ * ★【v15 T0 基线重置 · U-1】原实现从字面量 `HEAD` 取"v13 旧规则"。v14 收口后 HEAD 已含
+ * 带「计」的新后缀组 ⇒「基线后缀组不应含『计』」恒假 ⇒ 自失效转红（7 条红之一）。
+ * 改走 `baseline.PREV`（= b86a386^ = v13 收口），语义回到原意。S-4：不再出现字面量 HEAD。 */
 test("T3 · V-102 反证：同一条链路在 v13 规则下抽取为 0", () => {
-  const { execFileSync } = require("node:child_process");
-  const src = execFileSync("git", ["show", "HEAD:ai-girlfriend/memory.js"],
-    { cwd: REPO, encoding: "utf8" });
+  const BL = require("./baseline.js");
+  const src = BL.showAt(BL.PREV, "memory.js");
   const line = (src.match(/我是\(\?:个\|名\)\?\\\\s\*\(#\{1,6\}[^)]*\)\)?/) || [])[0];
-  assert.ok(line, "无法从 HEAD 提取 R23 职业规则");
-  assert.ok(!/计/.test(line), "HEAD 的 R23 后缀组不应含「计」，样本失真");
-  // 用 HEAD 的后缀组现场重建旧正则，验证「我是会计」抽不出
+  assert.ok(line, "无法从 v13 收口基线提取 R23 职业规则");
+  assert.ok(!/计/.test(line), "v13 基线的 R23 后缀组不应含「计」，样本失真");
+  // 用 v13 基线的后缀组现场重建旧正则，验证「我是会计」抽不出
   const W = "[\\u4e00-\\u9fa5A-Za-z0-9_]";
   const oldRe = new RegExp("我是(?:个|名)?\\s*(#{1,6}(?:师|员|生|工|家|猿|媛|士))".replace(/#/g, W));
   assert.strictEqual("我是会计".match(oldRe), null, "旧规则本就能抽「会计」，缺陷不存在");
@@ -164,18 +166,24 @@ test("T3 · 结构：R23 后缀组必须是字符类形态（不得回退为择�
     "R23 铁律锚点注释被删 —— 护栏依据丢失");
 });
 
+/* ★【v15 T0 基线重置 · U-1】同上：基线由字面量 `HEAD` 改走 `baseline.PREV`。
+ * memory.js 在 v15 是**零改动文件**（DESIGN-v15 §2.4），故"当前 vs v13 收口"仍恰为 −6B，
+ * 断言值一个字都不用改 —— 这正是"基线腐坏而非行为回归"的直接证据。 */
 test("T3 · 体积：memory.js 相对 T1 收线净减 6B，且仍在 14336B 配额内", () => {
-  const { execFileSync } = require("node:child_process");
+  const BL = require("./baseline.js");
   const cur = fs.statSync(path.join(ROOT, "memory.js")).size;
   const WS = require("./wiring-scan.js");
   assert.ok(cur <= WS.SIZE_BUDGET["memory.js"],
     `memory.js 越配额：${cur} > ${WS.SIZE_BUDGET["memory.js"]}`);
   // 单项净减：只比 R23 那一行的字节差，避免被同文件其他改动干扰
-  const head = execFileSync("git", ["show", "HEAD:ai-girlfriend/memory.js"],
-    { cwd: REPO, encoding: "utf8" });
+  const head = BL.showAt(BL.PREV, "memory.js");
   const pick = (s) => (s.match(/.*我是\(\?:个\|名\)\?.*/) || [""])[0]
     .replace(/\/\/.*$/, "").trimEnd();
+  assert.ok(pick(head), "v13 收口基线未取到 R23 行，样本失真");
   const delta = Buffer.byteLength(pick(fs.readFileSync(path.join(ROOT, "memory.js"), "utf8")))
     - Buffer.byteLength(pick(head));
   assert.strictEqual(delta, -6, `R-P1 应净减 6B（不含注释），实际 ${delta}B`);
+  // v15 零改动铁律：memory.js 相对 v14 收口基线必须逐位一致（DESIGN-v15 §2.4）
+  assert.strictEqual(BL.numstatAt(BL.BASE, "memory.js"), "",
+    "memory.js 在 v15 是零改动文件，出现 diff 即越界（NOTE-2 只准改 engine.js:1307）");
 });

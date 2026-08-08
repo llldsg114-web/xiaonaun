@@ -56,24 +56,40 @@ const memFact = (key, value, conf) => ({
 
 const BASE = "今天过得还行吧。";
 
-/* 跑 n 次（.55 概率门需要样本），每次重置日配额以隔离 CAP 干扰 */
-function hits(base, stOver, ctxOver, n) {
+/* 跑 n 次（.55 概率门需要样本），每次重置日配额以隔离 CAP 干扰
+ *
+ * ── v15 追加第 5 参 `only`（类隔离）──────────────────────────────────
+ * v13 写这些用例时 cd 池里只有 c1/c2/sf 三类，「构造只让 X 类有情境的输入」
+ * 就等价于「统计到的命中都是 X 类」，于是直接用总命中数 h 做反证。
+ * v15 的 R-C5 往池里加了 c4（长度>7 的非疑问陈述句）与 c5（有可用 fact），
+ * 这两类的入池条件与 c1/c2/c3 **正交** —— 同一条输入可以同时满足多类。
+ * 于是「总命中数」不再等于「X 类命中数」，v13 的反证会被邻类命中污染而误红。
+ *
+ * 处置：不放松任何一条断言，而是把量纲改准 —— 传 `only` 后只统计
+ * `st.ctg.k === only` 的轮次，其余轮次记进 `byK` 供交叉断言。
+ * 这样 v13 的原意（「c2 必须用升温句池」「一致值不得触发 c3」）逐字保留，
+ * 同时新增「残余命中必须恰好是 c4/c5」的正向钉 —— **收紧，不是放松**。 */
+function hits(base, stOver, ctxOver, n, only) {
   n = n || 400;
-  let h = 0; const samples = [];
+  let h = 0; const samples = []; const byK = {};
   for (let i = 0; i < n; i++) {
     const st = ctgState(stOver);
     st.ctg = {};
     const rs = [base];
     const o = G.contingencePass(base, rs, ctgCtx(st, ctxOver));
     if (o) {
-      h++;
-      if (samples.length < 4 && samples.indexOf(o) < 0) samples.push(o);
+      const k = st.ctg && st.ctg.k;
+      byK[k] = (byK[k] || 0) + 1;
+      if (!only || k === only) {
+        h++;
+        if (samples.length < 4 && samples.indexOf(o) < 0) samples.push(o);
+      }
       assert.strictEqual(rs[0], o, "命中时必须把结果写回 replies[0]，否则用户看不到");
     } else {
       assert.strictEqual(rs[0], base, "未命中时不得污染 replies[0]");
     }
   }
-  return { h, n, samples };
+  return { h, n, samples, byK };
 }
 
 /* 真实 E.reply() 端到端。复刻 app.js:1078-1121 的宿主回写。 */
@@ -126,14 +142,19 @@ test("C0-a contingency.js 三处装载一致（engine.files.json / index.html / 
 /* sw.js 的 CACHE 键是老用户能否拿到新模块的**唯一**开关。index.html 的 script 清单变了却不换
  * 缓存键，老用户会拿到旧 index.html（无该 script 标签）配新 engine.js —— 模块恒缺席，
  * 而所有 Node 侧测试全绿。这是"线上不生效"的经典形态，必须结构性锁死。 */
-test("C0-b sw.js CACHE 版本必须领先 HEAD（否则老用户拿不到新模块）", () => {
-  const { execFileSync } = require("node:child_process");
+/* ★【v15 T0 基线重置 · U-1 / U-6】原实现拿字面量 `HEAD` 当"上一版"。v14 收口后 HEAD 已含
+ * v19 ⇒「当前 v19 领先 HEAD v19」为假 ⇒ 自失效转红（7 条红之一）。
+ * 基线改走 `baseline.BASE`（= v14 收口，v19）。v15 改了 engine.js 与 contingency.js 两个
+ * 被缓存文件，按 v14 R-5 既定纪律「只要任一被缓存文件内容变了就升版」，本版须升 **v20**。
+ * 严格度不放松：仍是 `strictEqual` 精确钉版本号，另加基线取证防样本失真。 */
+test("C0-b sw.js CACHE 版本必须领先 v14 收口基线（否则老用户拿不到新模块）", () => {
+  const BL = require("./baseline.js");
   const cur = WS.swManifest().version;
-  const headSrc = execFileSync("git", ["show", "HEAD:ai-girlfriend/sw.js"], { cwd: ROOT, encoding: "utf8" });
-  const m = headSrc.match(/const\s+CACHE\s*=\s*["']xiaonuan-v(\d+)["']/);
-  const head = m ? parseInt(m[1], 10) : -1;
-  assert.ok(cur > head, `sw.js CACHE 未升版：HEAD v${head} → 当前 v${cur}。ASSETS 变了就必须换缓存键`);
-  assert.strictEqual(cur, 19, "v14 T8 收线版本应为 v19（v18→v19）");
+  const m = BL.showAt(BL.BASE, "sw.js").match(/const\s+CACHE\s*=\s*["']xiaonuan-v(\d+)["']/);
+  const base = m ? parseInt(m[1], 10) : -1;
+  assert.strictEqual(base, 19, "v14 收口基线的 sw 版本应为 v19，基线取证失真");
+  assert.ok(cur > base, `sw.js CACHE 未升版：基线 v${base} → 当前 v${cur}。被缓存文件变了就必须换缓存键`);
+  assert.strictEqual(cur, 20, "v15 收线版本应为 v20（v19→v20，engine.js/contingency.js 均已改动）");
 });
 
 test("C0-c contingency.js 体积 ≤1892B（lean 档配额）", () => {
@@ -169,49 +190,69 @@ test("R-C1 冷落：断联 ≥12h 命中想念句；gap=2h 零命中（反证）
 
 test("R-C2 热情：热词与长句命中升温接梗；平淡「嗯」零命中（反证）", () => {
   const at = Date.now() - 2 * HOUR;   // 压掉 C1，隔离 C2
-  const hot = hits(BASE, { lastVisit: at }, { text: "哈哈哈太好了！！" });
-  const long = hits(BASE, { lastVisit: at }, { text: "今天我去公园跑了五公里然后又去吃了火锅真的很满足" });
+  // v15：只统计 c2 类。邻类 c4 与 c2 的入池条件正交（>7 非疑问陈述句），会同轮共存。
+  const hot = hits(BASE, { lastVisit: at }, { text: "哈哈哈太好了！！" }, 400, "c2");
+  const long = hits(BASE, { lastVisit: at }, { text: "今天我去公园跑了五公里然后又去吃了火锅真的很满足" }, 400, "c2");
   const flat = hits(BASE, { lastVisit: at }, { text: "嗯" });
 
   assert.ok(hot.h > 0, "热词应命中");
   assert.ok(long.h > 0, "长句(>19字)应命中");
+  // 「嗯」是全类零命中：长度 1 ≤7 关 c4，mem 无 fact 关 c5，v15 后仍必须一条都不出
   assert.strictEqual(flat.h, 0, `平淡「嗯」不应命中，实得 ${flat.h}`);
+  assert.deepStrictEqual(flat.byK, {}, `平淡「嗯」应全类零命中，实得 ${JSON.stringify(flat.byK)}`);
 
   const WARM = ["看你这么带劲，我也高兴", "嘿嘿，你今天话多，我爱听"];
   for (const s of hot.samples.concat(long.samples)) {
     assert.ok(WARM.some((x) => s.endsWith(x)), "C2 应使用升温句池: " + s);
   }
   // 边界：19 字不命中、20 字命中（长句阈值 u.length>19）
-  const s19 = hits(BASE, { lastVisit: at }, { text: "一".repeat(19) });
-  const s20 = hits(BASE, { lastVisit: at }, { text: "一".repeat(20) });
+  const s19 = hits(BASE, { lastVisit: at }, { text: "一".repeat(19) }, 400, "c2");
+  const s20 = hits(BASE, { lastVisit: at }, { text: "一".repeat(20) }, 400, "c2");
   assert.strictEqual(s19.h, 0, "19 字不应触发长句档");
   assert.ok(s20.h > 0, "20 字应触发长句档");
+  /* ★v15 正向钉：19 字这一档 c2 必须仍是零，而它的残余命中只准是 c4。
+   * 若哪天 c2 的长度门被顺手放宽到 ≤19，或冒出第三类未登记的候选，这里立刻红。 */
+  assert.deepStrictEqual(Object.keys(s19.byK).sort(), ["c4"],
+    `19 字档的残余命中只允许是 c4，实得 ${JSON.stringify(s19.byK)}`);
 });
 
 /* ================= C3 · 矛盾（同 key 高置信异值） ================= */
 
 test("R-C3 矛盾：高置信(≥.6)异值温和指出；一致值 / 低置信(.5) 零命中（双反证）", () => {
   const at = Date.now() - 2 * HOUR;
-  const diff = hits(BASE, { mem: memFact("工作", "设计师", 0.8), lastVisit: at }, { text: "我是程序员" });
-  const same = hits(BASE, { mem: memFact("工作", "程序员", 0.8), lastVisit: at }, { text: "我是程序员" });
-  const lowc = hits(BASE, { mem: memFact("工作", "设计师", 0.5), lastVisit: at }, { text: "我是程序员" });
+  /* v15：只统计 c3 类。「我是程序员」长度 5 ≤7 关 c4，但 fact value「设计师」不在句中，
+   * 会开 c5 —— c5 与 c3 的入池条件正交，故三条反证一律加 "c3" 类隔离。 */
+  const diff = hits(BASE, { mem: memFact("工作", "设计师", 0.8), lastVisit: at }, { text: "我是程序员" }, 400, "c3");
+  const same = hits(BASE, { mem: memFact("工作", "程序员", 0.8), lastVisit: at }, { text: "我是程序员" }, 400, "c3");
+  const lowc = hits(BASE, { mem: memFact("工作", "设计师", 0.5), lastVisit: at }, { text: "我是程序员" }, 400, "c3");
 
   // C3 不走 .55 概率门（矛盾必须每次都指出，不能靠运气）
   assert.strictEqual(diff.h, diff.n, `高置信异值应 100% 命中，实得 ${diff.h}/${diff.n}`);
   assert.strictEqual(same.h, 0, `一致值不应命中，实得 ${same.h}`);
   assert.strictEqual(lowc.h, 0, `conf=.5 低于置信门 .6，不应命中，实得 ${lowc.h}`);
+  /* ★v15 正向钉：c3 命中时 a 已被 cf() 置值，:43 的 `!a` 前置条件为假 →
+   * c4/c5 绝不可能抢走这一轮。diff 档必须是「c3 独占 400 轮」，一类都不许混。 */
+  assert.deepStrictEqual(Object.keys(diff.byK).sort(), ["c3"],
+    `c3 命中轮不得被邻类抢走，实得 ${JSON.stringify(diff.byK)}`);
+  // 一致值档：c3 归零后残余只准是 c5（value「程序员」在句中会被滤掉 → 实际应全类零）
+  assert.deepStrictEqual(same.byK, {},
+    `一致值档应全类零命中（value 在句中，c5 亦被滤）：${JSON.stringify(same.byK)}`);
 
   // 置信门边界：.6 命中、.59 不命中
-  const at6 = hits(BASE, { mem: memFact("工作", "设计师", 0.6), lastVisit: at }, { text: "我是程序员" }, 50);
-  const at59 = hits(BASE, { mem: memFact("工作", "设计师", 0.59), lastVisit: at }, { text: "我是程序员" }, 50);
+  const at6 = hits(BASE, { mem: memFact("工作", "设计师", 0.6), lastVisit: at }, { text: "我是程序员" }, 50, "c3");
+  const at59 = hits(BASE, { mem: memFact("工作", "设计师", 0.59), lastVisit: at }, { text: "我是程序员" }, 50, "c3");
   assert.strictEqual(at6.h, 50, "conf=.6 应命中（门是 >=.6）");
   assert.strictEqual(at59.h, 0, "conf=.59 不应命中");
 
   // 已被否定的事实（negatedAt）不得再拿来指认矛盾
   const negMem = memFact("工作", "设计师", 0.8);
   negMem.facts[0].negatedAt = Date.now();
-  assert.strictEqual(hits(BASE, { mem: negMem, lastVisit: at }, { text: "我是程序员" }, 50).h, 0,
-    "已否定的事实不得用于矛盾指认");
+  const neg = hits(BASE, { mem: negMem, lastVisit: at }, { text: "我是程序员" }, 50, "c3");
+  assert.strictEqual(neg.h, 0, "已否定的事实不得用于矛盾指认");
+  /* ★v15 交叉钉：negatedAt 是 c3 与 c5 共用的否定语义。c3 侧已归零，
+   * c5 侧的 `!f.negatedAt` 过滤也必须同时生效 —— 否则被否定的事实会从 c5 漏出去。 */
+  assert.deepStrictEqual(neg.byK, {},
+    `已否定的事实必须对 c3 与 c5 同时失效，实得 ${JSON.stringify(neg.byK)}`);
 });
 
 /* H7 = 零模板生成词；H11 = 不破人格墙。C3 是唯一会把「记忆内容」搬到出口的规则，
@@ -286,11 +327,17 @@ test("R-C 端到端 E.reply()：≥40 轮触发受 CAP=2 约束、输出送达�
   assert.ok(r.fire > 0, "端到端零触发 —— 模块没接上生产路径（对照 A6-a）");
   assert.ok(r.fire <= 2, `端到端触发 ${r.fire} 次，超出 CAP=2`);
   assert.ok(r.ctg && r.ctg.n <= 2, "state.ctg 未随 reply 落盘");
-  // 输出真的送达：命中轮的 replies[0] 必须带上情境尾巴
+  /* 输出真的送达：命中轮的 replies[0] 必须带上情境尾巴。
+   * v15 追加 c4（QS 定值）与 c5（RM 模板，`#` 已被 fact value 原文替换 → 用前后缀对）。
+   * 这仍是**闭集**断言：尾巴只准来自登记在案的语料池，一个生成字都不许有。 */
   const TAILS = ["好久不见了呀，你还好吧", "这些天没消息，怪想你的", "有点想你了", "刚还在想你呢",
-    "看你这么带劲，我也高兴", "嘿嘿，你今天话多，我爱听"];
+    "看你这么带劲，我也高兴", "嘿嘿，你今天话多，我爱听",
+    "这个我挺好奇的", "后来呢？我想听"];                       // ★v15 c4 · QS
+  const TAIL_PAIRS = [["你说的", "还顺利吗"], ["我还记着", "呢"]];  // ★v15 c5 · RM（# 位为 fact 原文）
+  const tailed = (s) => TAILS.some((t) => s.indexOf(t) >= 0) ||
+    TAIL_PAIRS.some(([a, b]) => { const i = s.indexOf(a); return i >= 0 && s.endsWith(b) && s.length > i + a.length + b.length; });
   for (const s of r.samples) {
-    assert.ok(TAILS.some((t) => s.indexOf(t) >= 0), "命中轮的回复未带情境尾巴: " + s);
+    assert.ok(tailed(s), "命中轮的回复未带情境尾巴: " + s);
   }
 });
 
