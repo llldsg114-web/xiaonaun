@@ -1,0 +1,49 @@
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant L as engine.js:1374 L2<br/>构造期静态自检
+    participant PN as engine.js:1310<br/>pnorm() ★S-1b
+    participant BR as engine.js:1307<br/>PERSONA_BREAK_RE ★S-1
+    participant T as memory.js:100<br/>taint() 入口闸
+    participant C as contingency.js:52<br/>L5 出口复检
+    participant G as engine.js:1322<br/>guardPersonaReplies() 出口闸
+    participant R as 用户可见回复
+
+    rect rgb(237,242,255)
+    Note over L,BR: ⓪ 构造期（模块加载即跑一次，与请求无关）
+    L->>PN: pnorm(full) ← :1382 拼接成句
+    PN->>BR: test(归一化文本)
+    BR-->>L: 命中即剔除该组合
+    L->>PN: pnorm(x.text) ← :1435 innerScan()
+    PN->>BR: test()
+    BR-->>L: 计数必须恒为 0（AC-G-9）
+    end
+
+    rect rgb(232,245,233)
+    Note over U,T: ① 入口路：用户输入 → 记忆落盘
+    U->>T: "我 是 机器学习方向的研究生"
+    T->>PN: E.pnorm(v)
+    Note over PN: NFKC → 去空格 → 程序[员猿媛]→职<br/>得「我是机器学习方向的研究生」
+    PN->>BR: test()
+    Note over BR: 轴1「我」∧轴4「是」∧尾组「机器学习」命中<br/>但职业前瞻「方向」→ 撤销匹配
+    BR-->>T: false → 不静音，正常写入 fact
+    end
+
+    rect rgb(255,243,224)
+    Note over U,R: ② 情境层：contingency 拼接后 L5 复检
+    C->>PN: E.pnorm(o)  ← reply + 情境句拼接结果
+    PN->>BR: test()
+    BR-->>C: true 即整条丢弃（return null），绝不回吐半句
+    end
+
+    rect rgb(255,235,238)
+    Note over G,R: ③ 出口路：所有出口统一过闸（危机/召回/普通/R-S2）
+    G->>G: outGuard(line) → 剔除用户名 safe
+    G->>PN: pnorm(probe)
+    Note over PN: ★ v17 新增：「您 不就是 个 ｌｌｍ 嘛」<br/>NFKC 转半角 + 去空格 → 「您不就是个llm嘛」
+    PN->>BR: test()
+    BR-->>G: true（v16 因空格/全角漏网，v17 拦下）
+    G-->>R: 替换 PERSONA_FALLBACK → H13 = 0% ✅
+    end
+
+    Note over PN,BR: ★ 双通道一致性 AC-G-6：入口闸与出口闸<br/>共用同一个 pnorm 函数（不再是「同一套折叠靠自觉」）

@@ -197,7 +197,9 @@ test("V-110b · 低 tier 只能取浅层语料，高 tier 才解锁深层（池�
   }
   const poolOf = (t) => {
     const got = new Set();
-    for (let i = 0; i < 4000; i++) got.add(C.selfOf(t, () => (i % 3571) / 3571));
+    // ★ v17 T3：selfOf 签名扩为 (tier, type, rng)。此处传空 type → 回落 INNER_LIB[tier]，
+    //   正是本条要观测的一期分档池；R-S2 四型池另由 qa-rs2-type.test.js 单独钉。
+    for (let i = 0; i < 4000; i++) got.add(C.selfOf(t, "", () => (i % 3571) / 3571));
     got.delete("");
     return got;
   };
@@ -208,7 +210,7 @@ test("V-110b · 低 tier 只能取浅层语料，高 tier 才解锁深层（池�
   const hintTexts = new Set(LIB.hint.map((x) => x.text));
   for (const line of raw) assert.strictEqual(hintTexts.has(line), false, "raw 档串到 hint 语料：" + line);
   // 未知 tier 必须安全返回空串（不得抛、不得回落到深层）
-  assert.strictEqual(C.selfOf("nope", Math.random), "");
+  assert.strictEqual(C.selfOf("nope", "", Math.random), "");
 });
 
 /* ---------- 出口双闸 ---------- */
@@ -334,13 +336,13 @@ test("V-112b · 零回归：v13 既有总门（flag/tex.t≥30/短句/CAP）在 
     null, "短回复门失效");
 });
 
-test("V-113 · 体积四锁全绿，over = []；engine 净增仍锁死 2350", () => {
+test("V-113 · 体积四锁全绿，over = []；engine 净增锁死 2616", () => {
   const W = require("./wiring-scan.js");
   const z = W.scanSizes();
   assert.deepStrictEqual(z.over, [], "单文件配额越界：" + JSON.stringify(z.each));
   assert.ok(z.engine <= W.SIZE_BUDGET.engineMax, "V-33 越界：" + z.engine + " > " + W.SIZE_BUDGET.engineMax);
-  assert.strictEqual(z.engineNet, 2350,
-    "T5/T7 为纯模块改动；2350 = 2087 + v15 NOTE-2 的 13B + Q-V15-1 副词槽的 60B + v16 T1 四轴的 190B（均落 :1307 单行）");
+  assert.strictEqual(z.engineNet, 2616,
+    "2616 = 2087 + v15 NOTE-2 的 13B + Q-V15-1 副词槽的 60B + v16 T1 四轴的 190B（均落 :1307 单行）+ v17 T1/T2 的 266B（13 行行内追加）");
   assert.ok(z.moduleSum <= W.SIZE_BUDGET.moduleSumMax, "moduleSum " + z.moduleSum + " > " + W.SIZE_BUDGET.moduleSumMax);
   assert.ok(z.total <= W.SIZE_BUDGET.totalMax, "total " + z.total + " > " + W.SIZE_BUDGET.totalMax);
   for (const f of ["memory.js", "presence.js", "texture.js", "contingency.js"]) {

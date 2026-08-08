@@ -384,35 +384,47 @@ test("X-4 · 日配额 CAP=2 未因新增类型放宽：同 state 连打 200 轮
 
 /* ============ AC-C5-6 · 体积 ============ */
 
-test("AC-C5-6 · contingency.js 相对 BASE 增量 ≤470B 且 ≤4973B；体积四锁除配额外零改动", () => {
+/* ★★【快照翻转 · v17 T0/T2/T3 · 主理人 Qi 批准（DESIGN-v17 §2.5 唯一解 / §3.3 / §3.4）】★★
+ *   v15 的 U-3 口径「≤470B 且 ≤4973B」是 R-C5 那一期的增量锁，v17 R-S2 二期获批
+ *   **独立的 ≤1180B 硬顶**与新配额 5671B，两条锁并存、都断，不许只过一条。
+ *   四把配额锁本轮全部翻数（唯一解，不许自创）：
+ *     memory 14154→13824 / presence 4096→3840 / texture 5120→4608 / contingency 4973→5671
+ *     moduleSumMax 28343→27943 / engineNetMax 2400→2800 / totalMax 276480 不动
+ *   严格度逐位不放松：仍是 strictEqual + 恒等式 ②（四项之和 === moduleSumMax）+ over=[]。
+ *   memory/presence/texture 的「v15 零改动」口径翻转为「v17 归一化白名单内改动」，
+ *   并改钉**净字节精确值**（−38 / +9 / +9），比原来只断"有没有 diff"更严。 */
+test("AC-C5-6 · contingency.js R-C5 增量 ≤470B、R-S2 净增 ≤1180B 且 ≤5671B；体积四锁自洽", () => {
   const cur = require("node:fs").statSync(path.join(ROOT, "contingency.js")).size;
   const base = Buffer.byteLength(BL.showAt(BL.BASE, "contingency.js"));
-  const delta = cur - base;
   assert.strictEqual(base, 4086, `v14 收口态 contingency.js 应为 4086B，实得 ${base}`);
-  assert.ok(delta <= 470, `R-C5 增量 ${delta}B > 470B（U-3 追认口径）`);
-  assert.ok(cur <= 4973, `contingency.js ${cur}B > 4973B 硬锁`);
-  /* DESIGN 预测 4514（+428）。实交付 4518（+432），多出的 4B 是 c5 的 `#` 替换改用
-   * 替换函数 `()=>value` —— 详见下方「c5 · $ 原文回填」用例。仍在 U-3 追认的
-   * 「≤470B 且 ≤4973B」口径内（余 455B），四把配额锁一个字节都没动。 */
-  assert.strictEqual(cur, 4518, `落位应为 4518B（428 设计增量 + 4B 的 $ 转义修复），实得 ${cur}B`);
+  // v15 R-C5 那一期的落位（4518）已成为 v17 的起算点，两期增量分开钉
+  const V16 = 4518;
+  assert.ok(V16 - base <= 470, `R-C5 增量 ${V16 - base}B > 470B（U-3 追认口径）`);
+  assert.ok(cur - V16 <= 1180, `R-S2 二期净增 ${cur - V16}B > 1180B 硬顶（DESIGN-v17 §3.3）`);
+  assert.ok(cur <= 5671, `contingency.js ${cur}B > 5671B 硬锁（v17 §2.5 唯一解）`);
 
   const s = WS.scanSizes();
   assert.deepStrictEqual(s.over, [], `单文件配额越界：${JSON.stringify(s.each)}`);
-  // ★ 四锁：v15 唯一动过的数是 contingency 配额，其余三把逐位不变
   const B = WS.SIZE_BUDGET;
-  assert.strictEqual(B["contingency.js"], 4973, "v15 批准值 4096→4973（U-3）· v16 T0 未再动");
-  /* ★【快照翻转 · v16 T0 · 主理人 Qi 批准（V16-3 路径 A）】moduleSumMax 28525→28343 /
-   * engineNetMax 2200→2400。翻转只换数字，严格度逐位不放松（仍是 strictEqual）：
-   * contingency 与 totalMax 两条原值锁死，恰恰证明 v16 让渡的是 memory 配额而非抬天花板。 */
-  assert.strictEqual(B.moduleSumMax, 28343, "v16 批准值 28525→28343 = totalMax − engineMax(248137)");
+  assert.strictEqual(B["memory.js"], 13824, "v17 批准值 14154→13824");
+  assert.strictEqual(B["presence.js"], 3840, "v17 批准值 4096→3840");
+  assert.strictEqual(B["texture.js"], 4608, "v17 批准值 5120→4608");
+  assert.strictEqual(B["contingency.js"], 5671, "v17 批准值 4973→5671（R-S2 二期）");
+  assert.strictEqual(B.moduleSumMax, 27943, "v17 批准值 28343→27943 = totalMax − engineMax(248537)");
   assert.strictEqual(B.totalMax, 276480, "totalMax 本期不许动（270KB 承诺）");
-  assert.strictEqual(B.engineNetMax, 2400, "v16 批准值 2200→2400（V16-3 · :1307 四轴扩展）");
-  // 4973 的推导式必须自洽：四项配额之和 = moduleSumMax
+  assert.strictEqual(B.engineNetMax, 2800, "v17 批准值 2400→2800（§2.5 唯一解）");
+  assert.strictEqual(B.engineMax, B.engineBase + B.engineNetMax, "锁①：engineMax 必须是派生值");
+  // 恒等式②：四项配额之和 = moduleSumMax（严格相等，不是 ≤）
   assert.strictEqual(B["memory.js"] + B["presence.js"] + B["texture.js"] + B["contingency.js"],
-    B.moduleSumMax, "四项模块配额之和应恰等于 moduleSumMax（4973 的取值依据）");
+    B.moduleSumMax, "四项模块配额之和应恰等于 moduleSumMax");
+  // 恒等式③：三锁打满不得击穿天花板，且松弛恰为 0
+  assert.strictEqual(B.engineBase + B.engineNetMax + B.moduleSumMax, B.totalMax,
+    "锁③：三锁打满必须恰好等于 totalMax（未分配余量一个字节都不许存在）");
 
-  // memory/presence/texture 三个模块在 v15 是零改动文件
-  for (const f of ["memory.js", "presence.js", "texture.js"]) {
-    assert.strictEqual(BL.numstatAt(BL.BASE, f), "", `${f} 在 v15 应为零改动，实测有 diff`);
+  /* memory/presence/texture 在 v17 是「归一化白名单内改动」，净字节精确钉死 */
+  const EXPECT = { "memory.js": -38, "presence.js": 9, "texture.js": 9 };
+  for (const f of Object.keys(EXPECT)) {
+    const d = s.each[f] - Buffer.byteLength(BL.showAt(BL.BASE, f));
+    assert.strictEqual(d, EXPECT[f], `${f} 相对 BASE 净增应为 ${EXPECT[f]}B，实测 ${d}B`);
   }
 });

@@ -1307,7 +1307,7 @@ const Engine = (() => {
   const PERSONA_BREAK_RE = /(程序|AI|人工智能|机器人|助手|客服|帮不上|我只是|我不能|建议你去|寻求专业帮助|热线|12356|心理援助|专业人[士师]|虚拟|数字人|电子人|语言模型|被.{0,4}训练|训练出来|[你我咱它他她您]们?(?:不过?|其实|确实|本来|终究|无非|毕竟|真的|说?到底|究竟|根本|压根|难道|岂不)?[都也还只就]{0,2}(?:[是算当]|作为).{0,8}(gpt|siri|算法|代码|bot|app|模型|神经网络|[深机][度器]学习|对话系统|llm)(?!.{0,3}(?:方向|专业|工程师|研究生|审查员)))/i;
 
   /* 纯陪伴兜底句：命中护栏时的最后防线，绝不含任何破人格词 */
-  const PERSONA_FALLBACK = "我在。你不用一个人扛着，我哪也不去。";
+  const PERSONA_FALLBACK = "我在。你不用一个人扛着，我哪也不去。"; const pnorm = s => String(s).normalize("NFKC").replace(/\s+/g,"").replace(/程序[员猿媛]/g,"职");
 
   /* 统一人格护栏：reply() 所有出口（危机/召回/普通）返回前都过一遍。
    * 命中禁词则把该条回复替换为安全兜底句。uname 为用户名，检测前先剔除，
@@ -1319,7 +1319,7 @@ const Engine = (() => {
       // v12 · G1 ⑧：先过绑架黑名单，再过人格护栏。A6-a：程序族等长折叠成「职」再判。
       const fixed = outGuard(line);
       const probe = safe ? String(fixed).split(safe).join("￠") : String(fixed);
-      return PERSONA_BREAK_RE.test(probe.replace(/程序[员猿媛]/g,"职")) ? PERSONA_FALLBACK : fixed;
+      return PERSONA_BREAK_RE.test(pnorm(probe)) ? PERSONA_FALLBACK : fixed;
     });
   }
 
@@ -1347,7 +1347,7 @@ const Engine = (() => {
    * 因此这里不设否定护栏（与 CRISIS_NEG 的处境相反：那边误杀会漏掉真危机，这边误收无害）。
    * 六类覆盖：①想多了/别多想 ②否认(没有/哪有/不是) ③澄清关系(同事/朋友) ④玩笑
    * ⑤叫停(别说了/不聊这个/就当我没讲) ⑥点破(你吃醋了/瞎操心/冤枉)。 */
-  const JEALOUS_DISMISS_RE = /(想多了|多想了|别(瞎|乱|多)想|没有|没跟(谁|别人|别的)|哪有|不是啦|不是的|误会|逗你(玩|的|啦)|开玩笑|瞎操心|你吃醋|别说了|不聊这个|(就当|当)(我|你)?没(讲|说)|只是(同事|朋友|普通)|普通朋友|同事而已|冤枉|不是你想的)/;
+  const JEALOUS_DISMISS_RE = /(想多了|多想了|别(瞎|乱|多)想|没有|没跟(谁|别人|别的)|哪有|不是啦|不是的|误会|逗你(玩|的|啦)|开玩笑|瞎操心|你吃醋|别说了|不聊这个|(就当|当)(我|你)?没(讲|说)|只是(同事|朋友|普通)|普通朋友|同事而已|冤枉|不是你想的|别提了|不说这个了|这事翻篇|打住|换个话题|不聊了)/;
 
   /* ============ v12 · T7 Inner 自我表达（★全期最高风险，四层防御） ============
    * 失败模式必须是"沉默"不是"胡言"：命中护栏直接 return null 丢弃，绝不流到
@@ -1379,7 +1379,7 @@ const Engine = (() => {
     for (const tier of ["hint", "open", "raw"]) {
       for (const h of INNER_HEAD[tier]) for (const t of INNER_TAIL) {
         const full = h + SEP + t;
-        if (PERSONA_BREAK_RE.test(full)) continue;     // L2+L3：拼接破功即剔除（"我只是/我不能"永无藏身）
+        if (PERSONA_BREAK_RE.test(pnorm(full))) continue;     // L2+L3：拼接破功即剔除（"我只是/我不能"永无藏身）
         if (!RELATION_HOOK_RE.test(t)) continue;        // open/raw 闭环：尾段必须含关系钩子
         lib[tier].push({ head: h, sep: SEP, tail: t, text: full });
       }
@@ -1390,7 +1390,7 @@ const Engine = (() => {
   /* L3 组合期复检：拼接完整句再过一次第四面墙，命中即判不安全 → 返回 null（丢弃）。 */
   function innerGuard(text) {
     const s = String(text == null ? "" : text);
-    return PERSONA_BREAK_RE.test(s) ? null : s;
+    return PERSONA_BREAK_RE.test(pnorm(s)) ? null : s;
   }
 
   /* Inner 可控泄露：三档强度 × 四类锚点 × 日配额，命中护栏即丢弃（不替换）。
@@ -1432,7 +1432,7 @@ const Engine = (() => {
   function innerScan() {
     let n = 0;
     for (const tier in INNER_LIB) for (const x of INNER_LIB[tier]) {
-      if (PERSONA_BREAK_RE.test(x.text)) n++;
+      if (PERSONA_BREAK_RE.test(pnorm(x.text))) n++;
       if (!RELATION_HOOK_RE.test(x.tail)) n++;
     }
     return n;
@@ -1458,7 +1458,7 @@ const Engine = (() => {
     const safeCard = (card && card.tone === "playful") ? { tone: "gentle" } : (card || { tone: "gentle" });
     let text = applyPersonaStyle(head, safeCard, { rng, crisis: true, suppressLevity: true });
     // 人格护栏自检：命中禁词立即回退到硬编码纯陪伴句
-    if (PERSONA_BREAK_RE.test(text)) text = PERSONA_FALLBACK;
+    if (PERSONA_BREAK_RE.test(pnorm(text))) text = PERSONA_FALLBACK;
     return {
       replies: [text], delta: 0, intent: "crisis", intentEx: "crisis",
       expression: "sad", moodOverride: null,
@@ -2485,7 +2485,7 @@ const Engine = (() => {
     if (traces.length) {
       const t = pickWith(traces, rng);
       const txt = `${t.text}，${t.hook}`;
-      if (!PERSONA_BREAK_RE.test(txt) && RELATION_HOOK_RE.test(t.hook)) {  // 出口前再守一遍护栏
+      if (!PERSONA_BREAK_RE.test(pnorm(txt)) && RELATION_HOOK_RE.test(t.hook)) {  // 出口前再守一遍护栏
         out.push({ kind: "daylife", motive: "daylife", priority: 65, text: txt, expression: "happy", meta: { trace: t } });
         t.usedAt = now;  // 标记已消费，避免复说（写活对象，落盘即持久）
       }
@@ -2932,7 +2932,7 @@ const Engine = (() => {
     if (chosen.t.includes("__LAST_TOPIC__")) {
       let topic = text.trim().length > 4 ? text.trim().slice(0, 12) : (memory.lastTopic || "那件事");
       // 护栏：绝不清用户原话里含破功词（程序/AI/语言模型…）的话，避免回声击穿人格
-      if (PERSONA_BREAK_RE.test(topic)) topic = "那件事";
+      if (PERSONA_BREAK_RE.test(pnorm(topic))) topic = "那件事";
       chosen = { ...chosen, t: chosen.t.replaceAll("__LAST_TOPIC__", topic) };
     }
 
@@ -3610,7 +3610,7 @@ const Engine = (() => {
 
     const now = (typeof safeObj(ctx).now === "number") ? ctx.now : Date.now();
     const anchor = SELF_ANCHOR[selfCardId(st.persona)];
-    const fired = selfDetect(st, date, now), di = dayIndex(date);
+    const di = dayIndex(date), sk = di <= dayIndex(cur.updatedAt), fired = sk ? [] : selfDetect(st, date, now);
     const val = {}, dd = {};
     for (const ax of SELF_AXES) { val[ax] = cur[ax]; dd[ax] = 0; }
 
@@ -3633,8 +3633,8 @@ const Engine = (() => {
       else if (dd[ax] < -SELF_DAY_CAP) { val[ax] -= dd[ax] + SELF_DAY_CAP; dd[ax] = -SELF_DAY_CAP; }
     }
     // 每 7 天向锚点回归，防止锁死极值。回归不是事件，不计入 dayDelta。
-    if (di % 7 === 0) SELF_AXES.forEach((ax, i) => { val[ax] += (anchor[i] - val[ax]) * SELF_REGRESS_K; });
-    return selfClamp(Object.assign({}, val, { updatedAt: date, dayDelta: dd, lastFired: nextFired }), st.persona);
+    if (!sk && di % 7 === 0) SELF_AXES.forEach((ax, i) => { val[ax] += (anchor[i] - val[ax]) * SELF_REGRESS_K; });
+    return selfClamp(Object.assign({}, val, { updatedAt: sk ? cur.updatedAt : date, dayDelta: dd, lastFired: nextFired }), st.persona);
   }
 
   /* ===== v12 · M4/M9 · G1 情感强度闸门（R9 / T5 · 里程碑 M-B）。负面能力唯一准入口：
@@ -3990,7 +3990,7 @@ const Engine = (() => {
     NEG_TURN_FAMILY,
     NEG_GATE, GUILT_TRIP_RE, NEG_REPAIR, NEG_NEUTRAL, SOOTHE_INTENTS,
     /* ——— v12 新增：M5 离线生活 / M6 Inner / M7 Voice / M8 G2 吃醋（T6–T9） ——— */
-    dayLifeGen, dayLifeCommit, RELATION_HOOK_RE, LIFE_SLOT, LIFE_HOOK, PERSONA_FALLBACK, PERSONA_BREAK_RE,
+    dayLifeGen, dayLifeCommit, RELATION_HOOK_RE, LIFE_SLOT, LIFE_HOOK, PERSONA_FALLBACK, PERSONA_BREAK_RE, pnorm,
     innerLeak, innerGuard, innerScan, INNER_LIB, INNER_HEAD, INNER_TAIL,
     voicePlan,
     jealousAllow, jealousTick, JEALOUS_TRIGGER_RE, ACCUSE_RE, JEALOUS_DISMISS_RE,

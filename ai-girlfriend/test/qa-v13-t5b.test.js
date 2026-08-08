@@ -151,7 +151,11 @@ test("C0-a contingency.js 三处装载一致（engine.files.json / index.html / 
  *   T2-d 又改了 app.js:2105（V16-1 R2-B4 affHistory 比较器）—— 两个被缓存文件内容都变了，
  *   按同一条 C0-b 纪律必须再升一级。（memory.js 本期零改动：A2-i 的 key 派生早在源码中，只摘 todo。）
  *   本条与 qa-v15-t2.test.js 的 AC-N2-5c 是**同一事实的两处独立取证**，必须同步，
- *   任一处漏改都会立刻转红（这正是双点取证的用意：不许只改一处蒙混）。 */
+ *   任一处漏改都会立刻转红（这正是双点取证的用意：不许只改一处蒙混）。
+ * ★【v17 T0/T1/T2/T3 校准 · 主理人 Qi 批准】v21 → **v22**：本期 v17 五处被缓存文件
+ *   （engine.js:1307/1310/1322 三处归一化收口 + memory.js/presence.js/texture.js 三模块净减
+ *   + contingency.js R-S2 四型自白语料）内容全部改写，按同一条 C0-b 纪律必须再升一级。
+ *   本条与 qa-v15-t2.test.js 的 AC-N2-5c 同步升 v22（双点取证不可只改一处）。 */
 test("C0-b sw.js CACHE 版本必须领先 v14 收口基线（否则老用户拿不到新模块）", () => {
   const BL = require("./baseline.js");
   const cur = WS.swManifest().version;
@@ -159,7 +163,7 @@ test("C0-b sw.js CACHE 版本必须领先 v14 收口基线（否则老用户拿�
   const base = m ? parseInt(m[1], 10) : -1;
   assert.strictEqual(base, 19, "v14 收口基线的 sw 版本应为 v19，基线取证失真");
   assert.ok(cur > base, `sw.js CACHE 未升版：基线 v${base} → 当前 v${cur}。被缓存文件变了就必须换缓存键`);
-  assert.strictEqual(cur, 21, "v16 收线版本应为 v21（v20→v21，engine.js:1307 与 memory.js 均已改动）");
+  assert.strictEqual(cur, 22, "v17 收线版本应为 v22（v21→v22，engine.js/memory.js/presence.js/texture.js/contingency.js 五文件全改），实得 v" + cur);
 });
 
 test("C0-c contingency.js 体积 ≤1892B（lean 档配额）", () => {

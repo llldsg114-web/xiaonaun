@@ -1,5 +1,5 @@
 /* 小暖 PWA Service Worker —— 缓存应用外壳，支持离线打开 + 触发"安装到主屏幕" */
-const CACHE = "xiaonuan-v21";   // v21 v16 收线：ASSETS 清单未变，但 engine.js（V16-2 破墙表 :1307 四轴扩展，H13 升级为六维全组合闭环）与 app.js（V16-1 R2-B4 affHistory 改 dayIndex 比较器）两个被缓存文件已改动（memory.js 本期零改动：A2-i 的 tgf key 派生早已在源码中，本轮只摘 todo）。缓存键不换＝老用户 fetch 命中旧缓存，新旧模块混装（护栏改了却不下发，等于没上线）—— 这正是 v13 C0-b 事故的成因，故只要任一被缓存文件的内容变了就升版，不只是清单变了才升 // v20 v15 收线：engine.js（NOTE-2「模型」裸词分层 :1307）与 contingency.js（R-C5 c4 好奇追问 / c5 共同回忆）已改动
+const CACHE = "xiaonuan-v22";   // v22 v17 收线：engine.js（S-1b pnorm 归一化真源 :1310 + :1322 收口 + R2-A5b 回避型终止语 :1350 + 归一化接线 ×6 + Q-P2-D11 selfTick 防重放 :3613/:3636/:3637 + pnorm 导出 :3993）、memory.js（删 JOBX，taint/weave 走 E.pnorm）、presence.js（:22）、texture.js（:59）、contingency.js（L5 走 E.pnorm + R-S2 四型自我表达）五个被缓存文件全部改动，破墙护栏口径变了必须让旧缓存失效 // v21 v16 收线：ASSETS 清单未变，但 engine.js（V16-2 破墙表 :1307 四轴扩展，H13 升级为六维全组合闭环）与 app.js（V16-1 R2-B4 affHistory 改 dayIndex 比较器）两个被缓存文件已改动（memory.js 本期零改动：A2-i 的 tgf key 派生早已在源码中，本轮只摘 todo）。缓存键不换＝老用户 fetch 命中旧缓存，新旧模块混装（护栏改了却不下发，等于没上线）—— 这正是 v13 C0-b 事故的成因，故只要任一被缓存文件的内容变了就升版，不只是清单变了才升 // v20 v15 收线：engine.js（NOTE-2「模型」裸词分层 :1307）与 contingency.js（R-C5 c4 好奇追问 / c5 共同回忆）已改动
 const ASSETS = [
   "/", "/index.html", "/style.css", "/engine.js", "/app.js", "/localmodel.js",
   // v13 三模块：与 engine.files.json 的 order 对齐（WR-13 交叉校验）

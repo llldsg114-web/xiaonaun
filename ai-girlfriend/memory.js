@@ -95,21 +95,21 @@ const PROBE = { 喜好: "你还挺喜欢#的吧", 禁忌: "你不太能碰#吧",
 const OPEN = { tired: ["累坏了吧", "先歇会儿"], sad: ["抱抱", "别难过"], anxious: ["别慌", "慢慢来"], joy: ["这么开心呀", "嘿嘿"], neutral: ["", "嗯"] };
 const TB = ["。", "呀。", "~", "哦。"], BAN = /(我记得|我还记得|你之前说|你上次说|你说过|还记着)/;
 const SELF = /我\S{0,3}是|我只是|我不能|帮不上|热线|心理援助|建议你去|专业人[士师]/;
-/* 遗留-2 脱敏：入口闸净化 value —— 命中即静音，零改写（改写即破 H7=0）；JOBX 等长折叠后再判。*/
-const JOBX = /程序[员猿媛]/g, SF = "上班族";
-const taint = (v) => E.PERSONA_BREAK_RE.test(String(v).replace(JOBX, "职"));
+/* 遗留-2 脱敏：入口闸净化 value —— 命中即静音，零改写（改写即破 H7=0）；走 E.pnorm 再判。*/
+const SF = "上班族";
+const taint = (v) => E.PERSONA_BREAK_RE.test(E.pnorm(v));
 
 function weave(f, text, rng) {
  const fam = String(f.key).split("·")[0], pb = N(f.conf, 0) < .75, fr = pb ? PROBE[fam] : BODY[fam];
  if (!fr || taint(f.value)) return null;   // 遗留-2：破墙值不回显
  const ue = E.detectUserEmotion(text) || { type: "neutral" }, op = PW(OPEN[ue.type] || OPEN.neutral, rng);
  const s = (op ? op + "，" : "") + (pb ? fr : PW(fr, rng)).replace(/#/g, f.value) + (pb ? "？" : PW(TB, rng));
- return (s.length > 42 || BAN.test(s) || (SELF.test(s) && E.PERSONA_BREAK_RE.test(s))) ? null : s;
+ return (s.length > 42 || BAN.test(s) || (SELF.test(s) && E.PERSONA_BREAK_RE.test(E.pnorm(s)))) ? null : s;
 }
 
 /* 横向走查表（挂载点契约详见 DESIGN-v14 §13.1）：recallV2 自 engine:2899 早退绕过 :3032/:3057，
    故挂载点上移本模块 —— mod() 调用期查表，缺件返 null 落回原句，D 单向依赖不破。
-   nosplit＝调用方只收单条 replies[0]；SF 是「程序族」等长折叠件（S-6）。
+   nosplit＝调用方只收单条 replies[0]；SF 是「程序族」掩码件（S-6）。
    A6-b：engine:2896 丢弃 rv.tx，故就地按 texture.js 同口径累加 state.tex，t 留宿主自增免双计。*/
 function skin(line, text, state, c, rng) {
  try {
@@ -117,7 +117,7 @@ function skin(line, text, state, c, rng) {
   /* ① texture：命中才改写 line 记 tx 累配额；未命中留原句继续走 ②（v14 前此处 return null 早退，H16 仅 14%）*/
   const T = E.mod("texture");
   if (T && typeof T.texturePass === "function") {
-   const j = (line.match(JOBX) || [])[0], fd = j ? line.split(j).join(SF) : line;
+   const j = (line.match(/程序[员猿媛]/g) || [])[0], fd = j ? line.split(j).join(SF) : line;
    const x = T.texturePass(fd, state, { rng, lv: c.lv, ue,
     intent: "recall", intentEx: "recall", crisis: false, nosplit: true });
    if (x && x.text) {

@@ -70,12 +70,14 @@ console.log(`\n[M1 护栏失效] 破墙句被拦 ${r1.breakBlocked}/${BREAK_LINE
 const m1ok = w.breakBlocked === BREAK_LINES.length && r1.breakBlocked === 0;
 console.log(`  M1 判定: ${m1ok ? "PASS 绿转红 —— H13 护栏确实承重，断言非空" : "FAIL 断言空转"}`);
 
-/* ---- M2: 去掉 :1322 的等长折叠 ---- */
-const FOLD = 'probe.replace(/程序[员猿媛]/g,"职")';
+/* ---- M2: 去掉等长折叠 ----
+ * ★ v17 S-1b：折叠已从 :1322 内联式 `probe.replace(...)` 上收进 :1310 的 pnorm 归一化真源。
+ *   锚点随之改钉 pnorm 里的折叠段；抹掉它 = 归一化不再折叠 → 职业句应立刻被误伤。 */
+const FOLD = '.replace(/程序[员猿媛]/g,"职")';
 const m2 = loadMutated((f, s) => {
   if (f !== "engine.js") return s;
-  must(s.includes(FOLD), ":1322 等长折叠");
-  return s.replace(FOLD, "probe");
+  must(s.includes(FOLD), ":1310 pnorm 等长折叠");
+  return s.replace(FOLD, "");
 });
 const r2 = guardStats(m2);
 console.log(`\n[M2 去折叠] 职业句被拦 ${r2.jobBlocked}/${JOB_LINES.length}（>0 即误伤）`);
@@ -98,7 +100,8 @@ const m3 = loadMutated((f, s) => {
   const end = out.indexOf("\n", i);
   out = out.slice(0, i) + "const PERSONA_BREAK_RE = /(?!)/;" + out.slice(end);
   // 让所有普通回复都强制走兜底句：把 guardPersonaReplies 的返回改成恒兜底
-  const G = "return PERSONA_BREAK_RE.test(probe.replace(/程序[员猿媛]/g,\"职\")) ? PERSONA_FALLBACK : fixed;";
+  // ★ v17 S-1b：归一化上收 pnorm 后，guardPersonaReplies 返回行形态由内联折叠改为 pnorm(probe)
+  const G = "return PERSONA_BREAK_RE.test(pnorm(probe)) ? PERSONA_FALLBACK : fixed;";
   must(out.includes(G), "guardPersonaReplies 返回行");
   return out.replace(G, "return PERSONA_FALLBACK;");
 });

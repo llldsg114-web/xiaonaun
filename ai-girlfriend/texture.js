@@ -56,7 +56,7 @@ function texturePass(text, state, ctx) {
   const k = PW(pool, rng), r = build(k, t, st, rng);
   if (!r) return null;
   const full = r.text || (r.split || []).join("");
-  if (!full || full.length > 140 || E.PERSONA_BREAK_RE.test(full)) return null;
+  if (!full || full.length > 140 || E.PERSONA_BREAK_RE.test(E.pnorm(full))) return null;
   O(st.tex).hAt = N(O(st.tex).t, 0);   // v14 R-S1 门③：本轮质感已命中的唯一同轮信号（tex.t 只在 afterTurn 自增，故 hAt===t ⟺ 本轮）
   return { text: r.text || "", kind: k, split: r.split || null };
  } catch (e) { return null; }

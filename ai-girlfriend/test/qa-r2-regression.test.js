@@ -108,15 +108,17 @@ test("R2-A5 [D4] JEALOUS_DISMISS_RE 对 QA 独立否定语召回 100%，零误�
   for (const s of normal) assert.ok(!E.JEALOUS_DISMISS_RE.test(s), "误伤日常句: " + s);
 });
 
-/* 【遗留 N5 · P2】D4 补齐的是「否认/澄清型」终止语（我没有 / 想多了 / 哪有），
- * 但「话题回避型」几乎全漏。而她的出口句恰恰承诺「你不想聊这个就说一声，我就不提了」——
- * 用户表达"不想聊"最自然的说法就是回避型，这条通道目前只有 25% 通。 */
-test("R2-A5b [遗留] 话题回避型终止语召回偏低",
-  { todo: "P2 边界：D4 六类覆盖缺「回避型」一类（别提了/不说这个了/换个话题/打住/不聊了/这事翻篇），与出口句承诺的「不想聊就说一声」不匹配" }, () => {
-    const avoid = ["别提了", "不说这个了", "这事翻篇", "打住", "换个话题", "不聊了"];
-    const miss = avoid.filter((s) => !E.JEALOUS_DISMISS_RE.test(s));
-    assert.deepStrictEqual(miss, [], "回避型终止语漏收：" + JSON.stringify(miss));
-  });
+/* 【v17 T1 · R2-A5b 已收口】D4 补齐「否认/澄清型」终止语；v17 再补「话题回避型」一类
+ * （别提了/不说这个了/换个话题/打住/不聊了/这事翻篇），与出口句承诺的「不想聊就说一声」对齐。
+ * 六类回避词已并入 JEALOUS_DISMISS_RE（engine.js:1350），召回须 100%、零误伤。 */
+test("R2-A5b [收口] 话题回避型终止语召回 100%，零误伤日常句", () => {
+  const avoid = ["别提了", "不说这个了", "这事翻篇", "打住", "换个话题", "不聊了"];
+  const miss = avoid.filter((s) => !E.JEALOUS_DISMISS_RE.test(s));
+  assert.deepStrictEqual(miss, [], "回避型终止语漏收：" + JSON.stringify(miss));
+  for (const s of avoid) assert.ok(E.JEALOUS_DISMISS_RE.test(s), "回避型终止语未被识别: " + s);
+  const normal = ["今天天气真好", "我在加班呢", "晚上吃什么", "我也想你了", "好呀我们一起去", "你别生气啦我陪你"];
+  for (const s of normal) assert.ok(!E.JEALOUS_DISMISS_RE.test(s), "误伤日常句: " + s);
+});
 
 test("R2-A6 [D5] 吃醋事件双重寿命：TTL 6h 作废 + 追问后归零", () => {
   assert.strictEqual(E.JEALOUS_TTL_MS, 6 * 3600e3);

@@ -192,7 +192,7 @@ test("V-105b · L5 已加挂 ACCUSE_RE：注入指控式尾巴时输出必被丢
   }
 });
 
-test("A6-a-ctg · L5 破墙前做等长折叠，与 engine:1322 同口径（v13 裸正则缺陷已修）", () => {
+test("A6-a-ctg · L5 破墙前做等长折叠，与 engine:1310 pnorm 同源（v13 裸正则缺陷已修）", () => {
   // 折叠前：「程序员」会被 PERSONA_BREAK_RE 的「程序」误伤 → 情境反应被静默吞掉
   assert.ok(E.PERSONA_BREAK_RE.test("你是程序员对吧"), "前提：裸句确会误命中");
   assert.strictEqual(E.PERSONA_BREAK_RE.test("你是程序员对吧".replace(/程序[员猿媛]/g, "职")), false, "前提：折叠后不命中");
@@ -201,12 +201,23 @@ test("A6-a-ctg · L5 破墙前做等长折叠，与 engine:1322 同口径（v13 
   const r = C.contingencePass(rs[0], rs, { st: s, ue: UE_OK, lv: 5, crisis: false, text: "你懂个啥", rng: RNG_HI });
   assert.ok(r, "折叠后「程序员」句应能正常挂载情境反应，不得被静默丢弃");
   assert.ok(rs[0].indexOf("程序员") >= 0, "原句职业词不得被改坏：" + rs[0]);
-  // 口径一致性：contingency 与 engine 用同一条折叠表达式
+  /* 口径一致性：v13~v16 靠「两处各写一份同样的折叠表达式」保证；
+   * ★ v17 T2（DESIGN-v17 §3.4）升级为**单一真源**：折叠只存在于 engine:1310 的 pnorm，
+   *   contingency L5 改为消费 `E.pnorm(o)`。判据随之从「两处字面量相同」翻转为
+   *   「模块侧不得自带折叠字面量 + 必须消费 E.pnorm」—— 这不是放松：原口径允许两份字面量
+   *   各自漂移（v13 的 A6-a-ctg 缺陷正是这么来的），新口径从结构上让漂移不可能发生。 */
   const cSrc = fs.readFileSync(path.join(ROOT, "contingency.js"), "utf8");
   const eSrc = fs.readFileSync(path.join(ROOT, "engine.js"), "utf8");
-  const FOLD = '.replace(/程序[员猿媛]/g,"职")';
-  assert.ok(cSrc.indexOf(FOLD) >= 0, "contingency 缺 A6-a 折叠");
-  assert.ok(eSrc.replace(/\s/g, "").indexOf(FOLD.replace(/\s/g, "")) >= 0, "engine 折叠口径已变，两处必须同步");
+  assert.strictEqual(/程序\[员猿媛\]/.test(cSrc), false, "contingency 不得自带折叠字面量（S-1b 真源唯一）");
+  assert.match(cSrc, /E\.PERSONA_BREAK_RE\.test\(E\.pnorm\(o\)\)/, "contingency L5 必须消费 E.pnorm");
+  assert.strictEqual((eSrc.match(/程序\[员猿媛\]/g) || []).length, 1, "engine 折叠字面量必须唯一（:1310 pnorm）");
+  assert.match(eSrc, /const pnorm = s =>[^\n]*\.replace\(\/程序\[员猿媛\]\/g,\s*"职"\)/, "engine 折叠真源不在 pnorm 上");
+  // 行为等价性：pnorm 必须严格覆盖旧折叠口径（真源唯一 ⇒ 判定恒等，且多堵全角/空格绕行）
+  for (const t of ["你是程序员对吧", "我只是一个程序", "程序媛也得吃饭", "今天天气真好"]) {
+    assert.strictEqual(E.PERSONA_BREAK_RE.test(E.pnorm(t)),
+      E.PERSONA_BREAK_RE.test(t.replace(/程序[员猿媛]/g, "职")), "pnorm 与旧折叠口径不等价：" + t);
+  }
+  assert.strictEqual(E.PERSONA_BREAK_RE.test(E.pnorm("我 只 是 个 程 序")), true, "归一化必须堵掉空格绕行");
   // 真破墙仍必须拦死（折叠不得开天窗）—— H13 一票否决
   const s2 = baseState();
   const rs2 = ["我只是一个程序。"];
@@ -296,6 +307,6 @@ test("V-108 · 体积四锁全绿，over = []", () => {
   assert.ok(z.engineNet <= W.SIZE_BUDGET.engineNetMax, "engineNet " + z.engineNet);
   assert.ok(z.moduleSum <= W.SIZE_BUDGET.moduleSumMax, "moduleSum " + z.moduleSum);
   assert.ok(z.total <= W.SIZE_BUDGET.totalMax, "total " + z.total);
-  assert.strictEqual(z.engineNet, 2350,
-    "T5 是纯模块改动；2350 = 2087 + v15 NOTE-2 的 13B + Q-V15-1 副词槽的 60B + v16 T1 四轴的 190B（均落 :1307 单行）");
+  assert.strictEqual(z.engineNet, 2616,
+    "T5 是纯模块改动；2616 = 2087 + v15 NOTE-2 的 13B + Q-V15-1 副词槽的 60B + v16 T1 四轴的 190B（均落 :1307 单行）+ v17 T1/T2 的 266B（13 行行内追加）");
 });

@@ -1,0 +1,88 @@
+classDiagram
+    class SIZE_BUDGET {
+        <<const · test/wiring-scan.js:259>>
+        +int engineBase = 245737
+        +int engineNetMax = 2800
+        +int engineMax = 248537
+        +int memory_js = 13824
+        +int presence_js = 3840
+        +int texture_js = 4608
+        +int contingency_js = 5671
+        +int moduleSumMax = 27943
+        +int totalMax = 276480
+        +assertLoadTimeIdentity() void
+    }
+    class V33 {
+        <<hardcoded · qa-v13-t2t4-fix.test.js:108>>
+        +int value = 248537
+        note "必须 === SIZE_BUDGET.engineMax"
+    }
+    class pnorm {
+        <<NEW v17 · engine.js:1310 · 单一真源 S-1b>>
+        +nfkc() string
+        +stripSpace() string
+        +foldJob() string
+        +call(s) string
+    }
+    class PERSONA_BREAK_RE {
+        <<const · engine.js:1307 · 单一真源 S-1>>
+        +Seg1_bareWords: RegExp
+        +Seg2_directedPhrase: RegExp
+        +Seg3_pronounBinding: RegExp
+        +test(s) bool
+    }
+    class guardPersonaReplies {
+        <<engine.js:1322 · 出口闸>>
+        +outGuard(line) string
+        +stripUname(s) string
+        +map() string[]
+    }
+    class taint {
+        <<memory.js:100 · 入口闸>>
+        +test(v) bool
+    }
+    class JEALOUS_DISMISS_RE {
+        <<const · engine.js:1350 · R2-A5b>>
+        +cat1_想多了 : alt
+        +cat2_否认 : alt
+        +cat3_澄清关系 : alt
+        +cat4_玩笑 : alt
+        +cat5_叫停 : alt
+        +cat6_点破 : alt
+        +cat7_回避型 : alt
+    }
+    class selfTick {
+        <<engine.js:3605 · Q-P2-D11>>
+        +state: object
+        +dateStr: string
+        +di: int
+        +sk: bool
+        +highWater() int
+        +call(state, dateStr, ctx) self
+    }
+    class contingencePass {
+        <<contingency.js:30 · R-S2 载体>>
+        +cd: Array~[key,text]~
+        +sfType(s, ctx, u) string
+        +selfOf(tier, type, rng) string
+        +L5_outCheck(o) bool
+    }
+    class SFT {
+        <<NEW v17 · contingency.js · R-S2>>
+        +stable: string[]
+        +expand: string[]
+        +challenge: string[]
+        +boundary: string[]
+    }
+    SIZE_BUDGET --> V33 : ⑦ 必须同值
+    SIZE_BUDGET ..> pnorm : gating 约束字节上限
+    pnorm <-- guardPersonaReplies : 归一化前置
+    pnorm <-- taint : 归一化前置
+    pnorm <-- contingencePass : 归一化前置(L5)
+    PERSONA_BREAK_RE <-- guardPersonaReplies : 出口复检
+    PERSONA_BREAK_RE <-- taint : 入口静音
+    PERSONA_BREAK_RE <-- contingencePass : L5 复检
+    contingencePass --> SFT : 四型选材
+    contingencePass ..> selfTick : 只读 Self，绝不回写
+    note for pnorm "12 个运行时判定点全部改走它\nengine 7 + 模块 5；严禁再内联折叠"
+    note for selfTick "复用 updatedAt 作高水位\n零新增字段，selfGet/selfClamp 白名单不动"

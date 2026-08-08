@@ -305,10 +305,19 @@ test("T2 · V-93b 生产语料新旧判定：新增误伤 = 0，少拦的每一�
   }
 });
 
-test("T2 · V-93c A6-a 折叠逐位未改：:1322 表达式与职业族回显不退化", () => {
-  const cur = fs.readFileSync(path.join(ROOT, "engine.js"), "utf8").split("\n");
-  assert.match(cur[1321], /PERSONA_BREAK_RE\.test\(probe\.replace\(\/程序\[员猿媛\]\/g,\s*"职"\)\)/,
-    ":1322 A6-a 等长折叠表达式被改动");
+/* ★ v17 T2 锚点上移（DESIGN-v17 §3.4 · S-1b 单一归一化真源）：
+ *   A6-a 等长折叠从 :1322 的内联 `probe.replace(...)` 上提到 :1310 的 `pnorm`，
+ *   :1322 改为消费 `pnorm(probe)`。折叠语义与职业族回显行为**逐位不变**，本条只把
+ *   结构锚点跟着上移，并补两条更严的钉：① 全库折叠字面量唯一；② :1322 必须消费 pnorm。 */
+test("T2 · V-93c A6-a 折叠逐位未改：:1310 pnorm 真源与职业族回显不退化", () => {
+  const src = fs.readFileSync(path.join(ROOT, "engine.js"), "utf8");
+  const cur = src.split("\n");
+  assert.match(cur[1309], /const pnorm = s =>[^\n]*\.replace\(\/程序\[员猿媛\]\/g,\s*"职"\)/,
+    ":1310 A6-a 等长折叠（pnorm 真源）被改动");
+  assert.match(cur[1321], /PERSONA_BREAK_RE\.test\(pnorm\(probe\)\)/,
+    ":1322 必须消费 pnorm(probe)，不得绕过 S-1b 真源");
+  assert.strictEqual((src.match(/程序\[员猿媛\]/g) || []).length, 1,
+    "engine.js 折叠字面量必须唯一（S-1b 真源不得分裂）");
   // 折叠后不再命中（这正是 A6-a 的目的），折叠前命中（裸词「程序」仍在表内）
   for (const job of ["程序员", "程序猿", "程序媛"]) {
     assert.ok(RE.test(job), `裸词「程序」失效：${job}`);

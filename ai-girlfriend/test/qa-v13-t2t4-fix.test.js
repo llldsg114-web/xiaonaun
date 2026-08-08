@@ -71,16 +71,19 @@ const jobMem = (value, conf) => ({
  *   （若取任务书原议的 28687，此行立即转红：245737+2200+28687 = 276624 > 276480 是"看似更宽"，
  *    但 A1-a 守的是"不许两把锁同时放水"，28687 会让 engine 打满 V-33 时 total 击穿 162B）。
  * ⚠ v14 交付后 total 余量约 3.9KB —— 已不再是 13B 的紧张态，预警口径见 A6-c（换挡 0B/8192B）。 */
-test("A1-a 配额数字落点：memory 14154 / texture 5120 / contingency 4973 / moduleSum 28343 / net 2400 / totalMax 276480", () => {
+test("A1-a 配额数字落点：memory 13824 / texture 4608 / contingency 5671 / moduleSum 27943 / net 2800 / totalMax 276480", () => {
   const B = WS.SIZE_BUDGET;
-  assert.strictEqual(B["memory.js"], 14154, "v16 批准值 14336→14154（V16-3 让渡 182B 给 engineNet）");
-  assert.strictEqual(B["texture.js"], 5120, "v14 不动（T5a 批准值 4608→5120）");
-  assert.strictEqual(B["presence.js"], 4096, "presence 配额自 T2 起不动");
-  assert.strictEqual(B["contingency.js"], 4973, "v15 批准值 4096→4973（R-C5 载体 · 主理人裁定 U-3）");
-  assert.strictEqual(B.moduleSumMax, 28343, "v16 批准值 28525→28343 = totalMax − engineMax(248137)");
-  assert.strictEqual(B.engineNetMax, 2400, "v16 批准值 2200→2400（V16-3 · :1307 四轴扩展 +190B）");
-  assert.strictEqual(B.totalMax, 276480, "v14 批准值 272384→276480（266KB→270KB，天花板评审）");
+  assert.strictEqual(B["memory.js"], 13824, "v17 批准值 14154→13824（让渡 330B · 13.5KiB 边界）");
+  assert.strictEqual(B["texture.js"], 4608, "v17 批准值 5120→4608（让渡 512B · 4.5KiB 边界）");
+  assert.strictEqual(B["presence.js"], 3840, "v17 批准值 4096→3840（让渡 256B · 3.75KiB 边界）");
+  assert.strictEqual(B["contingency.js"], 5671, "v17 批准值 4973→5671（R-S2 二期载体 · 残差式 27943−22272）");
+  assert.strictEqual(B.moduleSumMax, 27943, "v17 批准值 28343→27943 = totalMax − engineMax(248537)");
+  assert.strictEqual(B.engineNetMax, 2800, "v17 批准值 2400→2800（Δ=+400 · 归一化层 + R2-A5b + selfTick 防重放）");
+  assert.strictEqual(B.totalMax, 276480, "v14 批准值 272384→276480（266KB→270KB，天花板评审）· v17 不动");
   assert.strictEqual(B.engineBase, 245737, "engineBase 属永不许动项");
+  // ② 严格等式：Σ4 配额恰等于 moduleSumMax（v17 三让渡 −1098 + contingency +698 = −400）
+  assert.strictEqual(B["memory.js"] + B["presence.js"] + B["texture.js"] + B["contingency.js"],
+    B.moduleSumMax, "Σ(4 模块配额) 必须恰等于 moduleSumMax —— 一个字节的未分配余量都不许存在");
 
   /* ★★ 结构保证（v14 重述 · 工程师实测发现原式在 D-2 下不可满足，已上报主理人）★★
    * 原式：moduleSumMax + engineBase + engineNetMax >= totalMax（"不许有配额被凭空吃掉"）。
@@ -104,8 +107,14 @@ test("A1-a 配额数字落点：memory 14154 / texture 5120 / contingency 4973 /
    *   翻转后两把 engine 锁**重合**：兜底间隙 18B → 0，三锁松弛 → 0（打满即恰好）。
    *   ⚠ 这不是放松，恰恰是**收紧到极限**：会计恒等式左端 totalMax−(moduleSumMax+engineCapNet)
    *   与右端 V33−engineCapNet 现在必须**同为 0**，即「一个字节的未分配余量都不许存在」。
-   *   代价（主理人已明示知悉并追认）：v16 之后任何字节级扩张都必须重新谈预算。 */
-  const V33 = 248137;
+   *   代价（主理人已明示知悉并追认）：v16 之后任何字节级扩张都必须重新谈预算。
+   * ★★【快照翻转 · v17 T0 预算 gating 轮 · 主理人 Qi 批准（DESIGN-v17 §2.5 / §7 锁 ⑦）】★★
+   *   V33 248137 → 248537，随 engineMax 派生同步（engineNetMax 2400→2800，Δ=+400）。
+   *   V33 **不是独立真源**，是 engineMax 的派生常量：凡改 SIZE_BUDGET.engineMax 必同步三处
+   *   运行时字面量（wiring-scan.js:259 / 本行 / qa-v16-size-probe.js:72），漏一处即 T0 首日两红。
+   *   ⚠ 两把 engine 锁继续重合（间隙恒 0），会计恒等式两端仍必须同为 0 —— 严格度逐位不放松，
+   *   本轮只是把「打满即恰好」的那条线整体右移 400B，未分配余量依旧一个字节都不存在。 */
+  const V33 = 248537;
   const engineCapNet = B.engineBase + B.engineNetMax;
   assert.ok(engineCapNet <= V33,
     `engineNet 必须是更紧的那把锁（否则 V-33 兜底失效）：${engineCapNet} > ${V33}`);
@@ -145,11 +154,25 @@ test("A1-b scanSizes：over 为空且逐模块不越配额", () => {
  *      若仍用精确相等，T0 阶段（源码尚未动）与 T2 阶段（已动）不可能同时为绿 —— 而 T0 是
  *      gating，必须先绿。拆开后两阶段各自都被更严的断言覆盖，总严格度只增不减。
  * ★ 反向保护（原样保留 + 加严）：:1307 必须仍是 PERSONA_BREAK_RE 常量声明；
- *   :1322 的 A6-a 折叠、:2897 的 R-P2 透传，必须与 BASE **逐位一致**（从"+19B"升级为"零 diff"）。 */
-test("A1-c engine.js 定点解冻白名单：相对 v14 收口基线仅 v15 已批准行", () => {
+ *   :1322 的 A6-a 折叠、:2897 的 R-P2 透传，必须与 BASE **逐位一致**（从"+19B"升级为"零 diff"）。
+ * ★★【白名单扩容 · v17 T1/T2 · 主理人 Qi 批准（DESIGN-v17 §6-T1 逐行预算表）】★★
+ *   基线**不 reset**（仍 b86a386，DESIGN-v17 §8 裁定），只在白名单上**逐行追加已批准解冻行**。
+ *   v17 获批 13 行（每行都在 §6-T1 表里有独立字节预算，不在表里的一律算越界）：
+ *     :1310 pnorm 声明（与 PERSONA_FALLBACK 同行尾追加）      +105
+ *     :1322 内联折叠 → pnorm(probe)（S-1b 单一真源收口）      −29
+ *     :1350 JEALOUS_DISMISS_RE 追加 R2-A5b 回避型终止语 6 词   +69
+ *     :1382/:1393/:1435/:1461/:2488/:2935 归一化接线 ×6        +42
+ *     :3613/:3636/:3637 Q-P2-D11 selfTick 防重放（复用水位）   +90
+ *     :3993 pnorm 导出                                        +7
+ *   ⚠ 这**不是放松冻结**：① 行数恒等式（cur.length===base.length）逐位不动，仍禁止增删行；
+ *     ② 越界集合仍须为空，第 14 行改动立刻红；③ :1307（PERSONA_BREAK_RE 唯一真源）v17
+ *     一字未动，其"只准 :1307 改破墙表"的语义反而被 :1322 收口后**加强**（折叠字面量从
+ *     3 套降到 1 套，见 §3.4）；④ :2897 R-P2 透传仍锁"逐位零 diff"，未随本轮解冻。 */
+test("A1-c engine.js 定点解冻白名单：相对 v14 收口基线仅 v15/v17 已批准行", () => {
   const BL = require("./baseline.js");
-  /* v15 已批准的解冻行（DESIGN-v15 §2.1 明列，不得再加第二行）。 */
-  const WHITELIST = [1307];
+  /* v15 已批准的解冻行（DESIGN-v15 §2.1 明列）+ v17 §6-T1 明列 13 行，不得再加第 14 行。 */
+  const V17 = [1310, 1322, 1350, 1382, 1393, 1435, 1461, 2488, 2935, 3613, 3636, 3637, 3993];
+  const WHITELIST = [1307].concat(V17);
   // 逐行比对定位改动行号（--numstat 只给数量，不给位置）
   const cur = fs.readFileSync(path.join(ROOT, "engine.js"), "utf8").split("\n");
   const base = BL.showAt(BL.BASE, "engine.js").split("\n");
@@ -174,10 +197,19 @@ test("A1-c engine.js 定点解冻白名单：相对 v14 收口基线仅 v15 已�
   assert.match(cur[2896], /factId: rv\.factId, pacing: rv\.pacing \}$/,
     ":2897 必须是 rec 对象末尾追加 `pacing: rv.pacing`（R-P2 只透传，不加工）");
   assert.strictEqual(cur[2896], base[2896], ":2897 必须与 v14 收口基线逐位一致");
-  // A6-a 折叠（已在基线内）必须逐位未动 —— V-93c 的结构侧留证
-  assert.match(cur[1321], /PERSONA_BREAK_RE\.test\(probe\.replace\(\/程序\[员猿媛\]\/g,\s*"职"\)\)/,
-    ":1322 职业族等长折叠被改动（本期未申请解冻）");
-  assert.strictEqual(cur[1321], base[1321], ":1322 必须与 v14 收口基线逐位一致");
+  /* A6-a 折叠：v17 起由内联字面量收口到 S-1b 单一真源 pnorm（§3.4）。
+   * 判据从"字面量逐位一致"翻转为"必须走 pnorm"—— 语义不放松：折叠仍然发生，
+   * 只是真源从 3 套字面量降为 1 套；且下方加断"engine.js 内不得再有第 2 套折叠字面量"。 */
+  assert.match(cur[1321], /PERSONA_BREAK_RE\.test\(pnorm\(probe\)\)/,
+    ":1322 必须走 pnorm(probe)（S-1b 单一归一化真源）");
+  assert.match(cur[1309], /const pnorm = s =>[\s\S]*程序\[员猿媛\][\s\S]*"职"/,
+    ":1310 必须是 pnorm 声明，且折叠规则就落在这一行（唯一真源）");
+  const foldHits = (fs.readFileSync(path.join(ROOT, "engine.js"), "utf8")
+    .match(/程序\[员猿媛\]/g) || []).length;
+  assert.strictEqual(foldHits, 1,
+    "engine.js 内职业族折叠字面量必须只剩 1 处（:1310 pnorm），实测 " + foldHits + " 处");
+  // U-5 守卫（DESIGN-v15 §Q-U5）：破墙表内不得出现裸词「模型训练|」，否则误杀"训练成绩比上周好"
+  assert.strictEqual(/模型训练\|/.test(cur[1306]), false, ":1307 出现裸词「模型训练|」，U-5 守卫失守");
 });
 
 /* ================= A4 · 体积双闸门 ================= */
@@ -229,14 +261,27 @@ test("A1-c engine.js 定点解冻白名单：相对 v14 收口基线仅 v15 已�
  * ★ 严禁改成加裸词 `模型训练|` —— 触犯 T2·U-5 破墙表裸词守卫（U-5 用例会立刻转红）。
  * ★ 严禁把 `系统|软件|数据|脚本|程式` 加进尾组 —— 实测职业句 10/10 误杀（G2 一票否决）。
  * ★ 否定前瞻必须用**完整职业词**，不得退化为单字 `[师生员工]`：单字过贪，会连带放过
- *   「你就是个算法工程罢了」「你其实是代码生成的」等真破墙句（DESIGN-v16 §8 附注）。 */
-test("A4 体积三闸门：V-33 ≤248137B 且 V-90 net ≤2400B 且 total ≤276480B", () => {
+ *   「你就是个算法工程罢了」「你其实是代码生成的」等真破墙句（DESIGN-v16 §8 附注）。
+ * ── v17 T0 上限翻转 2400 → 2800 / 248137 → 248537（源码 0B，T0 出关时实际 net 仍 2350）──
+ * ── v17 T1/T2 实际 net 翻转 2350 → 2616（+266，DESIGN-v17 §6-T1 预算 +300，省 34B）──
+ * 13 行行内/行尾追加（禁止增删行，行数恒等式仍由 :165 把守），逐行实测：
+ *   :1310 pnorm 声明（PERSONA_FALLBACK 同行尾）        预算 +105 / 实测 **+103**
+ *   :1322 内联折叠 → pnorm(probe)（S-1b 收口）          预算  −29 / 实测  **−29**
+ *   :1350 JEALOUS_DISMISS_RE 追加 R2-A5b 回避型 6 词     预算  +69 / 实测  **+69**
+ *   :1382/:1393/:1435/:1461/:2488/:2935 归一化接线 ×6   预算  +42 / 实测  **+42**（7×6）
+ *   :3613/:3636/:3637 Q-P2-D11 selfTick 防重放           预算  +90 / 实测  **+74**（46/7/21）
+ *   :3993 pnorm 导出                                    预算   +7 / 实测   **+7**
+ * 合计 2350 + 266 = **2616**，仍是 strictEqual 硬钉，多一个字节即红（上限 2800，余 184）。
+ * ★ Q-P2-D11 少花 16B：复用 `updatedAt` 作高水位，未新增 `hi` 字段（DESIGN-v17 §3.2），
+ *   selfGet/selfClamp 两处字段白名单零改动。省下的 16B 回吐 net 余量，不另作他用。
+ * ★ 严禁改成加裸词 `模型训练|` —— U-5 守卫（A1-c 内已加断言）会立刻转红。 */
+test("A4 体积三闸门：V-33 ≤248537B 且 V-90 net ≤2800B 且 total ≤276480B", () => {
   const size = fs.statSync(path.join(ROOT, "engine.js")).size;
   const CAP = WS.SIZE_BUDGET.engineMax;
   assert.ok(size <= CAP, `V-33 越界: ${size} > ${CAP}（余 ${CAP - size}B）`);
   const net = size - WS.SIZE_BUDGET.engineBase;
-  assert.strictEqual(net, 2350,
-    "净增应为 T5b 2056B + R-P0 12B + R-P2 19B + v15 NOTE-2 13B + Q-V15-1 副词槽 60B + v16 T1 四轴 190B = 2350B，本轮不得再涨");
+  assert.strictEqual(net, 2616,
+    "净增应为 T5b 2056B + R-P0 12B + R-P2 19B + v15 NOTE-2 13B + Q-V15-1 副词槽 60B + v16 T1 四轴 190B + v17 T1/T2 266B = 2616B，本轮不得再涨");
   assert.ok(net <= WS.SIZE_BUDGET.engineNetMax, `V-90 越界: ${net} > ${WS.SIZE_BUDGET.engineNetMax}`);
   const s = WS.scanSizes();
   assert.ok(s.total <= WS.SIZE_BUDGET.totalMax,
@@ -391,12 +436,22 @@ test("A2-g [H11 不变量] AI 自我揭示恶意值破墙泄漏 = 0（v14：升�
 });
 
 /* texture 侧破墙闸未被本轮放宽：仍是无条件 PERSONA_BREAK_RE（放宽仅限 memory.weave）。
- * 这条守住「放宽范围不扩散」。 */
+ * 这条守住「放宽范围不扩散」。
+ * ★ v17 T2：判据的**被检串**由裸值升级为 `E.pnorm(...)`（S-1b 单一归一化真源，DESIGN-v17 §3.4）。
+ *   合取结构（texture 无条件 / memory.weave 为 SELF∧BREAK）逐位不动 —— 这不是放宽，
+ *   而是把「全角/空格/程序族变体绕过」这条历史绕行路一起堵死（H13 密闭性只增不减）。 */
 test("A2-h 破墙闸放宽范围受限：texture.js 仍为无条件拦截", () => {
   const src = fs.readFileSync(path.join(ROOT, "texture.js"), "utf8");
-  assert.match(src, /\|\|\s*E\.PERSONA_BREAK_RE\.test\(full\)/, "texture 出口应保持无条件破墙拦截");
+  assert.match(src, /\|\|\s*E\.PERSONA_BREAK_RE\.test\(E\.pnorm\(full\)\)/,
+    "texture 出口应保持无条件破墙拦截，且走 E.pnorm 归一化真源");
   const msrc = fs.readFileSync(path.join(ROOT, "memory.js"), "utf8");
-  assert.match(msrc, /SELF\.test\(s\)\s*&&\s*E\.PERSONA_BREAK_RE\.test\(s\)/, "memory.weave 应为 SELF∧BREAK 合取");
+  assert.match(msrc, /SELF\.test\(s\)\s*&&\s*E\.PERSONA_BREAK_RE\.test\(E\.pnorm\(s\)\)/,
+    "memory.weave 应为 SELF∧BREAK 合取，且走 E.pnorm 归一化真源");
+  // 反向保护：模块侧不得再自带第 2 套折叠字面量（真源唯一性）
+  for (const f of ["texture.js", "presence.js", "contingency.js"]) {
+    const s = fs.readFileSync(path.join(ROOT, f), "utf8");
+    assert.strictEqual(/程序\[员猿媛\]/.test(s), false, f + " 仍自带折叠字面量，S-1b 真源唯一性失守");
+  }
 });
 
 /* [A2-i closed · v16 T2-d] 原缺陷：决策⑤ 的 tag 桥挂在「存储句面」而非「事实 key」——
@@ -677,9 +732,19 @@ test("A6-a-h11 等长折叠零副作用：真·自我揭示仍 FALLBACK / 非职
     "你是做程序员的对吧？", "今天天气真好", "阿明，慢一点",
   ];
   for (const s of mustPass) assert.strictEqual(g(s), s, "正常句被误杀: " + JSON.stringify(s));
-  // 折叠表本身锁死为 3 个确定词，禁止扩成通配
+  /* 折叠表本身锁死为 3 个确定词，禁止扩成通配。
+   * ★ v17 T2：折叠从 :1322 内联表达式上提为 :1310 的 pnorm 单一真源（S-1b），
+   *   锚点随之上移；同时加断「全库仅 1 处折叠字面量」，比原来只钉 :1322 更严。 */
   const src = fs.readFileSync(path.join(ROOT, "engine.js"), "utf8");
-  assert.match(src, /probe\.replace\(\/程序\[员猿媛\]\/g,\s*"职"\)/, "折叠表被改动，作用域不再可穷举");
+  assert.match(src, /const pnorm = s =>[^\n]*\.replace\(\/程序\[员猿媛\]\/g,\s*"职"\)/,
+    "折叠表被改动，作用域不再可穷举");
+  assert.strictEqual((src.match(/程序\[员猿媛\]/g) || []).length, 1,
+    "engine.js 折叠字面量必须唯一（S-1b），出现第 2 处即视为真源分裂");
+  assert.match(src, /PERSONA_BREAK_RE\.test\(pnorm\(probe\)\)/, ":1322 出口闸必须消费 pnorm");
+  // 归一化不得开新洞：全角/空格/混排绕行必须与紧凑写法同判
+  for (const s of ["我 是 A I", "我是　ＡＩ", "我 只 是 个 程 序", "我是ｌｌｍ"]) {
+    assert.strictEqual(g(s), FALLBACK, "归一化绕行未被拦截: " + JSON.stringify(s));
+  }
 });
 
 /* A6-b【已修复 · T5b 转正，QA 摘 todo】待决点② 的 recall 微行为已计入 R30 日配额。

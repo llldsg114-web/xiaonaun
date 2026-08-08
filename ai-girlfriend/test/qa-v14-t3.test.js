@@ -170,8 +170,15 @@ test("T3 · 结构：R23 后缀组必须是字符类形态（不得回退为择�
  * memory.js 在 v15 是**零改动文件**（DESIGN-v15 §2.4），故"当前 vs v13 收口"仍恰为 −6B，
  * 断言值一个字都不用改 —— 这正是"基线腐坏而非行为回归"的直接证据。 */
 /* ★【v16 T0 上限翻转】memory.js 配额 14336 → 14154（V16-3 让渡 182B 给 engineNet）。
- * 断言体本就走 `WS.SIZE_BUDGET["memory.js"]` 单一真源，无硬编码 —— 仅标题数字同步。 */
-test("T3 · 体积：memory.js 相对 T1 收线净减 6B，且仍在 14154B 配额内", () => {
+ * 断言体本就走 `WS.SIZE_BUDGET["memory.js"]` 单一真源，无硬编码 —— 仅标题数字同步。
+ * ★★【v17 T0/T2 · 主理人 Qi 批准（DESIGN-v17 §2.5 唯一解 + §6-T2 归一化收口）】★★
+ *   ① 配额 14154 → 13824（让渡 330B 给 engineNet 与 contingency，仍走单一真源自动跟随）；
+ *   ② 「零改动文件」翻转为 **「白名单内改动 + 净减 38B」**：v17 获批 6 行
+ *      :98/:112 注释同步、:99 删 JOBX 常量、:100 taint 走 E.pnorm、:107 weave 走 E.pnorm、
+ *      :120 JOBX 删除后就地内联掩码正则。
+ *   ⚠ 这不是放松：原判据只断"有没有 diff"，新判据同时断 **行数不变 + 改动行 ⊆ 白名单 +
+ *      净字节恰好 −38**（strictEqual 硬钉），三条同时成立才绿，严格度只增不减。 */
+test("T3 · 体积：memory.js 相对 T1 收线净减 6B，v17 归一化再净减 38B，且仍在 13824B 配额内", () => {
   const BL = require("./baseline.js");
   const cur = fs.statSync(path.join(ROOT, "memory.js")).size;
   const WS = require("./wiring-scan.js");
@@ -185,7 +192,20 @@ test("T3 · 体积：memory.js 相对 T1 收线净减 6B，且仍在 14154B 配�
   const delta = Buffer.byteLength(pick(fs.readFileSync(path.join(ROOT, "memory.js"), "utf8")))
     - Buffer.byteLength(pick(head));
   assert.strictEqual(delta, -6, `R-P1 应净减 6B（不含注释），实际 ${delta}B`);
-  // v15 零改动铁律：memory.js 相对 v14 收口基线必须逐位一致（DESIGN-v15 §2.4）
-  assert.strictEqual(BL.numstatAt(BL.BASE, "memory.js"), "",
-    "memory.js 在 v15 是零改动文件，出现 diff 即越界（NOTE-2 只准改 engine.js:1307）");
+  /* v17 T2 归一化收口铁律（替代 v15 的「零改动」口径）：行数不变 + 改动行 ⊆ 白名单 + 净 −38B */
+  const WHITELIST = [98, 99, 100, 107, 112, 120];
+  const src = fs.readFileSync(path.join(ROOT, "memory.js"), "utf8");
+  const base = BL.showAt(BL.BASE, "memory.js");
+  const cl = src.split("\n"), bl = base.split("\n");
+  assert.strictEqual(cl.length, bl.length, "memory.js 行数必须不变（纯定点替换）");
+  const moved = [];
+  for (let i = 0; i < cl.length; i++) if (cl[i] !== bl[i]) moved.push(i + 1);
+  assert.deepStrictEqual(moved.filter((l) => WHITELIST.indexOf(l) < 0), [],
+    "memory.js 改动超出 v17 §6-T2 白名单，越界行: " + JSON.stringify(moved));
+  assert.strictEqual(cur - Buffer.byteLength(base), -38,
+    `v17 归一化收口应净减 38B（删 JOBX 常量 −29 / taint 走 pnorm −20 / weave +9 / 注释与内联掩码 +2），实际 ${cur - Buffer.byteLength(base)}B`);
+  // 真源唯一性：JOBX 常量必须已删除，taint 与 weave 都必须消费 E.pnorm
+  assert.strictEqual(/const JOBX\s*=/.test(src), false, "JOBX 常量残留 —— 第 3 套折叠字面量未删除（S-1b）");
+  assert.match(src, /const taint = \(v\) => E\.PERSONA_BREAK_RE\.test\(E\.pnorm\(v\)\);/, "taint 未走 E.pnorm");
+  assert.match(src, /SELF\.test\(s\) && E\.PERSONA_BREAK_RE\.test\(E\.pnorm\(s\)\)/, "weave 未走 E.pnorm");
 });

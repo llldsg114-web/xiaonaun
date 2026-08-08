@@ -322,7 +322,10 @@ test("T4 · 体积：engine :2897 +19B、memory R-P2 净增 ≤700B，四把锁�
   /* engine 侧就是那 19B，一个字节都不许多；v15 T2 再加 NOTE-2 的 13B（:1307 单行）；
    * v15 Q-V15-1 再加副词槽补全的 60B（仍是 :1307 单行，修 H13 破墙漏网，不申请配额）；
    * ★ v16 T1 再加四轴扩展的 190B（仍是 :1307 单行，H13 升级为六维全组合闭环，
-   *   配额已由 V16-3 前置抬至 engineNetMax 2400，落位 2350 余 50B）。 */
-  assert.strictEqual(s.engineNet, 2350,
-    `engine net 应为 2056(T5b) + 12(R-P0) + 19(R-P2) + 13(v15 NOTE-2) + 60(Q-V15-1) + 190(v16 T1) = 2350，实际 ${s.engineNet}`);
+   *   配额已由 V16-3 前置抬至 engineNetMax 2400，落位 2350 余 50B）。
+   * ★ v17 T1/T2 再加 266B（13 行行内追加：pnorm 真源 +103 / :1322 收口 −29 /
+   *   R2-A5b 回避终止语 +69 / 归一化接线 ×6 +42 / Q-P2-D11 防重放 +74 / 导出 +7），
+   *   配额已由 v17 T0 前置抬至 engineNetMax 2800，落位 2616 余 184B。 */
+  assert.strictEqual(s.engineNet, 2616,
+    `engine net 应为 2056(T5b) + 12(R-P0) + 19(R-P2) + 13(v15 NOTE-2) + 60(Q-V15-1) + 190(v16 T1) + 266(v17 T1/T2) = 2616，实际 ${s.engineNet}`);
 });

@@ -623,10 +623,11 @@ test("Q-P2-D10 [缺陷] 开启 voiceMotive 后闲置主动消息不应比关闭�
       "voiceMotive 开启后陪伴消息塌缩：开=" + on + " 条 / 关=" + off + " 条（200 次闲置 tick）");
   });
 
-/* 复现：selfTick 防重放只比对 cur.updatedAt === date 单值，日期在「昨天/今天」之间来回跳时恒不相等，
- * 同一天可被无限次重复结算。方向不是随机噪声：security/independence 被压低、dependency 被抬高。 */
-test("Q-P2-D11 [缺陷] 系统时间倒流不应能反复泵送 self 四轴",
-  { todo: "健壮性缺陷：engine.js selfTick 防重放依赖 updatedAt 单值相等，未记录已结算日期集合/最大水位，用户改系统时间即可篡改成长轨迹" }, () => {
+/* 【v17 T1 · Q-P2-D11 已收口】原 selfTick 防重放只比对 updatedAt === date 单值，日期在「昨天/今天」
+ * 之间来回跳时恒不相等，同一天可被无限次重复结算，security/independence 被压低、dependency 被抬高。
+ * v17 改为记录「已结算最大日水位」：di<=dayIndex(updatedAt) 一律 sk=true 跳过全部事件，且冷却用
+ * (di-prev) 比较，prev>di（系统时间倒流）同样落进跳过分支 → 只会少算不会多算，天然不给泵送留口子。 */
+test("Q-P2-D11 [收口] 系统时间倒流不应能反复泵送 self 四轴", () => {
     const mk = () => {
       const st = E.defaults();
       st.affection = 600;
