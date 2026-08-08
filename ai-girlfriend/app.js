@@ -2104,7 +2104,16 @@ function buildRelGraph() {
 
 function buildAffCurve() {
   const hist = S.affHistory || {};
-  const entries = Object.entries(hist).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  /* R2-B4：affHistory 的键历史上是「YYYY-M-D」（不补零，见 :151 的结构注释），
+   * 新档才由 Engine.dayKey 补零成「YYYY-MM-DD」。字典序会把老档的
+   * 「2025-2-10」排到「2025-2-9」前面，感情曲线的横轴顺序就是错的。
+   * 改用 Engine.dayIndex 数值比较（dayParse 兼容 \d{1,2}，老档照常解析）；
+   * 引擎缺席时退回字典序，与改动前行为一致，不引入新失败模式。 */
+  const di = (typeof Engine !== "undefined" && Engine && typeof Engine.dayIndex === "function")
+    ? Engine.dayIndex : null;
+  const entries = Object.entries(hist).sort((a, b) => (di
+    ? di(a[0]) - di(b[0])
+    : (a[0] < b[0] ? -1 : 1)));
   if (entries.length < 2) {
     return `<div class="graph-label" style="text-align:center;padding:18px 0">再多陪${currentChar().name}聊几天，这里就会画出你们的感情曲线啦 💕</div>`;
   }

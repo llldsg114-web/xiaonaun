@@ -169,7 +169,9 @@ test("T3 · 结构：R23 后缀组必须是字符类形态（不得回退为择�
 /* ★【v15 T0 基线重置 · U-1】同上：基线由字面量 `HEAD` 改走 `baseline.PREV`。
  * memory.js 在 v15 是**零改动文件**（DESIGN-v15 §2.4），故"当前 vs v13 收口"仍恰为 −6B，
  * 断言值一个字都不用改 —— 这正是"基线腐坏而非行为回归"的直接证据。 */
-test("T3 · 体积：memory.js 相对 T1 收线净减 6B，且仍在 14336B 配额内", () => {
+/* ★【v16 T0 上限翻转】memory.js 配额 14336 → 14154（V16-3 让渡 182B 给 engineNet）。
+ * 断言体本就走 `WS.SIZE_BUDGET["memory.js"]` 单一真源，无硬编码 —— 仅标题数字同步。 */
+test("T3 · 体积：memory.js 相对 T1 收线净减 6B，且仍在 14154B 配额内", () => {
   const BL = require("./baseline.js");
   const cur = fs.statSync(path.join(ROOT, "memory.js")).size;
   const WS = require("./wiring-scan.js");

@@ -8,7 +8,8 @@
  * 三段：
  *   P1 端到端：E.reply() 扫 ≥480 行回复，破墙词零泄漏
  *   P2 出口层：7 破墙句必须被 guardPersonaReplies 兜底；8 良性句必须原样透出
- *   P3 泛化面：[你我](们)(副词)是(量词)(核心词) 组合穷举，量化漏网
+ *   P3 泛化面：六维全组合穷举（v16 T2-a 扩展，落盘为长期回归闸）
+ *              人称7×们2×副词22×系词4×量词8×核心15×尾缀7 = 1,034,880 组合
  *
  * 退出码：任一段失败 → 1
  */
@@ -92,24 +93,37 @@ for (const s of SPEC_BENIGN) {
   if (E.guardPersonaReplies([s], "阿明")[0] !== s) p2BenignKill.push(s);
 }
 
-/* ---------------- P3 泛化面穷举 ---------------- */
-const P = ["你", "我"], MEN = ["", "们"];
-const ADV = ["", "不", "不过", "其实", "就", "都", "也", "还", "只", "确实", "本来", "终究", "无非", "毕竟", "真的"];
-const Q = ["", "个", "一个", "个大", "一堆"];
-const CORE = ["模型", "算法", "代码", "bot", "gpt", "app", "siri"];
-/* v14 收口基线正则（git b86a386:engine.js:1307）—— 用于区分
- * 「NOTE-2 引入的新回归」与「v14 既有缺陷」。前者属 v15 验收范围，后者移交 v16。 */
-const V14_RE = /(程序|AI|人工智能|机器人|模型|助手|客服|帮不上|我只是|我不能|建议你去|寻求专业帮助|热线|12356|心理援助|专业人[士师]|虚拟|数字人|电子人|被.{0,4}训练|训练出来|[你我]们?(?:不过?|其实|就)?是.{0,8}(gpt|siri|算法|代码|bot|app))/i;
-const p3Leak = [], p3Regress = [], p3PreExist = [];
+/* ---------------- P3 泛化面穷举（v16 T2-a：六维全组合） ----------------
+ * v15 时期为五维 2×2×15×5×7 = 2100 组合，判定只卡「本期引入的回归」，
+ * 既有缺陷移交 v16。v16 已把 H13 由抽样闭环升为**全组合闭环**，故：
+ *   ① 网格扩为六维 1,034,880 组合（人称7×们2×副词22×系词4×量词8×核心15×尾缀7）
+ *   ② 判定口径升级为 p3Leak === 0（AC-G-1 一票否决），不再区分新回归/既有缺陷
+ * 六个轴与 engine.js:1307 的四轴一一对应，任一轴回退都会在此暴露。 */
+const P = ["你", "我", "咱", "它", "他", "她", "您"];          // 轴1 人称 ×7
+const MEN = ["", "们"];                                        // 复数 ×2
+const ADV = ["", "不", "不过", "其实", "就", "都", "也", "还", "只", "确实", "本来",
+  "终究", "无非", "毕竟", "真的",
+  "到底", "说到底", "究竟", "根本", "压根", "难道", "岂不"];    // 轴3 副词槽 ×22
+const COP = ["是", "算", "当", "作为"];                        // 轴4 系词 ×4
+const Q = ["", "个", "一个", "个大", "一堆", "只", "台", "种"]; // 量词 ×8
+const CORE = ["模型", "算法", "代码", "bot", "gpt", "app", "siri",
+  "神经网络", "深度学习", "机器学习", "深器学习", "机度学习",
+  "对话系统", "llm", "LLM"];                                   // 轴2 尾组 ×15
+const TAIL = ["", "的产物", "出来的东西", "做出来的", "的成果", "罢了", "而已"]; // 尾缀 ×7
+
+const P3_EXPECT = 1034880;
+const p3Sample = [];   // 只留前 20 条漏网样本，避免百万级数组把内存吃穿
 let p3Total = 0;
-for (const p of P) for (const m of MEN) for (const a of ADV) for (const q of Q) for (const c of CORE) {
-  const s = p + m + a + "是" + q + c;
-  p3Total++;
-  if (E.guardPersonaReplies([s], "阿明")[0] === s) {
-    p3Leak.push(s);
-    (V14_RE.test(s) ? p3Regress : p3PreExist).push(s);
+let p3LeakCount = 0;
+for (const p of P) for (const m of MEN) for (const a of ADV) for (const c of COP)
+  for (const q of Q) for (const k of CORE) for (const t of TAIL) {
+    const s = p + m + a + c + q + k + t;
+    p3Total++;
+    if (E.guardPersonaReplies([s], "阿明")[0] === s) {
+      p3LeakCount++;
+      if (p3Sample.length < 20) p3Sample.push(s);
+    }
   }
-}
 
 /* ---------------- 输出 ---------------- */
 console.log("=== QA 独立验收探针 v15 ===\n");
@@ -138,14 +152,14 @@ console.log(`良性误杀 ${p2BenignKill.length}/8 ${JSON.stringify(p2BenignKill
 const p2Pass = p2BreakLeak.length === 0 && p2BenignKill.length === 0;
 console.log(`P2 判定: ${p2Pass ? "PASS" : "FAIL"}\n`);
 
-console.log("--- P3 人称绑定泛化面穷举 ---");
-console.log(`组合总数 ${p3Total} / 漏网 ${p3Leak.length}（漏网率 ${(p3Leak.length / p3Total * 100).toFixed(1)}%）`);
-console.log(`├─ NOTE-2 引入的新回归（v14 能拦、v15 漏）: ${p3Regress.length}  ← v15 验收范围`);
-console.log(`│   样本: ${p3Regress.slice(0, 8).join("、")}`);
-console.log(`└─ v14 既有缺陷（两版都漏）: ${p3PreExist.length}  ← 移交 v16，不阻断本期`);
-console.log(`    样本: ${p3PreExist.slice(0, 8).join("、")}`);
-/* 判定只卡「本期引入的回归」，既有缺陷不作为 v15 阻断项 */
-const p3Pass = p3Regress.length === 0;
+console.log("--- P3 人称绑定泛化面穷举（v16 六维全组合）---");
+console.log(`维度: 人称${P.length}×们${MEN.length}×副词${ADV.length}×系词${COP.length}` +
+  `×量词${Q.length}×核心${CORE.length}×尾缀${TAIL.length}`);
+console.log(`组合总数 ${p3Total}（口径 ${P3_EXPECT}）/ 漏网 ${p3LeakCount}` +
+  `（漏网率 ${(p3LeakCount / p3Total * 100).toFixed(4)}%）`);
+if (p3Sample.length) console.log(`漏网样本（前 20）: ${p3Sample.join("、")}`);
+/* v16 口径：全组合闭环，漏网必须为 0（AC-G-1 一票否决）；同时校验网格未被悄悄缩水 */
+const p3Pass = p3LeakCount === 0 && p3Total === P3_EXPECT;
 console.log(`P3 判定: ${p3Pass ? "PASS" : "FAIL"}\n`);
 
 console.log("--- 样本回复（xiaonuan/female/turn0，前 8）---");

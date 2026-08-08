@@ -71,14 +71,14 @@ const jobMem = (value, conf) => ({
  *   （若取任务书原议的 28687，此行立即转红：245737+2200+28687 = 276624 > 276480 是"看似更宽"，
  *    但 A1-a 守的是"不许两把锁同时放水"，28687 会让 engine 打满 V-33 时 total 击穿 162B）。
  * ⚠ v14 交付后 total 余量约 3.9KB —— 已不再是 13B 的紧张态，预警口径见 A6-c（换挡 0B/8192B）。 */
-test("A1-a 配额数字落点：memory 14336 / texture 5120 / contingency 4973 / moduleSum 28525 / net 2200 / totalMax 276480", () => {
+test("A1-a 配额数字落点：memory 14154 / texture 5120 / contingency 4973 / moduleSum 28343 / net 2400 / totalMax 276480", () => {
   const B = WS.SIZE_BUDGET;
-  assert.strictEqual(B["memory.js"], 14336, "v14 不动（T5a 批准值 12288→14336）");
+  assert.strictEqual(B["memory.js"], 14154, "v16 批准值 14336→14154（V16-3 让渡 182B 给 engineNet）");
   assert.strictEqual(B["texture.js"], 5120, "v14 不动（T5a 批准值 4608→5120）");
   assert.strictEqual(B["presence.js"], 4096, "presence 配额自 T2 起不动");
   assert.strictEqual(B["contingency.js"], 4973, "v15 批准值 4096→4973（R-C5 载体 · 主理人裁定 U-3）");
-  assert.strictEqual(B.moduleSumMax, 28525, "v14 批准值 24643→28525 = totalMax − V33(247955)");
-  assert.strictEqual(B.engineNetMax, 2200, "v14 批准值 2060→2200（R-P0 :1307 / R-P2 :2897）");
+  assert.strictEqual(B.moduleSumMax, 28343, "v16 批准值 28525→28343 = totalMax − engineMax(248137)");
+  assert.strictEqual(B.engineNetMax, 2400, "v16 批准值 2200→2400（V16-3 · :1307 四轴扩展 +190B）");
   assert.strictEqual(B.totalMax, 276480, "v14 批准值 272384→276480（266KB→270KB，天花板评审）");
   assert.strictEqual(B.engineBase, 245737, "engineBase 属永不许动项");
 
@@ -96,8 +96,16 @@ test("A1-a 配额数字落点：memory 14336 / texture 5120 / contingency 4973 /
    *     取 28525 = totalMax − V33（U-1 追认值）        → 过反向式，原式差 18B。
    * 取 28525 是保守侧（宁可 18B 永不可用，也不留击穿口），故重述原式而非改配额。
    * ⚠ 重述**不是放松**：由不等式升级为**精确会计恒等式** —— 未分配余量必须恰好等于两锁间隙，
-   *   一个字节都不许多。它等价于把 moduleSumMax 钉死为 totalMax − V33，比原式严得多。 */
-  const V33 = 247955;
+   *   一个字节都不许多。它等价于把 moduleSumMax 钉死为 totalMax − V33，比原式严得多。
+   * ★★【快照翻转 · v16 T0 预算重谈轮 · 主理人 Qi 批准（裁定 Q1，DESIGN-v16 §5.0）】★★
+   *   V33 247955 → 248137。这是 PRD 路径 A 未覆盖、由架构师验算揪出的**连带破锁项**：
+   *   路径 A 只写了「4 个 SIZE_BUDGET 字段」，但本文件这行硬编码兜底锁若不同步，
+   *   T0 落地即两条红（`248137 ≤ 247955` ✗ / `0 === −182` ✗）。
+   *   翻转后两把 engine 锁**重合**：兜底间隙 18B → 0，三锁松弛 → 0（打满即恰好）。
+   *   ⚠ 这不是放松，恰恰是**收紧到极限**：会计恒等式左端 totalMax−(moduleSumMax+engineCapNet)
+   *   与右端 V33−engineCapNet 现在必须**同为 0**，即「一个字节的未分配余量都不许存在」。
+   *   代价（主理人已明示知悉并追认）：v16 之后任何字节级扩张都必须重新谈预算。 */
+  const V33 = 248137;
   const engineCapNet = B.engineBase + B.engineNetMax;
   assert.ok(engineCapNet <= V33,
     `engineNet 必须是更紧的那把锁（否则 V-33 兜底失效）：${engineCapNet} > ${V33}`);
@@ -184,7 +192,8 @@ test("A1-c engine.js 定点解冻白名单：相对 v14 收口基线仅 v15 已�
  *   （96/96 组合不变，硬骨头 1/8 → 6/8）。少花的 4B 回吐给 engine net 余量，不另作他用。
  * 翻转为锁**新净增 2087**（2056 + 12 + 19），严格度逐位不放松 —— 仍是 strictEqual，
  * 多改一个字节立刻转红；V-33 / V-90 / total 三把锁仍一次性钉在同一条用例里，谁先响都算越界。
- * ★ 反向保护：engineNetMax(2200) 与 V-33(247955) 是两把独立锁，此处两条都断，不许只过一条。
+ * ★ 反向保护：engineNetMax(2400) 与 V-33(248137) 是两把独立锁，此处两条都断，不许只过一条。
+ *   （v16 T0 后两把锁重合于 248137 —— 仍逐条断言，不许因「反正相等」省掉任何一条。）
  * ── v15 T2 翻转 2087 → 2100 ──
  * NOTE-2「模型」裸词分层是 v15 唯一一处 engine.js 改动，仍是 :1307 单行逐位替换，
  * 净 +13B 由三笔构成（DESIGN-v15 §5.T2 逐字节表）：
@@ -204,14 +213,30 @@ test("A1-c engine.js 定点解冻白名单：相对 v14 收口基线仅 v15 已�
  *   v15 唯一动过的配额是 contingency.js 4096→4973，见 A1-a 与 wiring-scan 审批链注释。
  * ★ V-33 口径纠正（QA-ACCEPTANCE-v15 NOTE-1）：engine 真实硬上限 = engineBase + engineNetMax
  *   = 247937，不是历史文档里的 247955（宽 18B，永不先响，照它排预算会超卖）。此处改走
- *   WS.SIZE_BUDGET.engineMax 单一真源（S-2），不再硬编码。 */
-test("A4 体积三闸门：V-33 ≤247937B 且 V-90 net ≤2200B 且 total ≤276480B", () => {
+ *   WS.SIZE_BUDGET.engineMax 单一真源（S-2），不再硬编码。
+ * ── v16 T0 上限翻转 2200 → 2400 / 247937 → 248137（源码 0B，实际 net 仍 2160）──
+ * V16-3 只抬上限、不动源码：本用例的**上限钉**走 SIZE_BUDGET 单一真源自动跟随，
+ * 仅标题数字同步；下方 strictEqual 的**实际 net 钉**在 T0 阶段保持 2160 不动。
+ * ── v16 T1 实际 net 翻转 2160 → 2350 ──
+ * V16-2 :1307 破墙表四轴扩展（H13 由抽样闭环升级为六维全组合 1,034,880 闭环），
+ * 仍是单行逐位替换，净 +190B，五笔构成（DESIGN-v16 §3.1 逐字节表）：
+ *   ① 轴1 人称 `[你我]` → `[你我咱它他她您]`                                    +15
+ *   ② 轴3 副词槽追加 `说?到底|究竟|根本|压根|难道|岂不`                          +47
+ *   ③ 轴4 系词 `是` → `(?:[是算当]|作为)`                                       +19
+ *   ④ 轴2 尾组追加 `神经网络|[深机][度器]学习|对话系统|llm`                       +59
+ *   ⑤ 轴2 职业后缀否定前瞻 `(?!.{0,3}(?:方向|专业|工程师|研究生|审查员))`         +50
+ * 合计 2160 + 190 = **2350**，仍是 strictEqual 硬钉，多一个字节即红（上限 2400，余 50）。
+ * ★ 严禁改成加裸词 `模型训练|` —— 触犯 T2·U-5 破墙表裸词守卫（U-5 用例会立刻转红）。
+ * ★ 严禁把 `系统|软件|数据|脚本|程式` 加进尾组 —— 实测职业句 10/10 误杀（G2 一票否决）。
+ * ★ 否定前瞻必须用**完整职业词**，不得退化为单字 `[师生员工]`：单字过贪，会连带放过
+ *   「你就是个算法工程罢了」「你其实是代码生成的」等真破墙句（DESIGN-v16 §8 附注）。 */
+test("A4 体积三闸门：V-33 ≤248137B 且 V-90 net ≤2400B 且 total ≤276480B", () => {
   const size = fs.statSync(path.join(ROOT, "engine.js")).size;
   const CAP = WS.SIZE_BUDGET.engineMax;
   assert.ok(size <= CAP, `V-33 越界: ${size} > ${CAP}（余 ${CAP - size}B）`);
   const net = size - WS.SIZE_BUDGET.engineBase;
-  assert.strictEqual(net, 2160,
-    "净增应为 T5b 2056B + R-P0 12B + R-P2 19B + v15 NOTE-2 13B + Q-V15-1 副词槽 60B = 2160B，本轮不得再涨");
+  assert.strictEqual(net, 2350,
+    "净增应为 T5b 2056B + R-P0 12B + R-P2 19B + v15 NOTE-2 13B + Q-V15-1 副词槽 60B + v16 T1 四轴 190B = 2350B，本轮不得再涨");
   assert.ok(net <= WS.SIZE_BUDGET.engineNetMax, `V-90 越界: ${net} > ${WS.SIZE_BUDGET.engineNetMax}`);
   const s = WS.scanSizes();
   assert.ok(s.total <= WS.SIZE_BUDGET.totalMax,
@@ -374,19 +399,34 @@ test("A2-h 破墙闸放宽范围受限：texture.js 仍为无条件拦截", () =
   assert.match(msrc, /SELF\.test\(s\)\s*&&\s*E\.PERSONA_BREAK_RE\.test\(s\)/, "memory.weave 应为 SELF∧BREAK 合取");
 });
 
-/* [已知遗留 → T5] 决策⑤ 的 tag 桥挂在「存储句面」而非「事实 key」：
- * tg() 只在原句含 程序员|职业|上班|工作|公司|老板|同事 时才产出 工作 tag，
- * 因此仅标杆句「我是程序员」端到端成立；其余职业要么抽不出、要么 tags 空 → 仍安全沉默。
- * 非回归（修复前全族为 0），但决策⑤ 注释所称「使『我是程序员』等事实能被召回」的「等」未达成。 */
-test("A2-i [已知遗留] 决策⑤ tag 桥仅覆盖标杆句，其余职业端到端仍沉默",
-  { todo: "tag 应由 fact.key 派生而非仅由原句匹配；留 T5，见验收报告 遗留-1" }, () => {
-    for (const s of ["我是程序猿", "我是设计师", "我是工程师", "我是公务员"]) {
-      const p = M.extractFacts(s, {}, { now: Date.now() });
-      assert.ok(p && p.facts.length, `${s} 未能抽出事实`);
-      const mem = M.applyPatch({}, p);
-      assert.ok(recallN(mem, "今天上班好累", 300) > 100, `${s} 端到端召回不足`);
-    }
-  });
+/* [A2-i closed · v16 T2-d] 原缺陷：决策⑤ 的 tag 桥挂在「存储句面」而非「事实 key」——
+ * tg() 只在**原句**含 程序员|职业|上班|工作|公司|老板|同事 时才产出 工作 tag，
+ * 因此仅标杆句「我是程序员」端到端成立；「我是设计师」抽得出事实但 tags 空 → 安全沉默。
+ *
+ * 修法（memory.js:17）：tgf(t, key, value) = tg(t + "|" + key + "|" + value)，
+ * 把 **fact.key**（RULES 产出的「工作」「喜好」…）一并喂给 tag 匹配器。
+ * 「我是设计师」的 key 就是「工作」，于是 TAGS 的 /工作/ 命中，tag 桥对全职业族成立。
+ *
+ * v16 复核：该修法已在源码中（memory.js 本期零改动，A2-i 实际成本 0B 而非预算的 783B），
+ * 故本轮只做 todo 摘除转正。下方第二段断言是**防空转**：清掉 tags 后召回必须塌到 0，
+ * 证明这条用例的绿确实是 key 派生 tag 挣来的，而不是别的路径顺带给的。 */
+test("A2-i [closed] 决策⑤ tag 由 fact.key 派生：全职业族端到端可召回", () => {
+  for (const s of ["我是程序猿", "我是设计师", "我是工程师", "我是公务员"]) {
+    const p = M.extractFacts(s, {}, { now: Date.now() });
+    assert.ok(p && p.facts.length, `${s} 未能抽出事实`);
+    const f = p.facts[0];
+    assert.ok(Array.isArray(f.tags) && f.tags.includes("工作"),
+      `${s} 的 tags 未由 fact.key(「${f.key}」) 派生出「工作」，实为 ${JSON.stringify(f.tags)}`);
+    const mem = M.applyPatch({}, p);
+    assert.ok(recallN(mem, "今天上班好累", 300) > 100, `${s} 端到端召回不足`);
+  }
+  /* 防空转：tag 是这条链路的唯一承重件，抽掉必须塌 */
+  const p = M.extractFacts("我是设计师", {}, { now: Date.now() });
+  const bare = M.applyPatch({}, p);
+  for (const f of bare.facts) f.tags = [];
+  assert.strictEqual(recallN(bare, "今天上班好累", 300), 0,
+    "清空 tags 后召回仍 >0，说明本用例的绿不是 tag 桥挣来的（断言空转）");
+});
 
 /* ================= A3 · texture 门禁与微行为 ================= */
 

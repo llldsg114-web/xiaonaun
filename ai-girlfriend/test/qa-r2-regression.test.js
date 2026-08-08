@@ -11,7 +11,10 @@
 
 const test = require("node:test");
 const assert = require("node:assert");
+const fs = require("node:fs");
+const path = require("node:path");
 const H = require("./helpers.js");
+const { ROOT } = H;
 const F = require("./fixtures/qa-adversarial.js");
 
 const E = H.loadEngine();
@@ -249,15 +252,34 @@ test("R2-B3 [新缺陷] 负向地板不应夹住「共情用户负面情绪」�
     "用户极度难过时，这些正向意图的共情低落被克制档地板夹住：" + JSON.stringify(hit));
 });
 
-/* 【新缺陷 N4 · P2】affHistory 曲线按字典序排点，老档"2026-9-30"会排到新档"2026-10-01"之后，
- * 升级跨月的用户会看到感情曲线时间轴倒错。 */
-test("R2-B4 [新缺陷] affHistory 感情曲线在老档混键下排序应为时间序",
-  { todo: "P2 老档回归：app.js:2052 buildAffCurve 用字典序排序，应改用 Engine.dayIndex 比较器" }, () => {
-    const hist = { "2026-9-28": 400, "2026-9-29": 420, "2026-9-30": 450, "2026-10-01": 470, "2026-10-02": 500 };
-    const got = Object.entries(hist).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map((e) => e[0]);
-    const want = Object.keys(hist).sort((a, b) => E.dayIndex(a) - E.dayIndex(b));
-    assert.deepStrictEqual(got, want, "曲线时间轴倒错：" + JSON.stringify(got));
-  });
+/* 【R2-B4 closed · v16 T2-d】原缺陷：affHistory 曲线按字典序排点，老档「2026-9-30」会排到
+ * 新档「2026-10-01」之后，升级跨月的用户看到的感情曲线时间轴是倒错的。
+ * 根因：affHistory 的键历史上不补零（app.js:151「YYYY-M-D」），新档才由 Engine.dayKey 补零，
+ * 老档新档混存时字典序 ≠ 时间序。修法：app.js:2105 buildAffCurve 改用 Engine.dayIndex 数值比较
+ * （dayParse 兼容 \d{1,2}，老档照常解析），引擎缺席时退回字典序、行为与改动前一致。
+ *
+ * app.js 是 DOM 层、Node 侧不可直接装载，故本用例用「源码结构断言 + 比较器语义断言」双段取证。 */
+test("R2-B4 [closed] affHistory 感情曲线在老档混键下按时间序排点", () => {
+  const src = fs.readFileSync(path.join(ROOT, "app.js"), "utf8");
+  const fn = src.slice(src.indexOf("function buildAffCurve()"));
+  const body = fn.slice(0, fn.indexOf("\n}\n"));
+  assert.ok(/Engine\.dayIndex/.test(body),
+    "buildAffCurve 未引用 Engine.dayIndex，字典序缺陷未修复");
+  assert.ok(/sort\(\(a, b\) => \(di/.test(body),
+    "buildAffCurve 的 sort 比较器未走 dayIndex 分支");
+
+  /* 语义段：这组老档/新档混键必须排成时间序 */
+  const hist = { "2026-9-28": 400, "2026-9-29": 420, "2026-9-30": 450, "2026-10-01": 470, "2026-10-02": 500 };
+  const byDay = Object.keys(hist).sort((a, b) => E.dayIndex(a) - E.dayIndex(b));
+  assert.deepStrictEqual(byDay,
+    ["2026-9-28", "2026-9-29", "2026-9-30", "2026-10-01", "2026-10-02"],
+    "dayIndex 比较器未产出时间序：" + JSON.stringify(byDay));
+
+  /* 防空转：这组语料必须能区分两种比较器，否则上面的绿是白给的 */
+  const byDict = Object.entries(hist).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map((e) => e[0]);
+  assert.notDeepStrictEqual(byDict, byDay,
+    "语料失去鉴别力：字典序与时间序结果相同，本用例无法证明修复有效");
+});
 
 /* ==================== R2-C · 规格一致性（待裁定） ==================== */
 

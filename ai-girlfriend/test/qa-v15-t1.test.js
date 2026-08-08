@@ -400,10 +400,13 @@ test("AC-C5-6 · contingency.js 相对 BASE 增量 ≤470B 且 ≤4973B；体积
   assert.deepStrictEqual(s.over, [], `单文件配额越界：${JSON.stringify(s.each)}`);
   // ★ 四锁：v15 唯一动过的数是 contingency 配额，其余三把逐位不变
   const B = WS.SIZE_BUDGET;
-  assert.strictEqual(B["contingency.js"], 4973, "v15 批准值 4096→4973（U-3）");
-  assert.strictEqual(B.moduleSumMax, 28525, "moduleSumMax 本期不许动");
-  assert.strictEqual(B.totalMax, 276480, "totalMax 本期不许动");
-  assert.strictEqual(B.engineNetMax, 2200, "engineNetMax 本期不许动");
+  assert.strictEqual(B["contingency.js"], 4973, "v15 批准值 4096→4973（U-3）· v16 T0 未再动");
+  /* ★【快照翻转 · v16 T0 · 主理人 Qi 批准（V16-3 路径 A）】moduleSumMax 28525→28343 /
+   * engineNetMax 2200→2400。翻转只换数字，严格度逐位不放松（仍是 strictEqual）：
+   * contingency 与 totalMax 两条原值锁死，恰恰证明 v16 让渡的是 memory 配额而非抬天花板。 */
+  assert.strictEqual(B.moduleSumMax, 28343, "v16 批准值 28525→28343 = totalMax − engineMax(248137)");
+  assert.strictEqual(B.totalMax, 276480, "totalMax 本期不许动（270KB 承诺）");
+  assert.strictEqual(B.engineNetMax, 2400, "v16 批准值 2200→2400（V16-3 · :1307 四轴扩展）");
   // 4973 的推导式必须自洽：四项配额之和 = moduleSumMax
   assert.strictEqual(B["memory.js"] + B["presence.js"] + B["texture.js"] + B["contingency.js"],
     B.moduleSumMax, "四项模块配额之和应恰等于 moduleSumMax（4973 的取值依据）");

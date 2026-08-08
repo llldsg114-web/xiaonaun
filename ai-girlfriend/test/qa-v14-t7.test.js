@@ -334,13 +334,13 @@ test("V-112b · 零回归：v13 既有总门（flag/tex.t≥30/短句/CAP）在 
     null, "短回复门失效");
 });
 
-test("V-113 · 体积四锁全绿，over = []；engine 净增仍锁死 2160", () => {
+test("V-113 · 体积四锁全绿，over = []；engine 净增仍锁死 2350", () => {
   const W = require("./wiring-scan.js");
   const z = W.scanSizes();
   assert.deepStrictEqual(z.over, [], "单文件配额越界：" + JSON.stringify(z.each));
   assert.ok(z.engine <= W.SIZE_BUDGET.engineMax, "V-33 越界：" + z.engine + " > " + W.SIZE_BUDGET.engineMax);
-  assert.strictEqual(z.engineNet, 2160,
-    "T5/T7 为纯模块改动；2160 = 2087 + v15 NOTE-2 的 13B + Q-V15-1 副词槽的 60B（均落 :1307 单行）");
+  assert.strictEqual(z.engineNet, 2350,
+    "T5/T7 为纯模块改动；2350 = 2087 + v15 NOTE-2 的 13B + Q-V15-1 副词槽的 60B + v16 T1 四轴的 190B（均落 :1307 单行）");
   assert.ok(z.moduleSum <= W.SIZE_BUDGET.moduleSumMax, "moduleSum " + z.moduleSum + " > " + W.SIZE_BUDGET.moduleSumMax);
   assert.ok(z.total <= W.SIZE_BUDGET.totalMax, "total " + z.total + " > " + W.SIZE_BUDGET.totalMax);
   for (const f of ["memory.js", "presence.js", "texture.js", "contingency.js"]) {

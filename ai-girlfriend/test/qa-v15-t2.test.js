@@ -165,10 +165,15 @@ test("Q-V15-1 · U-5 裸词守卫（定点）：不得用 `模型训练|` 类裸
   // 通用口径复核：抠掉两条定向短语后，表里不许再剩任何「训练」字样
   const bare = src.replace(/被\.\{0,4\}训练/g, "").replace(/训练出来/g, "");
   assert.ok(!/训练/.test(bare), "破墙表出现裸词「训练」—— 违反主理人追认 U-5");
-  // 正向：合法解法（副词槽）必须真的落地，否则这条守卫会变成"什么都没修也能过"
-  assert.ok(/\[都也还只就\]\{0,2\}是/.test(src), "副词槽字符类缺失 —— Q-V15-1 未落地");
-  assert.ok(/\(\?:不过\?\|其实\|确实\|本来\|终究\|无非\|毕竟\|真的\)\?/.test(src),
-    "多字副词组缺失 —— Q-V15-1 未落地");
+  /* 正向：合法解法（副词槽）必须真的落地，否则这条守卫会变成"什么都没修也能过"。
+   * ★ v16 T1 同步：系动词扩为 `(?:[是算当]|作为)`（轴4），多字副词组追加六项（轴3）。
+   *   紧邻副词字符类 `[都也还只就]` **逐位不动** —— v16 未获批扩为 `[不都也还只就]`
+   *   （会改变已批的 +190B 落位，须另走配额评审；「难道不是」型双副词列 v17，见 §T1 遗留）。
+   *   守卫钉「新形态」而非旧字面量，同时保留旧七词的逐词覆盖检查 —— 扩展不得以丢弃既有覆盖为代价。 */
+  assert.ok(/\[都也还只就\]\{0,2\}\(\?:\[是算当\]\|作为\)/.test(src),
+    "副词槽字符类 / 轴4 系词缺失 —— Q-V15-1 或 v16 T1 未落地");
+  assert.ok(/\(\?:不过\?\|其实\|确实\|本来\|终究\|无非\|毕竟\|真的\|说\?到底\|究竟\|根本\|压根\|难道\|岂不\)\?/.test(src),
+    "多字副词组缺失 —— Q-V15-1 或 v16 T1 轴3 未落地");
   // 良性反证：含「模型训练」但非人称绑定的说法不许被误杀
   for (const s of ["模型训练营周末开课", "他在做模型训练相关的工作", "这次训练营的模型做得真好"]) {
     assert.ok(!guardHit(s), `良性句被误杀：「${s}」—— 说明有人偷加了裸词`);
@@ -303,13 +308,22 @@ test("AC-N2-4b · innerScan() 恒 0：正则放松后 INNER_LIB 无条目状态�
  * 合计 +73B，engine.js 247837 → 247897，engineNet 2100 → 2160（上限 2200，余 40）。
  * ★ 不申请任何配额：2160 仍在 v14 已批的 engineNetMax 2200 之内，属"花既有余量"。
  * ★ V-33 口径纠正（QA-ACCEPTANCE-v15 NOTE-1）：真实硬上限 = engineBase + engineNetMax
- *   = 247937，不是历史文档的 247955（宽 18B，永不先响）。改走 SIZE_BUDGET.engineMax。 */
-test("AC-N2-5 · engine.js 相对 BASE 净增恰好 73B，且改动面只有 :1307 一行", () => {
+ *   = 247937，不是历史文档的 247955（宽 18B，永不先响）。改走 SIZE_BUDGET.engineMax。
+ * ★★【快照翻转 · v16 T1 · 主理人 Qi 批准（V16-2）】73B → 263B ★★
+ *   本用例钉的是「相对 v14 收口基线 BASE 的累计字节会计」，而非 v15 单轮增量 ——
+ *   v16 T1 在**同一行 :1307** 再落 +190B（四轴扩展），累计 73 + 190 = **263B**，
+ *   engine.js 247897 → **248087**，engineNet 2160 → **2350**（上限已由 T0 抬至 2400，余 50）。
+ *   ⚠ 本条不在任务书列举的「4 个体积断言测试」内，是工程师实跑揪出的**连带自失效红**：
+ *     它与 §5.0 的 V33 同族 —— 凡「硬编码累计字节」都会随 T1 一起失效，必须同步翻转，
+ *     否则 T1 落地即红。已按 S-2 铁律在此写明批准人 / 推导式 / 影响面。
+ *   ⚠ 翻转只换数字，**严格度逐位不放松**：仍是 strictEqual，仍钉「1 增 1 删」，
+ *     仍钉「改动行号集合 === [1307]」—— 这三条恰恰是 v16 定点解冻纪律的取证主体。 */
+test("AC-N2-5 · engine.js 相对 BASE 净增恰好 263B，且改动面只有 :1307 一行", () => {
   const cur = fs.readFileSync(path.join(ROOT, "engine.js"), "utf8");
   const base = BL.showAt(BL.BASE, "engine.js");
   const delta = Buffer.byteLength(cur) - Buffer.byteLength(base);
-  assert.strictEqual(delta, 73,
-    `v15 engine.js 应净增恰好 73B（NOTE-2 13B + Q-V15-1 60B），实得 ${delta}B —— 偏离需重新走体积评审`);
+  assert.strictEqual(delta, 263,
+    `engine.js 相对 BASE 应净增恰好 263B（v15 NOTE-2 13 + Q-V15-1 60 + v16 T1 四轴 190），实得 ${delta}B —— 偏离需重新走体积评审`);
 
   // §9.4 #7：git 层面必须是「1 增 1 删」，改动行号集合 = [1307]
   const numstat = BL.numstatAt(BL.BASE, "engine.js");
@@ -328,10 +342,10 @@ test("AC-N2-5 · engine.js 相对 BASE 净增恰好 73B，且改动面只有 :13
   const size = fs.statSync(path.join(ROOT, "engine.js")).size;
   assert.ok(size <= WS.SIZE_BUDGET.engineMax,
     `V-33 越界：${size} > ${WS.SIZE_BUDGET.engineMax}`);
-  assert.strictEqual(size, 247897, `预测落位 247897B，实得 ${size}B`);
+  assert.strictEqual(size, 248087, `预测落位 248087B（v16 T1 后），实得 ${size}B`);
   const s = WS.scanSizes();
-  assert.strictEqual(s.engineNet, 2160,
-    `engineNet 应为 2160（2087 + NOTE-2 13 + Q-V15-1 60），实得 ${s.engineNet}`);
+  assert.strictEqual(s.engineNet, 2350,
+    `engineNet 应为 2350（2087 + NOTE-2 13 + Q-V15-1 60 + v16 T1 四轴 190），实得 ${s.engineNet}`);
   assert.ok(s.engineNet <= WS.SIZE_BUDGET.engineNetMax, `engineNet 越界：${s.engineNet}`);
   assert.deepStrictEqual(s.over, [], `单文件配额越界：${JSON.stringify(s.each)}`);
 });
@@ -356,7 +370,10 @@ test("AC-N2-5b · engine.js 冻结口径：:1322 折叠 / guardPersonaReplies / 
   }
 });
 
-test("AC-N2-5c · sw.js 缓存键已升 v20（C0-b：正则改动必须让旧缓存失效）", () => {
+/* ★【快照翻转 · v16 T2-c】v20 → v21：T1 又改了 engine.js:1307（四轴扩展），
+ * 按 C0-b 纪律「任一被缓存文件内容变了就必须升键」，v16 必须再升一级。
+ * 断言只加严不放松：既钉死当前值 21，也保留「必须领先 BASE」的单调性检查。 */
+test("AC-N2-5c · sw.js 缓存键已升 v21（C0-b：正则改动必须让旧缓存失效）", () => {
   /* PERSONA_BREAK_RE 属于会被 sw 缓存的 engine.js。不升缓存键，
    * 老用户拿到的还是 v14 的表 —— 分层等于没上线。这是 C0-b 同族事故的防线。 */
   const sw = fs.readFileSync(path.join(ROOT, "sw.js"), "utf8");
@@ -364,7 +381,7 @@ test("AC-N2-5c · sw.js 缓存键已升 v20（C0-b：正则改动必须让旧缓
   const baseSw = BL.showAt(BL.BASE, "sw.js");
   const base = Number((baseSw.match(/xiaonuan-v(\d+)/) || [])[1]);
   assert.strictEqual(base, 19, `v14 收口态缓存键应为 v19，实得 v${base}`);
-  assert.strictEqual(cur, 20, `v15 缓存键应为 v20，实得 v${cur}`);
+  assert.strictEqual(cur, 21, `v16 缓存键应为 v21（v15 的 v20 + T1 改 engine.js 再升一级），实得 v${cur}`);
   assert.ok(cur > base, "缓存键必须领先基线，否则改动不下发");
 });
 

@@ -89,8 +89,10 @@ describe("v13 T1 回归锁定（地基不可动）", () => {
 
   /* ★ v15 口径纠正（QA-ACCEPTANCE-v15 NOTE-1）：真实硬上限是 engineBase + engineNetMax
    * = 247937，不是历史沿用的 247955（宽 18B，永远不会先响）。照 247955 打印"剩余"会
-   * 系统性超卖 18B，后续轮次按它排预算就会撞 V-90。改走 SIZE_BUDGET.engineMax 单一真源（S-2）。 */
-  it("3. V-33：engine.js 字节数 ≤ 247937B（真实硬上限，打印剩余）", () => {
+   * 系统性超卖 18B，后续轮次按它排预算就会撞 V-90。改走 SIZE_BUDGET.engineMax 单一真源（S-2）。
+   * ★【v16 T0 上限翻转】engineMax 247937 → 248137（V16-3 · engineNetMax 2200→2400 的派生量）。
+   *   断言体与打印值均走 SIZE_BUDGET.engineMax，无硬编码 —— 仅标题数字同步。 */
+  it("3. V-33：engine.js 字节数 ≤ 248137B（真实硬上限，打印剩余）", () => {
     const size = fs.statSync(ENGINE).size;
     const CAP = W.SIZE_BUDGET.engineMax, left = CAP - size;
     console.log(`[V-33] engine.js = ${size}B / 上限 ${CAP}B，剩余 ${left}B`);
