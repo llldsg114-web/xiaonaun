@@ -13,5 +13,6 @@ ai-girlfriend/server.js
 ai-girlfriend/notify.js
 ai-girlfriend/schedule.js
 ai-girlfriend/wecom_crypto.js
-# 注：仓库根目录两个微信聊天记录 dump（非 UTF-8 文件名，上面通配符无法匹配）
-# 它们已被定向 git add 排除、本次不入库；建议手动移出 /workspace 或改名后本规则即可生效。
+# 仓库根目录两个微信聊天记录 dump（git 能正确识别其中文名，显式屏蔽防误提交）
+微信_*.md
+微信_聊天记录*.md
