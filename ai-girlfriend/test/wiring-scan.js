@@ -156,15 +156,18 @@ function scan(src) {
 const MANIFEST_PATH = path.join(ROOT, "engine.files.json");
 
 /* 体积配额（DESIGN §11 锁定）。engine.js 只放薄接线，语料/算法必须待在模块里；
- * 配额写死在这里而不是从文件读，是为了让"改配额"这件事必须走代码评审。 */
+ * 配额写死在这里而不是从文件读，是为了让"改配额"这件事必须走代码评审。
+ * 审批记录：v13 T2+T4 配额修正轮，memory 8192→12288 / texture 4096→4608 /
+ * moduleSum 16384→20480，由主理人 Qi 于 v13 T2+T4 配额修正轮批准此变更（2026-06-18）。
+ * totalMax 维持系统级天花板不变。改配额必须走代码评审。 */
 const SIZE_BUDGET = {
   engineBase: 245737,      // v12 收线时的 engine.js 字节数（T1 基线）
   engineNetMax: 2048,      // T1 净增硬上限
-  "memory.js": 8192,
+  "memory.js": 12288,      // 改配额必须走代码评审 · 主理人 Qi 于 v13 T2+T4 配额修正轮批准此变更
   "presence.js": 4096,
-  "texture.js": 4096,
-  moduleSumMax: 16384,     // 三模块合计
-  totalMax: 272384,        // engine + 三模块 合计天花板
+  "texture.js": 4608,      // 改配额必须走代码评审 · 主理人 Qi 于 v13 T2+T4 配额修正轮批准此变更（含待决③维护余量）
+  moduleSumMax: 20480,     // 改配额必须走代码评审 · 主理人 Qi 于 v13 T2+T4 配额修正轮批准此变更 · 三模块合计
+  totalMax: 272384,        // engine + 三模块 合计天花板（系统级天花板不变）
 };
 
 /* 读装载清单。缺文件 → 返回 null，调用方据此判定"退化为单文件模式"。 */
