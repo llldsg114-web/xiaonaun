@@ -5,7 +5,7 @@ node_modules/
 *.zip
 *.bundle
 
-# === v12 delivery: æ’é™¤è¿è¡Œæ—¶å¯†é’¥ / WIP é›†æˆ / èŠå¤©è®°å½• dumpï¼ˆç»ä¸å…¥åº“ï¼‰===
+# === v12 delivery: ÅÅ³ıÔËĞĞÊ±ÃÜÔ¿ / WIP ¼¯³É / ÁÄÌì¼ÇÂ¼ dump£¨¾ø²»Èë¿â£©===
 ai-girlfriend/.data/
 ai-girlfriend/bridge/
 ai-girlfriend/openclaw.js
@@ -13,10 +13,8 @@ ai-girlfriend/server.js
 ai-girlfriend/notify.js
 ai-girlfriend/schedule.js
 ai-girlfriend/wecom_crypto.js
-# ä»“åº“æ ¹ç›®å½•ä¸¤ä¸ªå¾®ä¿¡èŠå¤©è®°å½• dumpï¼ˆgit èƒ½æ­£ç¡®è¯†åˆ«å…¶ä¸­æ–‡åï¼Œæ˜¾å¼å±è”½é˜²è¯¯æäº¤ï¼‰
-å¾®ä¿¡_*.md
-å¾®ä¿¡_èŠå¤©è®°å½•*.md
 
-# å¾®ä¿¡ èŠå¤©è®°å½• dump (GBK æ–‡ä»¶åï¼ŒUTF-8 é€šé…å¤±æ•ˆï¼Œç”¨ GBK å­—èŠ‚åŒ¹é…)
+# ²Ö¿â¸ùÄ¿Â¼Î¢ĞÅÁÄÌì¼ÇÂ¼ dump£¨ÖĞÎÄÃû£¬ÏÔÊ½ÆÁ±Î·ÀÎóÌá½»£©
 Î¢ĞÅ_*.md
 Î¢ĞÅ_ÁÄÌì¼ÇÂ¼*.md
+Î¢ĞÅÁÄÌì¼ÇÂ¼*.md
