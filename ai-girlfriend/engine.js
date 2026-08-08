@@ -1316,10 +1316,10 @@ const Engine = (() => {
     if (!Array.isArray(replies)) return replies;
     const safe = (typeof uname === "string" && uname) ? uname : null;
     return replies.map(line => {
-      // v12 · G1 ⑧：先过绑架黑名单，再过人格护栏。两道漏斗合一，无旁路。
+      // v12 · G1 ⑧：先过绑架黑名单，再过人格护栏。A6-a：程序族等长折叠成「职」再判。
       const fixed = outGuard(line);
       const probe = safe ? String(fixed).split(safe).join("￠") : String(fixed);
-      return PERSONA_BREAK_RE.test(probe) ? PERSONA_FALLBACK : fixed;
+      return PERSONA_BREAK_RE.test(probe.replace(/程序[员猿媛]/g,"职")) ? PERSONA_FALLBACK : fixed;
     });
   }
 

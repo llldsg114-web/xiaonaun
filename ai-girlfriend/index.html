@@ -550,6 +550,9 @@
 <script src="memory.js"></script>
 <script src="presence.js"></script>
 <script src="texture.js"></script>
+<!-- v13 T5b · optional 层：contingency 挂在 presence.pacingOf 内，须排在 presence/texture 之后；
+     它在 engine.files.json 的 optional 里，缺文件只是情境层不生效（WR-13 不强制它进 order）。 -->
+<script src="contingency.js"></script>
 <script src="localmodel.js"></script>
 <script src="caption.js"></script>
 <script src="app.js"></script>

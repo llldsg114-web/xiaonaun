@@ -1,6 +1,5 @@
-/* 小暖 v13 memory.js · T2 薄切片 | 契约 §2.3 约定 §2.1A–H | V-90 ≤12288B
-   R23 事实 R24 时刻 R25 融入召回 R27 纠错 §5 淘汰迁移；纯函数不写 state，异常吞掉返 null。
-   配额于 v13 T2+T4 修正轮由主理人 Qi 批准提至 12288B（含决策⑤ 工作类 tag 补充）。*/
+/* 小暖 v13 memory.js · T2 薄切片 | 契约 §2.3 约定 §2.1A–H | V-90 ≤14336B（T5a 12288→14336）
+   R23 事实 R24 时刻 R25 融入召回 R27 纠错 §5 淘汰迁移；纯函数不写 state，异常吞掉返 null */
 (function (E) {
 "use strict";
 if (!E || typeof E.use !== "function") return;
@@ -15,8 +14,10 @@ const norm = (m) => ({ v: 13, facts: A(O(m).facts).filter(Boolean).slice(), mome
 const TAGS = [[/(吃|饿|外卖|火锅|奶茶|蛋糕|甜|饭)/, "吃"], [/(累|困|睡|熬夜|加班|下班|上班|开会)/, "忙"],
  [/(难受|生病|疼|感冒|药|发烧)/, "身"], [/(妈|爸|家里|奶奶|外婆|哥|姐|弟|妹)/, "家"],
  [/(游戏|看剧|追剧|电影|音乐|歌|球)/, "玩"], [/(考试|作业|论文|上课)/, "学"],
- [/(程序员|职业|上班|工作|公司|老板|同事)/, "工作"]];   // 决策⑤：补 工作 类 tag，使"我是程序员"等事实能被 recallV2 召回（原 tag 为空→安全沉默）
+ [/(程序员|职业|上班|工作|公司|老板|同事)/, "工作"]];   // 决策⑤：补 工作 类 tag
 const tg = (t) => { const o = []; for (const p of TAGS) if (p[0].test(t)) o.push(p[1]); return o; };
+/* 遗留-1：tag 原只认句面，「我是设计师」tags 空 → .45 加权落空 → 沉默。改喂 句面+key+value 三元。*/
+const tgf = (t, key, value) => tg(t + "|" + key + "|" + value);
 
 /* R23 宁可漏抽不可错抽（H11 第一道闸）：[正则, key, 基线 conf, 捕获组] */
 const ASK = /[?？]|(吗|呢|么)\s*[?？]?$/, BADV = /^(说|不是|真|想|要|来|去|在|有|没|什么|啥|谁|哪|怎|个|的|了)/;
@@ -25,7 +26,7 @@ const RULES = [[RX("(?:我叫|我的?名字[叫是])\\s*(#{1,8})"), "称呼", .8
  [RX("我(妈|爸|哥|姐|弟|妹|奶奶|外婆|老板|同事|室友|猫|狗)(?:叫|名字叫)\\s*(#{1,6})"), "家人·$1", .85, 2],
  [RX("(?:最)?(?:喜欢|爱)(?:吃|喝|看|玩|听)?\\s*(?!你|上你)(#{1,8})"), "喜好", .8, 1],
  [RX("(?:讨厌|不喜欢|受不了|怕|过敏)\\s*(?!你)(#{1,8})"), "禁忌", .8, 1],
- [RX("我是(?:个|名)?\\s*(#{2,6}(?:师|员|生|工|家))"), "工作", .8, 1],
+ [RX("我是(?:个|名)?\\s*(#{1,6}(?:师|员|生|工|家|猿|媛|士))"), "工作", .8, 1],   // 遗留-1：补 猿|媛|士；下限 2→1 让 医生/护士 双字职业也抽得出
  [/我(?:的)?生日(?:是|在)?\s*(\d{1,2}月\d{1,2}[日号])/, "纪念日", .85, 1]];
 const mk = (key, value, conf, tags, now) => ({ id: "f_" + HS(key + "|" + value), key, value, conf, tags,
  since: now, lastSeenAt: now, lastUsedAt: 0, hits: 1, src: "chat", negatedAt: null });
@@ -37,7 +38,7 @@ function extractFacts(text, state, ctx) {
   if (!ASK.test(t.trim())) for (const r of RULES) {   // 提问不是陈述：「我喜欢什么？」是考她
    const m = t.match(r[0]); if (!m) continue;
    const v = String(m[r[3]] || "").trim();
-   if (v && v.length < 13 && !BADV.test(v)) fa.push(mk(r[1].replace("$1", m[1]), v, r[2], tags, now));
+   if (v && v.length < 13 && !BADV.test(v)) { const k = r[1].replace("$1", m[1]); fa.push(mk(k, v, r[2], tgf(t, k, v), now)); }   // 遗留-1：三元派生 tag
   }
   const dv = Math.max(-1, Math.min(1, N(c.dv, 0))), k = String(c.intent || "chat");
   if (Math.abs(dv) >= .25 || MILE[k]) mo.push({ id: "t_" + HS(t.slice(0, 24) + Math.floor(now / 6e4)),   // R24 峰终定律：只收峰值不收流水
@@ -89,26 +90,49 @@ function retrieveFacts(query, state, k) {
  } catch (e) { return []; }
 }
 
-/* R25 融入式（胜负手）：事实只作从句成分，不做「我记得/你之前说」式播报；槽位只回填 value 原文，
-   禁一切生成式改写 —— H11＝0% 的实现保证 */
+/* R25 融入式（胜负手）：事实只作从句成分，不做「我记得/你之前说」式播报；槽位只回填 value 原文，禁一切
+   生成式改写 —— H11＝0% 的实现保证 */
 const BODY = { 喜好: ["#这时候最合适了", "给你留了块#", "回头给你带#"], 禁忌: ["反正离#远一点", "#就别碰了", "#那种别试"],
  称呼: ["#，先喘口气", "#，我在呢", "#呀，慢一点"], 家人: ["也跟#说一声", "别让#太操心", "#那边你也顾着点"],
  工作: ["当#的也要歇", "#不是铁打的", "#也得好好吃饭"], 纪念日: ["#那天不许加班", "#快到了呢", "#我数着日子呢"] };
 const PROBE = { 喜好: "你还挺喜欢#的吧", 禁忌: "你不太能碰#吧", 称呼: "我该叫你#对吧", 家人: "#最近还好吧", 工作: "你是做#的对吧", 纪念日: "你生日是#来着" };
 const OPEN = { tired: ["累坏了吧", "先歇会儿"], sad: ["抱抱", "别难过"], anxious: ["别慌", "慢慢来"], joy: ["这么开心呀", "嘿嘿"], neutral: ["", "嗯"] };
 const TB = ["。", "呀。", "~", "哦。"], BAN = /(我记得|我还记得|你之前说|你上次说|你说过|还记着)/;
-/* 决策⑤：引擎破墙表的「程序」裸子串会误杀「当程序员的」职业回显；改判 自称/转介结构 ∧ 引擎词表 */
+/* 决策⑤：破墙表的「程序」裸子串会误杀「当程序员的」回显；改判 自称/转介结构 ∧ 引擎词表 */
 const SELF = /我\S{0,3}是|我只是|我不能|帮不上|热线|心理援助|建议你去|专业人[士师]/;
+/* 遗留-2 脱敏：出口闸判成句，「我喜欢机器人」无自称结构即放行 —— 沉浸感已被击穿。补入口闸净化 value：
+   命中即静音（改试下一条），零改写（改写即破 H7=0）。程序员/猿/媛 折叠成「职」再判，SF 是等长折叠件。*/
+const JOBX = /程序[员猿媛]/g, SF = "上班族";
+const taint = (v) => E.PERSONA_BREAK_RE.test(String(v).replace(JOBX, "职"));
 
-function weave(f, text, rng) {   // conf<.75 走试探式：句尾必带 吧/对吧/来着，把不确定摊开说而不装懂
+function weave(f, text, rng) {   // conf<.75 走试探式：句尾必带 吧/来着，把不确定摊开说而不装懂
  const fam = String(f.key).split("·")[0], pb = N(f.conf, 0) < .75, fr = pb ? PROBE[fam] : BODY[fam];
- if (!fr) return null;
+ if (!fr || taint(f.value)) return null;   // 遗留-2：破墙值不回显
  const ue = E.detectUserEmotion(text) || { type: "neutral" }, op = PW(OPEN[ue.type] || OPEN.neutral, rng);
  const s = (op ? op + "，" : "") + (pb ? fr : PW(fr, rng)).replace(/#/g, f.value) + (pb ? "？" : PW(TB, rng));
  return (s.length > 42 || BAN.test(s) || (SELF.test(s) && E.PERSONA_BREAK_RE.test(s))) ? null : s;
 }
 
-function recallV2(text, state, ctx) {   // TODO(T5): 上移 texture 挂载点，使 memory-based 回复也走微行为
+/* 待决点② 横向走查表：recallV2 自 engine.js:2899 早退绕过 :3050 挂载点；engine 冻结故挂载点上移本模块
+   （mod() 调用期查表，缺件返 null 落回原句，D 单向依赖不破）。nosplit＝调用方只收单条 replies[0]。
+   SF 折叠：出口闸整句跑破墙表，「程序」裸子串按死程序族，等长折叠后送、回来还原。
+   A6-b 配额回写：engine.js:2896 丢弃 rv.tx，宿主 textureAfterTurn 恒收 {} → 微行为不计量（实测 18/日
+   vs CAP=6）。故就地按 texture.js 同口径累加 state.tex，与非 recall 共用日配额；t 留宿主自增免双计。*/
+function skin(line, text, state, c, rng) {
+ try {
+  const T = E.mod("texture"); if (!T || typeof T.texturePass !== "function") return null;
+  const j = (line.match(JOBX) || [])[0], fd = j ? line.split(j).join(SF) : line;
+  const x = T.texturePass(fd, state, { rng, lv: c.lv, ue: E.detectUserEmotion(text),   // ue null 时门④按 neutral
+   intent: "recall", intentEx: "recall", crisis: false, nosplit: true });
+  if (!x || !x.text) return null;
+  const q = (O(state).tex = O(O(state).tex)), d = Math.floor(Date.now() / 864e5), ty = x.kind === "typo";
+  if (N(q.d, -1) !== d) { q.d = d; q.n = 0; q.ty = 0; }
+  q.n = N(q.n, 0) + 1; if (ty) { q.ty = N(q.ty, 0) + 1; q.tyAt = N(q.t, 0); }
+  return { line: j ? x.text.split(SF).join(j) : x.text, tx: { kind: x.kind } };
+ } catch (e) { return null; }
+}
+
+function recallV2(text, state, ctx) {
  try {
   const t = String(text || ""); if (!t) return null;
   const c = O(ctx), now = N(c.now, Date.now()), rng = E.rngOf(c);
@@ -118,12 +142,13 @@ function recallV2(text, state, ctx) {   // TODO(T5): 上移 texture 挂载点，
    if (now - N(f.lastUsedAt, 0) < GAP) continue;    // 同一事实 6h 不重复
    if (!E.chanceWith(.45 + .35 * h.score, rng)) continue;   // 概率性，不做节拍器
    const line = weave(f, t, rng);
-   if (line) return { line, mode: f.conf >= .75 ? "blend" : "probe", factId: f.id }; }   // 单轮至多 1 次
+   if (line) return Object.assign({ line, mode: f.conf >= .75 ? "blend" : "probe", factId: f.id },
+    skin(line, t, state, c, rng)); }   // 单轮至多 1 次；skin 返 null 即原句（Object.assign 忽略 null）
   return null;
  } catch (e) { return null; }
 }
 
-/* §5 按价值淘汰：墓碑 90 天防重抽，超容量最低分先走；完整保护带见 §5.2，T2 fleshen 补 */
+/* §5 按价值淘汰：墓碑 90 天防重抽，超容量最低分先走；完整保护带见 §5.2 */
 function evict(mem, now) {
  try {
   const m = norm(mem), t = N(now, Date.now());
@@ -137,13 +162,13 @@ function evict(mem, now) {
  } catch (e) { return norm(mem); }
 }
 
-/* §5.4 迁移：幂等 / id 内容 hash / conf 一律 .6（只试探不断言，防迁移噪声变幻觉）/ 不动 state.memory.events */
+/* §5.4 迁移：幂等 / id 内容 hash / conf 一律 .6（只试探不断言，防迁移噪声变幻觉）/ 不动 memory.events */
 function migrateV12(state) {
  try {
   const st = O(state), old = O(st.memory), t0 = Date.now();
   if (N(O(st.mem).v, 0) === 13) return { mem: norm(st.mem), migrated: 0 };   // 幂等闸
   const out = { v: 13, facts: [], moments: [], migratedAt: t0 };
-  const pf = (k, v, at) => { const f = mk(k, String(v).slice(0, 12), .6, tg(String(v)), at); f.src = "v12"; f.lastSeenAt = at; if (!get(out.facts, f.id)) out.facts.push(f); };
+  const pf = (k, v, at) => { const f = mk(k, String(v).slice(0, 12), .6, tgf("", k, String(v)), at); f.src = "v12"; f.lastSeenAt = at; if (!get(out.facts, f.id)) out.facts.push(f); };   // 遗留-1：迁移件同享
   const pm = (i, at, kind, v) => { if (!get(out.moments, i)) out.moments.push({ id: i, at, kind, gist: "", emo: { v, a: 0 }, peak: Math.abs(v), tags: [], usedAt: [], jokeScore: 0 }); };
   if (old.userName) pf("称呼", old.userName, t0);
   for (const l of A(old.likes)) if (l) pf("喜好", l, t0);
@@ -162,7 +187,7 @@ const listFacts = (s) => norm(O(s).mem).facts.filter(f => !f.negatedAt)
  .map(f => ({ id: f.id, label: String(f.key).replace("·", " "), tone: N(f.conf, 0) >= .75 ? "sure" : "maybe", text: f.value }));
 const editFact = (m, i, v) => { const x = norm(m); up(x.facts, i, { value: String(v), conf: 1, negatedAt: null, src: "user" }); return x; };
 const deleteFact = (m, i) => { const x = norm(m); up(x.facts, i, { negatedAt: Date.now() }); return x; };
-const jokeCandidates = () => [];   // R38 属 Tier2/T5，texture 侧已容忍空表
+const jokeCandidates = () => [];   // R38 属 Tier2，texture 已容忍空表
 
 E.use("memory", { extractFacts, applyPatch, detectCorrection, retrieveFacts, recallV2, evict, migrateV12, listFacts, editFact, deleteFact, jokeCandidates, BAN });
 })(typeof Engine !== "undefined" ? Engine : null);

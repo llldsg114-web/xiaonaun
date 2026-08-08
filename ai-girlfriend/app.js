@@ -1062,7 +1062,7 @@ async function herReply(userText, img) {
     // v11：把完整 state 交给引擎（话题 / 跨轮去重窗口 / 用户情绪 / 危机冷却 / 开关），
     // 引擎不写 state —— app.js 就是那个"调用方回写"的人，下面逐字段写回并持久化。
     if (!result) {
-      const r = Engine.reply(text, {
+      const est = {
         affection: S.affection, nick: S.nick, mood, memory: S.memory, persona: S.persona,
         dating: S.dating, lastReply: S.lastReply,
         topic: S.topic, recentReplies: S.recentReplies, ue: S.ue,
@@ -1071,7 +1071,21 @@ async function herReply(userText, img) {
         // inner/voice/negGate 缺席时引擎在临时对象上自建，配额与吃醋阶段落不了盘。
         moodDay: S.moodDay, self: S.self, inner: S.inner,
         voice: S.voice, dayLife: S.dayLife, negGate: S.negGate,
-      });
+        // ★ v13 待决点④：三模块的记忆/在场/微行为状态必须**入参**，否则 texture 的日配额与
+        // presence 的不可用累计每轮从零开始 —— 门禁写得再严，计数器天天清零就等于没门禁。
+        mem: S.mem, tex: S.tex, pres: S.pres, firstMeet: S.firstMeet,
+      };
+      const r = Engine.reply(text, est);
+      // ★ v13 待决点④ 落盘：engine.js 冻结（T5a 零 diff），afterTurn 的调用点只能落在宿主。
+      // presenceAfterTurn 原地写 est.pres（返回值即同一对象），textureAfterTurn 返回补丁不写 state，
+      // 两种口径都在这里收敛成"取回 → 挂到 est → 随 result 回写 S → save()"。
+      // 整段包 try：任一模块缺席（半更新态）或抛错都不许波及正常回复。
+      try {
+        const _P = Engine.mod && Engine.mod("presence");
+        if (_P && r.presence) _P.presenceAfterTurn(est, Object.assign({ now: Date.now() }, r.presence));
+        const _T = Engine.mod && Engine.mod("texture");
+        if (_T) { const p = _T.textureAfterTurn(est, r.tx || {}); if (p) est.tex = p; }
+      } catch (e) {}
       result = {
         replies: r.replies, delta: r.delta, expression: r.expression, moodOverride: r.moodOverride,
         intent: r.intent, intentEx: r.intentEx,
@@ -1079,6 +1093,7 @@ async function herReply(userText, img) {
         moodDay: r.moodDay, self: r.self, inner: r.inner,
         voice: r.voice, dayLife: r.dayLife, negGate: r.negGate,
         presence: r.presence, pacing: r.pacing,
+        pres: est.pres, tex: est.tex,
       };
     }
 
@@ -1100,6 +1115,10 @@ async function herReply(userText, img) {
     if (result.voice !== undefined) S.voice = result.voice;
     if (result.dayLife !== undefined) S.dayLife = result.dayLife;
     if (result.negGate !== undefined) S.negGate = result.negGate;
+    // ★ v13 待决点④：与慢层六字段同一时机落盘。presence 的日累计/连发计数、texture 的
+    // 日配额与错字冷却全靠这两行跨轮存活；漏了它们，R30「错字 ≤2/日」这类约束只在单轮内成立。
+    if (result.pres !== undefined) S.pres = result.pres;
+    if (result.tex !== undefined) S.tex = result.tex;
     save();
 
     if (result.moodOverride) { mood = result.moodOverride; S.moodKey = mood.key; save(); refreshAffectionUI(); }

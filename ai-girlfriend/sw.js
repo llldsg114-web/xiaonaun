@@ -1,9 +1,11 @@
 /* 小暖 PWA Service Worker —— 缓存应用外壳，支持离线打开 + 触发"安装到主屏幕" */
-const CACHE = "xiaonuan-v17";   // v17 真人感优化：新增 memory/presence/texture 三模块，必须整体换缓存键，否则老用户拿到 v16 的 index.html（无三个 script 标签）配 v17 的 engine.js，模块恒缺席
+const CACHE = "xiaonuan-v18";   // v18 T5b：新增 contingency.js。同 v17 的道理——只要 index.html 的 script 清单变了就必须整体换缓存键，否则老用户拿到旧 index.html（无该 script 标签）配新 engine.js，模块恒缺席
 const ASSETS = [
   "/", "/index.html", "/style.css", "/engine.js", "/app.js", "/localmodel.js",
   // v13 三模块：与 engine.files.json 的 order 对齐（WR-13 交叉校验）
   "/memory.js", "/presence.js", "/texture.js",
+  // T5b optional 层。addAll 是全有全无的，列进来即等于「随包发布」——文件必须在盘上
+  "/contingency.js",
   "/manifest.json", "/icon-192.png", "/icon-512.png"
 ];
 

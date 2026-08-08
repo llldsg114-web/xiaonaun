@@ -157,17 +157,30 @@ const MANIFEST_PATH = path.join(ROOT, "engine.files.json");
 
 /* 体积配额（DESIGN §11 锁定）。engine.js 只放薄接线，语料/算法必须待在模块里；
  * 配额写死在这里而不是从文件读，是为了让"改配额"这件事必须走代码评审。
- * 审批记录：v13 T2+T4 配额修正轮，memory 8192→12288 / texture 4096→4608 /
- * moduleSum 16384→20480，由主理人 Qi 于 v13 T2+T4 配额修正轮批准此变更（2026-06-18）。
- * totalMax 维持系统级天花板不变。改配额必须走代码评审。 */
+ * 审批记录：
+ *   · v13 T2+T4 配额修正轮：memory 8192→12288 / texture 4096→4608 / moduleSum 16384→20480，
+ *     由主理人 Qi 批准（2026-06-18）。
+ *   · v13 T5a 集成修复轮：memory 12288→14336 / texture 4608→5120 / moduleSum 20480→24576，
+ *     由主理人 Qi 预批（走本文件代码评审落地）。理由：T5a 五项集成修复全部落在既有模块内
+ *     （待决②横向走查表挂载 / 遗留-1 职业族 tag 派生 / 遗留-2 破墙脱敏 / 遗留-4 R30 基频），
+ *     engine.js 绝对零 diff，新增字节只能进模块。
+ *   · v13 T5b 收尾轮：engineNetMax 2048→2060 / moduleSumMax 24576→24643 / 新增 contingency.js 1892，
+ *     由主理人 Qi 预批（走本文件代码评审落地）。两项各有精确来源，不是"拍脑袋加一点"：
+ *       - engineNetMax +12：A6-a 解冻 engine.js:1322（职业族折叠后再判破墙表）所需，实占 +≤56B 中的
+ *         增量部分；V-33 ≤247955B 同时锁死，两把锁谁先响都算越界。
+ *       - moduleSumMax = 272384 − 247741 = 24643：把"系统天花板 − 当前 engine 体积"完整让给模块侧，
+ *         使 T5b 的 contingency.js 有满额 contingency 空间；天花板 totalMax 本身**一个字节都没动**。
+ *     memory/presence/texture 三项配额本轮**不动** —— A6-b 的 tex.n 回写必须靠 memory.js 内部等量
+ *     trim 自筹字节，不许用"顺手抬配额"绕过。 */
 const SIZE_BUDGET = {
   engineBase: 245737,      // v12 收线时的 engine.js 字节数（T1 基线）
-  engineNetMax: 2048,      // T1 净增硬上限
-  "memory.js": 12288,      // 改配额必须走代码评审 · 主理人 Qi 于 v13 T2+T4 配额修正轮批准此变更
+  engineNetMax: 2060,      // 改配额必须走代码评审 · 主理人 Qi 于 v13 T5b 批准 2048→2060（A6-a 解冻 :1322）
+  "memory.js": 14336,      // 改配额必须走代码评审 · 主理人 Qi 于 v13 T5a 集成修复轮批准 12288→14336
   "presence.js": 4096,
-  "texture.js": 4608,      // 改配额必须走代码评审 · 主理人 Qi 于 v13 T2+T4 配额修正轮批准此变更（含待决③维护余量）
-  moduleSumMax: 20480,     // 改配额必须走代码评审 · 主理人 Qi 于 v13 T2+T4 配额修正轮批准此变更 · 三模块合计
-  totalMax: 272384,        // engine + 三模块 合计天花板（系统级天花板不变）
+  "texture.js": 5120,      // 改配额必须走代码评审 · 主理人 Qi 于 v13 T5a 集成修复轮批准 4608→5120
+  "contingency.js": 1892,  // 改配额必须走代码评审 · 主理人 Qi 于 v13 T5b 批准新建（lean 档，只做 R-C1~C3）
+  moduleSumMax: 24643,     // 改配额必须走代码评审 · 主理人 Qi 于 v13 T5b 批准 24576→24643 · 四模块合计
+  totalMax: 272384,        // engine + 四模块 合计天花板（系统级天花板不变，T5b 新模块吃这里的余量）
 };
 
 /* 读装载清单。缺文件 → 返回 null，调用方据此判定"退化为单文件模式"。 */
@@ -236,7 +249,9 @@ function scanSizes() {
     const p = path.join(ROOT, f);
     return fs.existsSync(p) ? fs.statSync(p).size : 0;
   };
-  const mods = ["memory.js", "presence.js", "texture.js"];
+  /* Tier2 的 contingency.js 是 optional：不存在时 sizeOf 返 0，既不进 over 也不撑 moduleSum，
+   * 于是"未交付"与"交付且达标"两种状态都判绿 —— 与 engine.files.json 的 optional 语义一致。 */
+  const mods = ["memory.js", "presence.js", "texture.js", "contingency.js"];
   const each = {};
   for (const f of mods) each[f] = sizeOf(f);
   const engine = sizeOf("engine.js");
