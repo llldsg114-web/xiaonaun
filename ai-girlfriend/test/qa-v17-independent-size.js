@@ -16,10 +16,11 @@ const chk = (name, cond, detail) => {
   else { console.log(`  FAIL ${name}  ${detail}`); fails.push(name); }
 };
 
-// DESIGN-v17 §2.5 唯一自洽解（写死在探针里，防止「读预算表自证预算表」的循环论证）
+// DESIGN-v18 §2.3 唯一自洽解（写死在探针里，防止「读预算表自证预算表」的循环论证）
+// v18 A2 档：顶层三值全冻结，只在 moduleSumMax 内部四项重切，Σ 恒 = 27943
 const TRUTH = {
   engineBase: 245737, engineNetMax: 2800, engineMax: 248537,
-  "memory.js": 13824, "presence.js": 3840, "texture.js": 4608, "contingency.js": 5671,
+  "memory.js": 13365, "presence.js": 3598, "texture.js": 4398, "contingency.js": 6582,
   moduleSumMax: 27943, totalMax: 276480,
 };
 

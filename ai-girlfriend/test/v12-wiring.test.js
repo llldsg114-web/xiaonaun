@@ -276,7 +276,10 @@ test("WR-14 [S0-a 不变量] reply() 每个出口：要么回传全部慢层字�
   assert.ok(checked >= 400, "采样量不足：" + checked);
 });
 
-test("V-90 三层体积配额：模块各自达标 + 合计达标 + engine.js 净增 ≤2048B", () => {
+/* ★ v18 T3 陈旧标签修正：标题原写「≤2048B」（v12 当年的 engineNetMax），
+ *   而断言体本就动态取 SIZE_BUDGET.engineNetMax —— 名实不符会误导读者按 2048 排预算。
+ *   统一为现行值 2800B（v17 T0 批准，v18 未动）。纯 cosmetic，断言强度不变。 */
+test("V-90 三层体积配额：模块各自达标 + 合计达标 + engine.js 净增 ≤2800B", () => {
   const S = W.scanSizes();
   const B = W.SIZE_BUDGET;
 

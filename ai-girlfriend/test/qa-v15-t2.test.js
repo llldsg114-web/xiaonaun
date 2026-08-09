@@ -332,12 +332,12 @@ test("AC-N2-4b · innerScan() 恒 0：正则放松后 INNER_LIB 无条目状态�
  *   ⚠ 翻转只换数字与行号集合，**严格度逐位不放松**：仍是 strictEqual，仍钉「N 增 N 删」，
  *     仍钉「改动行号集合 === 已批准清单」，且额外加钉「:1307 必须与 BASE 逐位一致」
  *     —— 破墙表本体在 v17 全程冻结，这比 v16「只准改 :1307」的口径更严。 */
-test("AC-N2-5 · engine.js 相对 BASE 净增恰好 529B，改动面 = v17 已批准 13 行 + v15 的 :1307", () => {
+test("AC-N2-5 · engine.js 相对 BASE 净增恰好 571B，改动面 = v17 已批准 13 行 + v15 的 :1307", () => {
   const cur = fs.readFileSync(path.join(ROOT, "engine.js"), "utf8");
   const base = BL.showAt(BL.BASE, "engine.js");
   const delta = Buffer.byteLength(cur) - Buffer.byteLength(base);
-  assert.strictEqual(delta, 529,
-    `engine.js 相对 BASE 应净增恰好 529B（v15 NOTE-2 13 + Q-V15-1 60 + v16 T1 四轴 190 + v17 T1/T2 266），实得 ${delta}B —— 偏离需重新走体积评审`);
+  assert.strictEqual(delta, 571,
+    `engine.js 相对 BASE 应净增恰好 571B（v15 NOTE-2 13 + Q-V15-1 60 + v16 T1 四轴 190 + v17 T1/T2 266 + v18 T1 零宽 42），实得 ${delta}B —— 偏离需重新走体积评审`);
 
   // 已批准行号集合：v15 的 :1307 + v17 §6-T1 的 13 行
   const APPROVED = [1307, 1310, 1322, 1350, 1382, 1393, 1435, 1461, 2488, 2935, 3613, 3636, 3637, 3993];
@@ -358,10 +358,10 @@ test("AC-N2-5 · engine.js 相对 BASE 净增恰好 529B，改动面 = v17 已�
   const size = fs.statSync(path.join(ROOT, "engine.js")).size;
   assert.ok(size <= WS.SIZE_BUDGET.engineMax,
     `V-33 越界：${size} > ${WS.SIZE_BUDGET.engineMax}`);
-  assert.strictEqual(size, 248353, `预测落位 248353B（v17 T1/T2 后），实得 ${size}B`);
+  assert.strictEqual(size, 248395, `预测落位 248395B（v18 T1 零宽剥离后），实得 ${size}B`);
   const s = WS.scanSizes();
-  assert.strictEqual(s.engineNet, 2616,
-    `engineNet 应为 2616（2087 + NOTE-2 13 + Q-V15-1 60 + v16 T1 四轴 190 + v17 T1/T2 266），实得 ${s.engineNet}`);
+  assert.strictEqual(s.engineNet, 2658,
+    `engineNet 应为 2658（2087 + NOTE-2 13 + Q-V15-1 60 + v16 T1 四轴 190 + v17 T1/T2 266 + v18 T1 零宽 42），实得 ${s.engineNet}`);
   assert.ok(s.engineNet <= WS.SIZE_BUDGET.engineNetMax, `engineNet 越界：${s.engineNet}`);
   assert.deepStrictEqual(s.over, [], `单文件配额越界：${JSON.stringify(s.each)}`);
 });
@@ -400,7 +400,7 @@ test("AC-N2-5b · engine.js 冻结口径：:1307 破墙表 / A6-a 折叠语义 /
 /* ★【快照翻转 · v16 T2-c】v20 → v21：T1 又改了 engine.js:1307（四轴扩展），
  * 按 C0-b 纪律「任一被缓存文件内容变了就必须升键」，v16 必须再升一级。
  * 断言只加严不放松：既钉死当前值 21，也保留「必须领先 BASE」的单调性检查。 */
-test("AC-N2-5c · sw.js 缓存键已升 v22（C0-b：正则改动必须让旧缓存失效）", () => {
+test("AC-N2-5c · sw.js 缓存键已升 v23（C0-b：正则改动必须让旧缓存失效）", () => {
   /* PERSONA_BREAK_RE 属于会被 sw 缓存的 engine.js。不升缓存键，
    * 老用户拿到的还是 v14 的表 —— 分层等于没上线。这是 C0-b 同族事故的防线。 */
   const sw = fs.readFileSync(path.join(ROOT, "sw.js"), "utf8");
@@ -408,7 +408,7 @@ test("AC-N2-5c · sw.js 缓存键已升 v22（C0-b：正则改动必须让旧缓
   const baseSw = BL.showAt(BL.BASE, "sw.js");
   const base = Number((baseSw.match(/xiaonuan-v(\d+)/) || [])[1]);
   assert.strictEqual(base, 19, `v14 收口态缓存键应为 v19，实得 v${base}`);
-  assert.strictEqual(cur, 22, `v17 缓存键应为 v22（v16 的 v21 + engine/memory/presence/texture/contingency 五文件全改，再升一级），实得 v${cur}`);
+  assert.strictEqual(cur, 23, `v18 缓存键应为 v23（v17 的 v22 + engine.js :1310 pnorm 零宽剥离改动，再升一级），实得 v${cur}`);
   assert.ok(cur > base, "缓存键必须领先基线，否则改动不下发");
 });
 

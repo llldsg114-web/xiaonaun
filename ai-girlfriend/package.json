@@ -6,7 +6,10 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "test:probe": "for f in test/qa-probe-mutation.js test/qa-v17-adversarial.js test/qa-v17-independent-size.js test/qa-probe-h13.js test/qa-probe-v15-acceptance.js; do echo \"── $f\"; node \"$f\" || exit 1; done",
+    "test:probe:fast": "for f in test/qa-probe-h13.js test/qa-v17-adversarial.js; do echo \"── $f\"; node \"$f\" || exit 1; done",
+    "test:all": "npm test && npm run test:probe"
   },
   "engines": {
     "node": ">=18"

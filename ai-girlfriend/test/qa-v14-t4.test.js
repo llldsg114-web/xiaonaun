@@ -325,7 +325,9 @@ test("T4 · 体积：engine :2897 +19B、memory R-P2 净增 ≤700B，四把锁�
    *   配额已由 V16-3 前置抬至 engineNetMax 2400，落位 2350 余 50B）。
    * ★ v17 T1/T2 再加 266B（13 行行内追加：pnorm 真源 +103 / :1322 收口 −29 /
    *   R2-A5b 回避终止语 +69 / 归一化接线 ×6 +42 / Q-P2-D11 防重放 +74 / 导出 +7），
-   *   配额已由 v17 T0 前置抬至 engineNetMax 2800，落位 2616 余 184B。 */
-  assert.strictEqual(s.engineNet, 2616,
-    `engine net 应为 2056(T5b) + 12(R-P0) + 19(R-P2) + 13(v15 NOTE-2) + 60(Q-V15-1) + 190(v16 T1) + 266(v17 T1/T2) = 2616，实际 ${s.engineNet}`);
+   *   配额已由 v17 T0 前置抬至 engineNetMax 2800，落位 2616 余 184B。
+   * ★ v18 T1 再加 42B（:1310 pnorm 行内追加 seg2 零宽黑名单剥离 /[\u200B\u200C\u200D\uFEFF]/g，
+   *   行数不变；engineNetMax 仍 2800 不动，落位 2658 余 142B）。 */
+  assert.strictEqual(s.engineNet, 2658,
+    `engine net 应为 2056(T5b) + 12(R-P0) + 19(R-P2) + 13(v15 NOTE-2) + 60(Q-V15-1) + 190(v16 T1) + 266(v17 T1/T2) + 42(v18 T1 零宽) = 2658，实际 ${s.engineNet}`);
 });

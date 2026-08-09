@@ -163,7 +163,7 @@ test("C0-b sw.js CACHE 版本必须领先 v14 收口基线（否则老用户拿�
   const base = m ? parseInt(m[1], 10) : -1;
   assert.strictEqual(base, 19, "v14 收口基线的 sw 版本应为 v19，基线取证失真");
   assert.ok(cur > base, `sw.js CACHE 未升版：基线 v${base} → 当前 v${cur}。被缓存文件变了就必须换缓存键`);
-  assert.strictEqual(cur, 22, "v17 收线版本应为 v22（v21→v22，engine.js/memory.js/presence.js/texture.js/contingency.js 五文件全改），实得 v" + cur);
+  assert.strictEqual(cur, 23, "v18 收线版本应为 v23（v22→v23，engine.js :1310 pnorm 追加零宽剥离；四模块本轮源码冻结），实得 v" + cur);
 });
 
 test("C0-c contingency.js 体积 ≤1892B（lean 档配额）", () => {

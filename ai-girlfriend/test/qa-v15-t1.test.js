@@ -406,10 +406,10 @@ test("AC-C5-6 · contingency.js R-C5 增量 ≤470B、R-S2 净增 ≤1180B 且 �
   const s = WS.scanSizes();
   assert.deepStrictEqual(s.over, [], `单文件配额越界：${JSON.stringify(s.each)}`);
   const B = WS.SIZE_BUDGET;
-  assert.strictEqual(B["memory.js"], 13824, "v17 批准值 14154→13824");
-  assert.strictEqual(B["presence.js"], 3840, "v17 批准值 4096→3840");
-  assert.strictEqual(B["texture.js"], 4608, "v17 批准值 5120→4608");
-  assert.strictEqual(B["contingency.js"], 5671, "v17 批准值 4973→5671（R-S2 二期）");
+  assert.strictEqual(B["memory.js"], 13365, "v18 批准值 13824→13365（实测 13333 + 32B 缓冲）");
+  assert.strictEqual(B["presence.js"], 3598, "v18 批准值 3840→3598（实测 3566 + 32B 缓冲）");
+  assert.strictEqual(B["texture.js"], 4398, "v18 批准值 4608→4398（实测 4366 + 32B 缓冲）");
+  assert.strictEqual(B["contingency.js"], 6582, "v18 批准值 5671→6582（受援方 +911B · 残差式 27943−21361）");
   assert.strictEqual(B.moduleSumMax, 27943, "v17 批准值 28343→27943 = totalMax − engineMax(248537)");
   assert.strictEqual(B.totalMax, 276480, "totalMax 本期不许动（270KB 承诺）");
   assert.strictEqual(B.engineNetMax, 2800, "v17 批准值 2400→2800（§2.5 唯一解）");

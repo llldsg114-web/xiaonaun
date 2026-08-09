@@ -62,8 +62,8 @@ for (const f of ["memory.js", "presence.js", "texture.js", "contingency.js"]) {
 ok(q4, "④ 各配额 > 各实测（配额不倒挂）",
   `memory ${B["memory.js"]}>${s.each["memory.js"]} / presence ${B["presence.js"]}>${s.each["presence.js"]}` +
   ` / texture ${B["texture.js"]}>${s.each["texture.js"]} / contingency ${B["contingency.js"]}>${s.each["contingency.js"]}`);
-ok(B["memory.js"] === 13824 && B["presence.js"] === 3840 && B["texture.js"] === 4608 && B["contingency.js"] === 5671,
-  "④' v17 四模块配额落位 13824 / 3840 / 4608 / 5671",
+ok(B["memory.js"] === 13365 && B["presence.js"] === 3598 && B["texture.js"] === 4398 && B["contingency.js"] === 6582,
+  "④' v18 四模块配额落位 13365 / 3598 / 4398 / 6582（A2 档重分配，Σ 恒 27943）",
   `${B["memory.js"]} / ${B["presence.js"]} / ${B["texture.js"]} / ${B["contingency.js"]}`);
 
 /* ⑤ A1-a 硬编码 V33 必须 === engineMax（DESIGN-v16 §5.0 连带破锁项） */

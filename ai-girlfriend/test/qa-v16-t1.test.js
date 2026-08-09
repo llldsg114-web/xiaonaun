@@ -228,10 +228,10 @@ test("AC-G-8 · 体积：over=[] 且 engineNet ≤ engineNetMax", () => {
   assert.deepStrictEqual(s.over, [], `超配额：${JSON.stringify(s.over)}`);
   assert.ok(s.engineNet <= SIZE_BUDGET.engineNetMax,
     `engineNet ${s.engineNet} > 上限 ${SIZE_BUDGET.engineNetMax}`);
-  /* ★★【快照翻转 · v17 T1/T2 · DESIGN-v17 §6-T1】2350 → 2616（+266，13 行行内追加）★★
-   *   上限已由 v17 T0 抬至 engineNetMax 2800，落位 2616 余 184B。仍是 strictEqual 硬钉。 */
-  assert.strictEqual(s.engineNet, 2616,
-    `v17 T1/T2 后 engineNet 应为 2616（v16 的 2350 + 归一化与 R2-A5b/Q-P2-D11 的 266），实为 ${s.engineNet}`);
+  /* ★★【快照翻转 · v18 T1 · DESIGN-v18 §6-T1】2616 → 2658（+42，:1310 行内追加零宽剥离）★★
+   *   上限仍是 v17 T0 抬定的 engineNetMax 2800（v18 未动），落位 2658 余 142B。仍是 strictEqual 硬钉。 */
+  assert.strictEqual(s.engineNet, 2658,
+    `v18 T1 后 engineNet 应为 2658（v17 的 2616 + 零宽黑名单剥离的 42），实为 ${s.engineNet}`);
   /* 四锁恒等式 */
   assert.strictEqual(SIZE_BUDGET.engineMax, SIZE_BUDGET.engineBase + SIZE_BUDGET.engineNetMax,
     "锁①：engineMax ≠ engineBase + engineNetMax");
