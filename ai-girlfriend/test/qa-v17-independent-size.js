@@ -16,12 +16,15 @@ const chk = (name, cond, detail) => {
   else { console.log(`  FAIL ${name}  ${detail}`); fails.push(name); }
 };
 
-// DESIGN-v18 §2.3 唯一自洽解（写死在探针里，防止「读预算表自证预算表」的循环论证）
-// v18 A2 档：顶层三值全冻结，只在 moduleSumMax 内部四项重切，Σ 恒 = 27943
+// DESIGN-v21 §1.1 唯一自洽解（写死在探针里，防止「读预算表自证预算表」的循环论证）
+// v21 路径③：engine 让渡 D=100 予 contingency ⇒ engineNetMax −100、engineMax −100、
+//   moduleSumMax +100、contingency +100；memory/presence/texture 与 totalMax 逐位不动。
+//   ★ 本 TRUTH 表是 PRD-v21 完全漏列的第 4 处 V33 针位，且已接入 npm run test:probe
+//     （package.json 第 3 位）—— 漏改它 = 落地首日 9 条红（DESIGN-v21 §1.2 勘误 A）。
 const TRUTH = {
-  engineBase: 245737, engineNetMax: 2800, engineMax: 248537,
-  "memory.js": 13365, "presence.js": 3598, "texture.js": 4398, "contingency.js": 6582,
-  moduleSumMax: 27943, totalMax: 276480,
+  engineBase: 245737, engineNetMax: 2700, engineMax: 248437,
+  "memory.js": 13365, "presence.js": 3598, "texture.js": 4398, "contingency.js": 6682,
+  moduleSumMax: 28043, totalMax: 276480,
 };
 
 console.log("=== QA-v17 独立体积探针（严过关）===\n");

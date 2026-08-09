@@ -163,7 +163,22 @@ test("C0-b sw.js CACHE 版本必须领先 v14 收口基线（否则老用户拿�
   const base = m ? parseInt(m[1], 10) : -1;
   assert.strictEqual(base, 19, "v14 收口基线的 sw 版本应为 v19，基线取证失真");
   assert.ok(cur > base, `sw.js CACHE 未升版：基线 v${base} → 当前 v${cur}。被缓存文件变了就必须换缓存键`);
-  assert.strictEqual(cur, 23, "v18 收线版本应为 v23（v22→v23，engine.js :1310 pnorm 追加零宽剥离；四模块本轮源码冻结），实得 v" + cur);
+  /* ★★【v21 TD · 守卫方向修正 · DESIGN-v21 §1.3 缺口②】★★
+   *   原断言：`assert.strictEqual(cur, 23, ...)` —— 把版本号钉死在一个**人工快照值**上。
+   *   它的方向是反的：只能证明「版本号没被乱改」，**无法**证明「被缓存资产内容已变
+   *   而版本号未相应升版」。v20 逃逸时 contingency.js 改了、CACHE 仍 v23，此行 `23===23` 恒绿，
+   *   与 `v12-wiring.test.js:216` 的 `>=17` 地板、`qa-v15-t2.test.js` 的同型快照一起，三处全绿放行。
+   *   改为跟随真相源 `test/sw-assets-manifest.json`：
+   *     · 版本号由 manifest.cacheVersion 派生，本行不再是可被人工钉死的第二个可写位置；
+   *     · manifest 各资产 sha256 的现算一致性由 test/qa-v21-sw-guard.js 校验。
+   *   两者合起来才闭合「内容 ↔ 版本」环：本行保证 sw.js 与清单同版，
+   *   守卫保证清单与落盘内容同源 —— 单独任何一条都仍可被绕过。 */
+  const MF = JSON.parse(fs.readFileSync(path.join(__dirname, "sw-assets-manifest.json"), "utf8"));
+  const mfVer = Number((String(MF.cacheVersion).match(/v(\d+)$/) || [])[1]);
+  assert.ok(Number.isFinite(mfVer), "manifest.cacheVersion 无法解析出版本号：" + MF.cacheVersion);
+  assert.strictEqual(cur, mfVer,
+    `sw.js CACHE v${cur} 与 manifest.cacheVersion "${MF.cacheVersion}" 不同版 —— ` +
+    "改被缓存文件必须同时升 CACHE 并重算清单（DESIGN-v21 §2.3 口诀）");
 });
 
 test("C0-c contingency.js 体积 ≤1892B（lean 档配额）", () => {

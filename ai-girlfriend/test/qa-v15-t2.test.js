@@ -399,8 +399,15 @@ test("AC-N2-5b · engine.js 冻结口径：:1307 破墙表 / A6-a 折叠语义 /
 
 /* ★【快照翻转 · v16 T2-c】v20 → v21：T1 又改了 engine.js:1307（四轴扩展），
  * 按 C0-b 纪律「任一被缓存文件内容变了就必须升键」，v16 必须再升一级。
- * 断言只加严不放松：既钉死当前值 21，也保留「必须领先 BASE」的单调性检查。 */
-test("AC-N2-5c · sw.js 缓存键已升 v23（C0-b：正则改动必须让旧缓存失效）", () => {
+ * 断言只加严不放松：既钉死当前值 21，也保留「必须领先 BASE」的单调性检查。
+ * ★★【v21 TD · 守卫方向修正 · DESIGN-v21 §1.3 缺口②】★★
+ *   原断言 `strictEqual(cur, 23)` 与 qa-v13-t5b.test.js:166 是**同一事实的两处独立取证**，
+ *   但两处的方向都是反的：钉死人工快照值，只能证明「版本号没被乱改」，
+ *   **无法**证明「被缓存资产内容已变而版本号未升」。v20 逃逸（contingency.js 改了、
+ *   CACHE 仍 v23）时它 `23===23` 恒绿 —— 双点取证在这个方向上取证了两次「假绿」。
+ *   现改为跟随真相源 test/sw-assets-manifest.json，双点取证的用意（不许只改一处蒙混）保留，
+ *   但两点现在都指向同一个会随资产内容转红的真相源，而不是两个人工数字。 */
+test("AC-N2-5c · sw.js 缓存键必须跟随 sw-assets-manifest 真相源（C0-b：被缓存资产变更必须让旧缓存失效）", () => {
   /* PERSONA_BREAK_RE 属于会被 sw 缓存的 engine.js。不升缓存键，
    * 老用户拿到的还是 v14 的表 —— 分层等于没上线。这是 C0-b 同族事故的防线。 */
   const sw = fs.readFileSync(path.join(ROOT, "sw.js"), "utf8");
@@ -408,7 +415,12 @@ test("AC-N2-5c · sw.js 缓存键已升 v23（C0-b：正则改动必须让旧缓
   const baseSw = BL.showAt(BL.BASE, "sw.js");
   const base = Number((baseSw.match(/xiaonuan-v(\d+)/) || [])[1]);
   assert.strictEqual(base, 19, `v14 收口态缓存键应为 v19，实得 v${base}`);
-  assert.strictEqual(cur, 23, `v18 缓存键应为 v23（v17 的 v22 + engine.js :1310 pnorm 零宽剥离改动，再升一级），实得 v${cur}`);
+  const MF = JSON.parse(fs.readFileSync(path.join(__dirname, "sw-assets-manifest.json"), "utf8"));
+  const mfVer = Number((String(MF.cacheVersion).match(/v(\d+)$/) || [])[1]);
+  assert.ok(Number.isFinite(mfVer), `manifest.cacheVersion 无法解析出版本号：${MF.cacheVersion}`);
+  assert.strictEqual(cur, mfVer,
+    `sw.js CACHE v${cur} 与 manifest.cacheVersion "${MF.cacheVersion}" 不同版 —— ` +
+    "改被缓存文件必须同时升 CACHE 并重算清单（DESIGN-v21 §2.3 口诀）");
   assert.ok(cur > base, "缓存键必须领先基线，否则改动不下发");
 });
 

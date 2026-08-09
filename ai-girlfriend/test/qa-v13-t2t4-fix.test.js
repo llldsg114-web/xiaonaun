@@ -71,14 +71,14 @@ const jobMem = (value, conf) => ({
  *   （若取任务书原议的 28687，此行立即转红：245737+2200+28687 = 276624 > 276480 是"看似更宽"，
  *    但 A1-a 守的是"不许两把锁同时放水"，28687 会让 engine 打满 V-33 时 total 击穿 162B）。
  * ⚠ v14 交付后 total 余量约 3.9KB —— 已不再是 13B 的紧张态，预警口径见 A6-c（换挡 0B/8192B）。 */
-test("A1-a 配额数字落点：memory 13365 / texture 4398 / contingency 6582 / moduleSum 27943 / net 2800 / totalMax 276480", () => {
+test("A1-a 配额数字落点：memory 13365 / texture 4398 / contingency 6682 / moduleSum 28043 / net 2700 / totalMax 276480", () => {
   const B = WS.SIZE_BUDGET;
-  assert.strictEqual(B["memory.js"], 13365, "v18 批准值 13824→13365（让渡 459B 予 contingency · 实测 13333 + 32B 缓冲）");
-  assert.strictEqual(B["texture.js"], 4398, "v18 批准值 4608→4398（让渡 210B 予 contingency · 实测 4366 + 32B 缓冲）");
-  assert.strictEqual(B["presence.js"], 3598, "v18 批准值 3840→3598（让渡 242B 予 contingency · 实测 3566 + 32B 缓冲）");
-  assert.strictEqual(B["contingency.js"], 6582, "v18 批准值（旧配额见 wiring-scan.js v18 审批块）→ 6582（受援方 +911B · 残差式 27943−21361）");
-  assert.strictEqual(B.moduleSumMax, 27943, "v17 批准值 28343→27943 = totalMax − engineMax(248537)· v18 不动（A2 纯模块侧重分配，Σ 恒定）");
-  assert.strictEqual(B.engineNetMax, 2800, "v17 批准值 2400→2800（Δ=+400 · 归一化层 + R2-A5b + selfTick 防重放）· v18 不动");
+  assert.strictEqual(B["memory.js"], 13365, "v18 批准值 13824→13365（让渡 459B 予 contingency · 实测 13333 + 32B 缓冲）· v21 路径③ 不动");
+  assert.strictEqual(B["texture.js"], 4398, "v18 批准值 4608→4398（让渡 210B 予 contingency · 实测 4366 + 32B 缓冲）· v21 路径③ 不动");
+  assert.strictEqual(B["presence.js"], 3598, "v18 批准值 3840→3598（让渡 242B 予 contingency · 实测 3566 + 32B 缓冲）· v21 路径③ 不动");
+  assert.strictEqual(B["contingency.js"], 6682, "v21 批准值 6582→6682（路径③ 受援方 +100B，源自 engine 让渡 D=100 · 实测 6626 + 56B 缓冲）");
+  assert.strictEqual(B.moduleSumMax, 28043, "v21 批准值 27943→28043 = totalMax − engineMax(248437)（锁② 两边同移，Q3 已批）");
+  assert.strictEqual(B.engineNetMax, 2700, "v21 批准值 2800→2700（路径③ engine 让渡 D=100B · 实测 net 2658 + 42B 缓冲）");
   assert.strictEqual(B.totalMax, 276480, "v14 批准值 272384→276480（266KB→270KB，天花板评审）· v17/v18 不动");
   assert.strictEqual(B.engineBase, 245737, "engineBase 属永不许动项");
   // ② 严格等式：Σ4 配额恰等于 moduleSumMax（v18 三让渡 −911 + contingency +911 = 0，Σ 仍 27943）
@@ -114,7 +114,15 @@ test("A1-a 配额数字落点：memory 13365 / texture 4398 / contingency 6582 /
    *   运行时字面量（wiring-scan.js:259 / 本行 / qa-v16-size-probe.js:72），漏一处即 T0 首日两红。
    *   ⚠ 两把 engine 锁继续重合（间隙恒 0），会计恒等式两端仍必须同为 0 —— 严格度逐位不放松，
    *   本轮只是把「打满即恰好」的那条线整体右移 400B，未分配余量依旧一个字节都不存在。 */
-  const V33 = 248537;
+  /* ★★【快照翻转 · v21 配额重谈首秀 · 路径③ · 主理人 Qi 批准（DESIGN-v21 §1.1 / §1.2 表 B）】★★
+   *   V33 248537 → 248437，随 engineMax 派生同步（engineNetMax 2800→2700，engine 让渡 D=−100）。
+   *   与 v16/v17 两次翻转的性质完全一致：V33 **不是独立真源**，是 engineMax 的派生常量。
+   *   ⚠ 但针位清单比历史注释所称的「三处」多得多 —— v21 实读工作区确认，
+   *     除本行外还有 qa-v16-size-probe.js（:38/:50/:51/:77）与 **qa-v17-independent-size.js
+   *     的整张 TRUTH 独立副本**（:22，且已接入 npm run test:probe）。完整清单见 DESIGN-v21 §1.2。
+   *   ⚠ 两把 engine 锁继续重合（间隙恒 0），会计恒等式两端仍必须同为 0 —— 严格度逐位不放松；
+   *     本轮是把那条线整体**左移** 100B（收紧），engine 侧余量 142B → 42B，代价已被主理人追认。 */
+  const V33 = 248437;
   const engineCapNet = B.engineBase + B.engineNetMax;
   assert.ok(engineCapNet <= V33,
     `engineNet 必须是更紧的那把锁（否则 V-33 兜底失效）：${engineCapNet} > ${V33}`);
@@ -275,7 +283,7 @@ test("A1-c engine.js 定点解冻白名单：相对 v14 收口基线仅 v15/v17 
  * ★ Q-P2-D11 少花 16B：复用 `updatedAt` 作高水位，未新增 `hi` 字段（DESIGN-v17 §3.2），
  *   selfGet/selfClamp 两处字段白名单零改动。省下的 16B 回吐 net 余量，不另作他用。
  * ★ 严禁改成加裸词 `模型训练|` —— U-5 守卫（A1-c 内已加断言）会立刻转红。 */
-test("A4 体积三闸门：V-33 ≤248537B 且 V-90 net ≤2800B 且 total ≤276480B", () => {
+test("A4 体积三闸门：V-33 ≤248437B 且 V-90 net ≤2700B 且 total ≤276480B", () => {
   const size = fs.statSync(path.join(ROOT, "engine.js")).size;
   const CAP = WS.SIZE_BUDGET.engineMax;
   assert.ok(size <= CAP, `V-33 越界: ${size} > ${CAP}（余 ${CAP - size}B）`);

@@ -1,0 +1,40 @@
+{
+  "//": "TD 真相源：被缓存资产内容 ↔ sw.js CACHE 键。由 qa-v21-sw-guard.js 只读校验。重算程序见 docs/CHANGELOG.md v21 条目。",
+  "cacheVersion": "xiaonuan-v24",
+  "cacheVersionNote": "待发布键。下方 assets 的指纹隶属于它。改任一被缓存资产后必须重算 assets；若该键已发布过，还必须先升键。",
+  "released": {
+    "cacheVersion": "xiaonuan-v23",
+    "provenance": "git b36842f（v18 收线提交，即 xiaonuan-v23 的铸键点）",
+    "note": "★受控基线，仅在『该键真正发布给用户』时才移动，与 T0_BYTES 同级。守卫的反逃逸判据以它为参照系；只重算上方 assets 无法让守卫变绿。",
+    "assets": {
+      "/": "f76d8539497c7a730170e76883d02f76fb1a45aeccdd7b5971a37af544f64767",
+      "/index.html": "f76d8539497c7a730170e76883d02f76fb1a45aeccdd7b5971a37af544f64767",
+      "/style.css": "b4d7a6d9c02612dea7012144b733734affeed203f0f7404edc708fe7e27e0e06",
+      "/engine.js": "829acc93302f1823d82b0dc4100ea440bfa4bea81f0fcd593ff4085c148f2400",
+      "/app.js": "07623687468aa4300176ebed2e6855b93b63539e830914435434d70ef2d4dab6",
+      "/localmodel.js": "7979f6a85f2202cd78bf9da24eb52399abc7aff9414491aad7a5d2f61e2fc8e3",
+      "/memory.js": "e9bc76a178db3955a73ad4a975ffd879706f0c6bfab1c2d6b9dd3772f746dd21",
+      "/presence.js": "8924c42baf31319804d05b09aeaf7f38f235b6e74da68bd6b0806f80ac8211ea",
+      "/texture.js": "dad00580ae828b49d1ea9915c64c3ec5683d18545bc5234af4ed8e8ddb4ee7eb",
+      "/contingency.js": "df13af95a58942084f41eb8a831736b71f9525f8e6fe9980bfaaac336237583e",
+      "/manifest.json": "ef514828841ad7ba363df3e17cb5af6697049aea3fdaf8cbaa93a8544f555627",
+      "/icon-192.png": "41daa30b76fe4341a6cba398f3b105c6dfdc3cb190f2995daa0ddc0063bf9c05",
+      "/icon-512.png": "7186ce627bf691196651cec9c416a0f75da7c8986d56887394835c6c2395e9da"
+    }
+  },
+  "assets": {
+    "/": "f76d8539497c7a730170e76883d02f76fb1a45aeccdd7b5971a37af544f64767",
+    "/index.html": "f76d8539497c7a730170e76883d02f76fb1a45aeccdd7b5971a37af544f64767",
+    "/style.css": "b4d7a6d9c02612dea7012144b733734affeed203f0f7404edc708fe7e27e0e06",
+    "/engine.js": "829acc93302f1823d82b0dc4100ea440bfa4bea81f0fcd593ff4085c148f2400",
+    "/app.js": "07623687468aa4300176ebed2e6855b93b63539e830914435434d70ef2d4dab6",
+    "/localmodel.js": "7979f6a85f2202cd78bf9da24eb52399abc7aff9414491aad7a5d2f61e2fc8e3",
+    "/memory.js": "e9bc76a178db3955a73ad4a975ffd879706f0c6bfab1c2d6b9dd3772f746dd21",
+    "/presence.js": "8924c42baf31319804d05b09aeaf7f38f235b6e74da68bd6b0806f80ac8211ea",
+    "/texture.js": "dad00580ae828b49d1ea9915c64c3ec5683d18545bc5234af4ed8e8ddb4ee7eb",
+    "/contingency.js": "a4b98b99f608a1076025f64410334db01d2ef1b026e19f46605c9ffb8a77d5c6",
+    "/manifest.json": "ef514828841ad7ba363df3e17cb5af6697049aea3fdaf8cbaa93a8544f555627",
+    "/icon-192.png": "41daa30b76fe4341a6cba398f3b105c6dfdc3cb190f2995daa0ddc0063bf9c05",
+    "/icon-512.png": "7186ce627bf691196651cec9c416a0f75da7c8986d56887394835c6c2395e9da"
+  }
+}

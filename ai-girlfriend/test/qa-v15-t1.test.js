@@ -429,10 +429,10 @@ test("AC-C5-6 · contingency.js R-C5 增量 ≤470B、R-S2 净增/总量双锁�
   assert.strictEqual(B["memory.js"], 13365, "v18 批准值 13824→13365（实测 13333 + 32B 缓冲）");
   assert.strictEqual(B["presence.js"], 3598, "v18 批准值 3840→3598（实测 3566 + 32B 缓冲）");
   assert.strictEqual(B["texture.js"], 4398, "v18 批准值 4608→4398（实测 4366 + 32B 缓冲）");
-  assert.strictEqual(B["contingency.js"], 6582, "v18 批准值（受援方 +911B · 残差式 27943−21361；旧配额见 wiring-scan.js v18 审批块，v19 起不得在本文件复述）");
-  assert.strictEqual(B.moduleSumMax, 27943, "v17 批准值 28343→27943 = totalMax − engineMax(248537)");
+  assert.strictEqual(B["contingency.js"], 6682, "v21 批准值 6582→6682（路径③ 受援方 +100B，源自 engine 让渡 D=100；推导见 wiring-scan.js v21 审批块）");
+  assert.strictEqual(B.moduleSumMax, 28043, "v21 批准值 27943→28043 = totalMax − engineMax(248437)");
   assert.strictEqual(B.totalMax, 276480, "totalMax 本期不许动（270KB 承诺）");
-  assert.strictEqual(B.engineNetMax, 2800, "v17 批准值 2400→2800（§2.5 唯一解）");
+  assert.strictEqual(B.engineNetMax, 2700, "v21 批准值 2800→2700（路径③ engine 让渡 D=100B）");
   assert.strictEqual(B.engineMax, B.engineBase + B.engineNetMax, "锁①：engineMax 必须是派生值");
   // 恒等式②：四项配额之和 = moduleSumMax（严格相等，不是 ≤）
   assert.strictEqual(B["memory.js"] + B["presence.js"] + B["texture.js"] + B["contingency.js"],

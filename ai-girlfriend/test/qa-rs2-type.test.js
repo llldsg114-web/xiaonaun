@@ -23,9 +23,16 @@ const ROOT = path.join(__dirname, "..");
 const E = H.loadEngine();
 const C = E.mod("contingency");
 const DAY = 864e5;
-const TYPES = ["stable", "expand", "challenge", "boundary"];
+/* v21 TA：新增第 5 语料型 `repair`（修复/回暖）—— 现有四型覆盖了稳态、共鸣、异议、设界，
+ * 缺一个「冲突之后如何回到亲密」的出口，而 boundary 型触发后正需要它接续（PRD-v21 Q9）。
+ * ⚠ 本轮 `repair` 是**纯数据增补**：只进 SFT 语料表，**未**改 sfType() 选择器，
+ *   故它在选型层暂不可达（与 AC-RS2-4b 记录的 expand 遮蔽属不同性质，见文件末 AC-RS2-9）。
+ *   路由接入需改 contingency.js 的选择器逻辑，属 engine 侧口径外的行为变更，
+ *   本轮按 DESIGN-v21 §6.1 T03「数据，非 engine 侧」执行，路由留待后续轮次。 */
+const TYPES = ["stable", "expand", "challenge", "boundary", "repair"];
 /* v20 T01（U-1）：每型条数 3 → 6。总条数一律由 TYPES.length × PER_TYPE 派生，
- * **禁止再写第二个字面量**（v19 三锁归一的同一治理口径：计数也只留一个可写位置）。 */
+ * **禁止再写第二个字面量**（v19 三锁归一的同一治理口径：计数也只留一个可写位置）。
+ * v21：型数 4 → 5，SFT_TOTAL 自动由 5 × 6 = 30 派生，本行无需改动 —— 这正是派生式计数的价值。 */
 const PER_TYPE = 6;
 const SFT_TOTAL = TYPES.length * PER_TYPE;
 /* 单条语料字节硬上限（DESIGN-v20 §3.1.3 成本模型 cost = 3n+3，n ≤ 18 字 ⇒ 正文 ≤ 54B，留 3B 余量）。 */
@@ -162,7 +169,7 @@ test("AC-RS2-3 · SFT 全量静态自扫：破墙 0 / 关系钩子 100% / 绑架
   const seen = new Map();               // v20 Q-7：全局唯一（跨型亦不得重复）
   for (const y of TYPES) {
     assert.ok(Array.isArray(C.SFT[y]) && C.SFT[y].length >= PER_TYPE,
-      y + " 语料条数不足 " + PER_TYPE + "（DESIGN-v20 §3.1.2：每型 3 → 6）");
+      y + " 语料条数不足 " + PER_TYPE + "（DESIGN-v20 §3.1.2：每型 3 → 6；v21 第 5 型 repair 同样 6 条）");
     for (const x of C.SFT[y]) {
       total++;
       if (typeof x !== "string" || !x) { n++; continue; }
@@ -181,7 +188,7 @@ test("AC-RS2-3 · SFT 全量静态自扫：破墙 0 / 关系钩子 100% / 绑架
     }
   }
   assert.strictEqual(total, SFT_TOTAL,
-    "四型 × " + PER_TYPE + " 条 = " + SFT_TOTAL + "，实测 " + total);
+    TYPES.length + " 型 × " + PER_TYPE + " 条 = " + SFT_TOTAL + "，实测 " + total);
   assert.strictEqual(seen.size, SFT_TOTAL, "语料全局唯一性失守：去重后仅 " + seen.size + " 条");
   assert.strictEqual(n, 0, "SFT 静态自扫命中 " + n + " 项（H13 一票否决口径）");
 });
@@ -324,4 +331,53 @@ test("AC-RS2-8 · contingency.js ≤ SIZE_BUDGET 配额，且 R-S2 净增 ≤ �
     "R-S2 净增 " + (b - V16_ANCHOR) + "B 超派生上限 " + NET_MAX + "B（= 配额 " + CEILING + " − 锚点 " + V16_ANCHOR + "）");
   assert.strictEqual(V16_ANCHOR + NET_MAX, CEILING,
     "锁⑧失配：V16_ANCHOR + NET_MAX 应恒等于 SIZE_BUDGET[\"contingency.js\"]");
+});
+
+/* ---------- ⑨ v21 · 第 5 语料型 repair（TA 主体）---------- */
+/* ★ 口径声明（必读）：本轮 repair 是**纯数据增补** —— 语料入表、质量门全过，但
+ *   `sfType()` 选择器未改，故选型层**暂不可达**。这与 AC-RS2-4b 记录的 expand 遮蔽
+ *   不是一回事：expand 在选型层可达、被 :43 c2 门在 cd 层抢占；repair 是选型层就不产出。
+ *   ⚠ PRD-v21 P0-6 / AC-7 要求「新型可被路由命中（非死代码）」，而 DESIGN-v21 §6.1 T03
+ *     裁定本轮只做「数据，非 engine 侧」。二者存在**未消解的分歧**，已上报主理人。
+ *   本测试的作用是把当前事实**钉成断言**而不是留成沉默盲区：
+ *   一旦后续轮次给 repair 接上路由，下面第 2 条断言会立刻转红，
+ *   逼迫改动者回来同步本口径 —— 死代码不许无声地存在，接活也不许无声地发生。 */
+test("AC-RS2-9 · repair 型语料就位（6 条 · 质量门全过）；选型层暂不可达（纯数据增补，记录不修）", () => {
+  // 1) 语料就位且可被 selfOf 正常取用 —— 路由一接上即刻可用，数据侧不欠账
+  assert.ok(Array.isArray(C.SFT.repair), "SFT.repair 未定义或非数组");
+  assert.strictEqual(C.SFT.repair.length, PER_TYPE, "repair 应为 " + PER_TYPE + " 条");
+  const got = new Set();
+  for (let i = 0; i < 400; i++) got.add(C.selfOf("open", "repair", () => (i % 397) / 397));
+  got.delete("");
+  assert.ok(got.size >= 2, "repair 取样不足：" + got.size);
+  for (const line of got) assert.ok(C.SFT.repair.indexOf(line) >= 0, "repair 取到了非本型语料：" + line);
+
+  // 2) 选型层不可达取证：全条件笛卡尔扫一遍，sfType 恒不返回 repair
+  let hit = 0;
+  const UES = ["neutral", "joy", "sad", "tired", "angry", "affection"];
+  for (const sec of [0.45, 0.47, 0.499, 0.5, 0.55, 0.6, 0.8]) {
+    for (const ind of [0.3, 0.5, 0.549, 0.55, 0.7, 0.9]) {
+      for (const opn of [0.3, 0.499, 0.5, 0.7, 0.9]) {
+        for (const lv of [2, 4, 5, 6]) {
+          for (const ue of UES) {
+            for (const u of [QUIET, LONG, "嗯", ""]) {
+              const st = baseState({ self: { security: sec, openness: opn, independence: ind } });
+              if (C.sfType(st, CTX({ lv, ue: { type: ue } }), u) === "repair") hit++;
+            }
+          }
+        }
+      }
+    }
+  }
+  assert.strictEqual(hit, 0,
+    "sfType 已能返回 repair（" + hit + " 次命中）—— 说明路由已接入。" +
+    "这不是坏事，但必须同步：① 本断言改为断言可达 + 补触发条件用例；" +
+    "② 复核 H15 单类 ≤50% 占比口径；③ 复核 contingency.js 体积（选择器改动会吃配额余量）。");
+
+  // 3) 语料落在 contingency.js 源码内（防"测试里造数据、源码里没有"的假绿）
+  const src = fs.readFileSync(path.join(ROOT, "contingency.js"), "utf8");
+  assert.ok(src.indexOf("repair:[") >= 0, "contingency.js 源码中找不到 repair 语料表");
+  for (const x of C.SFT.repair) {
+    assert.ok(src.indexOf(x) >= 0, "repair 语料未落盘到 contingency.js：" + x);
+  }
 });
