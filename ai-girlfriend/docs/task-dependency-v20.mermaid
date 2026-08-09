@@ -1,0 +1,24 @@
+graph TD
+    T01["T01 · P0<br/>R-S2 语料增补 + 条数断言同步<br/>contingency.js / qa-rs2-type.test.js<br/>★唯一字节增长点 Δ+618"]
+    T02["T02 · P0<br/>R-1 文案 + R-2 全目录扫描 + Q4 自指<br/>qa-v13-t2t4-fix.test.js / qa-v19-quota-gate.js<br/>★36 文件 0 命中 · 豁免清单出厂空"]
+    T03["T03 · P0<br/>门禁基线同步 + 四锁复算取证<br/>qa-v19-quota-gate.js A段 / wiring-scan.js 注释<br/>★三件套显式手续 · 不得与 T01 合并"]
+    T04["T04 · P1 · Q2<br/>>929B 转红演练脚本 + CI 接线<br/>qa-v20-ceiling-drill.js / package.json<br/>★不落盘 · 阈值全派生"]
+    T05["T05 · P2<br/>注释同步 + 元测试 + 回归取证包<br/>wiring-scan.js / 门禁头注释 / docs<br/>★929 边界写进注释防 v21 踩坑"]
+
+    GATE_RED{{"T01 交付时<br/>门禁必然为红<br/>（B 段 contingency diff≠0）<br/>这是设计如此，不是缺陷"}}
+
+    T01 --> GATE_RED
+    GATE_RED --> T03
+    T02 --> T03
+    T03 --> T04
+    T03 --> T05
+    T04 --> T05
+
+    T01 -.并行.- T02
+
+    style T01 fill:#ffe8e8,stroke:#c33,stroke-width:2px
+    style T02 fill:#ffe8e8,stroke:#c33,stroke-width:2px
+    style T03 fill:#ffe8e8,stroke:#c33,stroke-width:3px
+    style T04 fill:#fff4e0,stroke:#e90
+    style T05 fill:#eef5ff,stroke:#48c
+    style GATE_RED fill:#fffbe6,stroke:#d90,stroke-dasharray: 5 3

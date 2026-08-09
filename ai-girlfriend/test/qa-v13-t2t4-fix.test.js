@@ -76,7 +76,7 @@ test("A1-a 配额数字落点：memory 13365 / texture 4398 / contingency 6582 /
   assert.strictEqual(B["memory.js"], 13365, "v18 批准值 13824→13365（让渡 459B 予 contingency · 实测 13333 + 32B 缓冲）");
   assert.strictEqual(B["texture.js"], 4398, "v18 批准值 4608→4398（让渡 210B 予 contingency · 实测 4366 + 32B 缓冲）");
   assert.strictEqual(B["presence.js"], 3598, "v18 批准值 3840→3598（让渡 242B 予 contingency · 实测 3566 + 32B 缓冲）");
-  assert.strictEqual(B["contingency.js"], 6582, "v18 批准值 5671→6582（受援方 +911B · 残差式 27943−21361）");
+  assert.strictEqual(B["contingency.js"], 6582, "v18 批准值（旧配额见 wiring-scan.js v18 审批块）→ 6582（受援方 +911B · 残差式 27943−21361）");
   assert.strictEqual(B.moduleSumMax, 27943, "v17 批准值 28343→27943 = totalMax − engineMax(248537)· v18 不动（A2 纯模块侧重分配，Σ 恒定）");
   assert.strictEqual(B.engineNetMax, 2800, "v17 批准值 2400→2800（Δ=+400 · 归一化层 + R2-A5b + selfTick 防重放）· v18 不动");
   assert.strictEqual(B.totalMax, 276480, "v14 批准值 272384→276480（266KB→270KB，天花板评审）· v17/v18 不动");

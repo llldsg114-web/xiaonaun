@@ -1,0 +1,93 @@
+classDiagram
+    class ContingencyModule {
+        <<IIFE · contingency.js · 数据模块>>
+        +Object SFT
+        +contingencePass(reply, replies, ctx) string
+        +snarkAllow(s, c, u) Object
+        +snarkOf(u, r) string
+        +selfAllow(s, c, u) Object
+        +selfOf(tier, type, rng) string
+        +sfType(s, c, u) string
+    }
+    class SFT_Table {
+        <<数据 · v20 唯一增长点>>
+        +string[] stable "3 → 6"
+        +string[] expand "3 → 6"
+        +string[] challenge "3 → 6"
+        +string[] boundary "3 → 6"
+        +int TOTAL "12 → 24"
+        +int BYTES "5652 → 6270 (Δ+618)"
+    }
+    class EngineTruthSource {
+        <<engine.js · 只读消费·禁改>>
+        +RegExp PERSONA_BREAK_RE "engine.js:1307 · H13 一票否决"
+        +RegExp RELATION_HOOK_RE "engine.js:1329"
+        +RegExp ACCUSE_RE "engine.js:1340"
+        +RegExp GUILT_TRIP_RE "engine.js:3651"
+        +Object INNER_LIB "SFT 空表回落目标"
+        +pnorm(s) string
+        +selfGet(s) Object
+        +pickWith(list, rng) any
+    }
+    class SizeBudget {
+        <<wiring-scan.js:348 · 单一真源 · 九值冻结>>
+        +int engineBase "245737 · 永不许动"
+        +int engineNetMax "2800"
+        +int engineMax "248537 · 派生 · V33"
+        +int memory_js "13365"
+        +int presence_js "3598"
+        +int texture_js "4398"
+        +int contingency_js "6582"
+        +int moduleSumMax "27943"
+        +int totalMax "276480"
+        +scanSizes() Object
+        +stripComments(src) string
+    }
+    class QuotaGate {
+        <<qa-v19-quota-gate.js · 独立门禁探针>>
+        +Object T0_BYTES "A段 · v20 同步 contingency 5652→6270"
+        +int V16_ANCHOR "4518 · 冻结历史事实"
+        +int NET_MAX "派生 = 配额 − 锚点"
+        +checkDiffZero() void
+        +checkFourLocks() void
+        +scanParallelLiterals() void
+        +printBuffer() void
+    }
+    class BannedLiteral {
+        <<D段单一真源>>
+        +string n
+        +RegExp re
+        +string why
+    }
+    class ExemptEntry {
+        <<出厂为空 · 每项必带 why>>
+        +string f
+        +string why
+    }
+    class CeilingDrill {
+        <<新增 · qa-v20-ceiling-drill.js · P1>>
+        +int SAFE_MAX_ACTUAL "派生 = 配额 − 1"
+        +int SAFE_MAX_DELTA "派生 = 929"
+        +buildOversizeInTmp(delta) string
+        +evalLock4(actual) boolean
+        +assertRedAbove929() void
+        +assertGreenAt929() void
+    }
+    class RS2TypeSuite {
+        <<qa-rs2-type.test.js · 业务验收>>
+        +AC_RS2_2a_poolsDisjoint()
+        +AC_RS2_3_staticScan "total 12 → 24"
+        +AC_RS2_3b_concatScan()
+        +AC_RS2_8_sizeGate "b <= CEILING · ≤ 口径"
+    }
+
+    ContingencyModule *-- SFT_Table : 内含（v20 唯一增长点）
+    ContingencyModule ..> EngineTruthSource : 只读消费（禁改·H13）
+    QuotaGate ..> SizeBudget : require 派生 NET_MAX / 四锁自证
+    QuotaGate *-- BannedLiteral : D段 BANNED（标题由其派生·Q4）
+    QuotaGate *-- ExemptEntry : D段 EXEMPT（出厂空）
+    QuotaGate ..> ContingencyModule : B段 statSync 实测 vs T0_BYTES
+    CeilingDrill ..> SizeBudget : 派生 SAFE_MAX（不写字面量）
+    CeilingDrill ..> QuotaGate : 复用锁④判定式
+    RS2TypeSuite ..> SFT_Table : 条数/质量/字节 三重机检
+    RS2TypeSuite ..> SizeBudget : AC-RS2-8 派生 CEILING

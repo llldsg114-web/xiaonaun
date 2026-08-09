@@ -1,0 +1,97 @@
+sequenceDiagram
+    autonumber
+    actor Dev as 工程师 / CI
+    participant NPM as npm run test:probe
+    participant Mut as qa-probe-mutation.js
+    participant Adv as qa-v17-adversarial.js
+    participant ISz as qa-v17-independent-size.js
+    participant H13 as qa-probe-h13.js
+    participant V15 as qa-probe-v15-acceptance.js
+    participant Gate as qa-v19-quota-gate.js
+    participant Drill as qa-v20-ceiling-drill.js（v20 新增·末位）
+    participant WS as wiring-scan.js（SIZE_BUDGET 真源）
+    participant FS as fs.statSync / readFileSync
+    participant CTG as contingency.js
+
+    Dev->>NPM: npm run test:probe
+    Note over NPM: 顺序执行，任一非 0 退出即 exit 1
+
+    NPM->>Mut: node（变异测试 M1/M2/M3）
+    Mut-->>NPM: PASS（H13 护栏承重·断言非空）
+    NPM->>Adv: node（归一化前置 / 统一收口）
+    Adv-->>NPM: PASS
+    NPM->>ISz: node（体积四锁独立复核）
+    ISz->>WS: require SIZE_BUDGET + scanSizes()
+    ISz->>FS: statSync × 5（engine + 四模块）
+    ISz-->>NPM: contingency 6270 ≤ 6582（余 312）· 四锁全绿
+    NPM->>H13: node（★ 一票否决）
+    H13->>CTG: 端到端 reply() 扫 24 条新语料
+    H13-->>NPM: 泄漏 0 条 / 0.000%
+    NPM->>V15: node（P1/P2/P3）
+    V15-->>NPM: PASS
+
+    NPM->>Gate: node（★ 配额门禁）
+    activate Gate
+    Gate->>WS: require → B = SIZE_BUDGET
+    Gate->>Gate: NET_MAX := B["contingency.js"] − V16_ANCHOR(4518)
+
+    rect rgb(235,245,255)
+    Note over Gate,FS: A/B 段 · diff=0 硬闸 + 基线比对
+    loop 四模块
+        Gate->>FS: statSync(ROOT/f).size
+        FS-->>Gate: cur
+        Gate->>Gate: d = cur − T0_BYTES[f]
+        Gate->>Gate: chk(d === 0)
+    end
+    Note over Gate: v20 关键：T0_BYTES["contingency.js"]<br/>已由 T03 同步 5652 → 6270<br/>⇒ d = 0 ⇒ 绿（未同步则此处红）
+    end
+
+    rect rgb(240,255,240)
+    Note over Gate: C 段 · 四锁 ①②③④⑧ 自证
+    Gate->>Gate: ① engineMax === engineBase + engineNetMax
+    Gate->>Gate: ② Σ(4 配额) === moduleSumMax === 27943
+    Gate->>Gate: ③ base+net+moduleSum === totalMax（松弛 0）
+    Gate->>Gate: ④ ∀f: B[f] > T0_BYTES[f]  ← ★严格 > · 929 边界在此
+    Gate->>Gate: ⑧ V16_ANCHOR + NET_MAX ≡ B["contingency.js"]
+    end
+
+    rect rgb(255,250,235)
+    Note over Gate,FS: D 段 · R-2 全目录扫描（v20 重写）
+    Gate->>FS: readdirSync("test").filter(/\.js$/)
+    FS-->>Gate: 36 个文件名
+    Gate->>Gate: files = files.filter(f => !EXEMPT.some(e => e.f === f))
+    loop 每个未豁免文件（含门禁自身）
+        Gate->>FS: readFileSync(test/f)
+        Gate->>WS: stripComments(src)（等量换行·行号对齐）
+        WS-->>Gate: 剥注释源
+        loop 每一行
+            Gate->>Gate: ASSERTIVE.test(line) ? 继续 : 跳过
+            loop BANNED
+                Gate->>Gate: b.re.test(line) → 记录 f:line [b.n] b.why
+            end
+        end
+    end
+    Gate->>Gate: 标题 := `平行字面量 ${BANNED.map(b=>b.n).join("/")} 计数 = 0`
+    Note over Gate: ★Q4 自指消解：标题不再复述 5671/1180/2064<br/>⇒ 门禁扫自己 = 0 命中
+    Gate->>Gate: chk(命中 === 0)  → 36 文件 / 0 违规
+    Gate->>Gate: chk(非空转：被扫文件均含断言行)
+    Gate->>Gate: chk(EXEMPT 每项 why 非空 且 文件存在) ← 腐化预警
+    end
+
+    Gate->>Gate: E 段 · 并排打印真实缓冲（6270/6582 余 312）
+    Gate-->>NPM: exit 0（PASS）
+    deactivate Gate
+
+    NPM->>Drill: node（v20 新增 · >929B 转红演练）
+    activate Drill
+    Drill->>WS: B["contingency.js"] → SAFE_MAX_ACTUAL = B − 1（派生）
+    Drill->>Drill: 内存/临时目录构造 actual = SAFE_MAX_ACTUAL（Δ=929）
+    Drill->>Drill: 断言 锁④(B > actual) === true  → 应绿
+    Drill->>Drill: 构造 actual = SAFE_MAX_ACTUAL + 1（Δ=930）
+    Drill->>Drill: 断言 锁④(B > actual) === false → 应红
+    Drill->>Drill: 断言 业务锁(actual <= B) === true → 证"业务侧无感"
+    Note over Drill,CTG: ★Q2：全程不写 contingency.js<br/>真实文件恒 6270B，配额零消耗
+    Drill-->>NPM: exit 0（转红能力已取证）
+    deactivate Drill
+
+    NPM-->>Dev: 全部 PASS

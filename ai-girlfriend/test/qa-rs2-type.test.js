@@ -24,6 +24,12 @@ const E = H.loadEngine();
 const C = E.mod("contingency");
 const DAY = 864e5;
 const TYPES = ["stable", "expand", "challenge", "boundary"];
+/* v20 T01（U-1）：每型条数 3 → 6。总条数一律由 TYPES.length × PER_TYPE 派生，
+ * **禁止再写第二个字面量**（v19 三锁归一的同一治理口径：计数也只留一个可写位置）。 */
+const PER_TYPE = 6;
+const SFT_TOTAL = TYPES.length * PER_TYPE;
+/* 单条语料字节硬上限（DESIGN-v20 §3.1.3 成本模型 cost = 3n+3，n ≤ 18 字 ⇒ 正文 ≤ 54B，留 3B 余量）。 */
+const MAX_ENTRY_BYTES = 57;
 
 /* 基线态与 v14-T7 同源：除被测门外全部放行 */
 function baseState(over) {
@@ -153,8 +159,10 @@ test("AC-RS2-2c · R-S2 全砍不塌：SFT 四型清空后等价一期（selfOf 
 /* ---------- ③ SFT 独立表静态自扫（AC-G-9 同等口径） ---------- */
 test("AC-RS2-3 · SFT 全量静态自扫：破墙 0 / 关系钩子 100% / 绑架 0 / 指控 0", () => {
   let n = 0, total = 0;
+  const seen = new Map();               // v20 Q-7：全局唯一（跨型亦不得重复）
   for (const y of TYPES) {
-    assert.ok(Array.isArray(C.SFT[y]) && C.SFT[y].length >= 3, y + " 语料条数不足 3（DESIGN §3.3）");
+    assert.ok(Array.isArray(C.SFT[y]) && C.SFT[y].length >= PER_TYPE,
+      y + " 语料条数不足 " + PER_TYPE + "（DESIGN-v20 §3.1.2：每型 3 → 6）");
     for (const x of C.SFT[y]) {
       total++;
       if (typeof x !== "string" || !x) { n++; continue; }
@@ -163,9 +171,18 @@ test("AC-RS2-3 · SFT 全量静态自扫：破墙 0 / 关系钩子 100% / 绑架
       if (E.GUILT_TRIP_RE.test(x)) { n++; console.error("GUILT " + y + " " + x); }
       if (E.ACCUSE_RE.test(x)) { n++; console.error("ACCUSE " + y + " " + x); }
       if (x.length > 44) { n++; console.error("LONG " + y + " " + x.length); }
+      // v20：单条字节成本机检（防"一条顶掉整批预算"）
+      if (Buffer.byteLength(x, "utf8") > MAX_ENTRY_BYTES) {
+        n++; console.error("BYTES " + y + " " + Buffer.byteLength(x, "utf8") + " > " + MAX_ENTRY_BYTES + " " + x);
+      }
+      // v20 Q-7：复制粘贴事故防线（新增 12 条与既有 12 条、以及彼此之间都不得重复）
+      if (seen.has(x)) { n++; console.error("DUP " + seen.get(x) + "→" + y + " " + x); }
+      else seen.set(x, y);
     }
   }
-  assert.strictEqual(total, 12, "四型 × 3 条 = 12，实测 " + total);
+  assert.strictEqual(total, SFT_TOTAL,
+    "四型 × " + PER_TYPE + " 条 = " + SFT_TOTAL + "，实测 " + total);
+  assert.strictEqual(seen.size, SFT_TOTAL, "语料全局唯一性失守：去重后仅 " + seen.size + " 条");
   assert.strictEqual(n, 0, "SFT 静态自扫命中 " + n + " 项（H13 一票否决口径）");
 });
 
