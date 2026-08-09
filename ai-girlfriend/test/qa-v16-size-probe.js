@@ -36,7 +36,10 @@ console.log(`  over = ${JSON.stringify(s.over)}\n`);
 console.log("--- 主理人清单第 2 项：四锁硬断言 ---");
 ok(Array.isArray(s.over) && s.over.length === 0, "AC-B-1 over === []", JSON.stringify(s.over));
 ok(s.engine <= 248537, "engine.js ≤ 248537", `${s.engine} ≤ 248537`);
-ok(s.each["contingency.js"] <= 5671, "contingency.js ≤ 5671", `${s.each["contingency.js"]} ≤ 5671`);
+/* v19 拆雷：本文件是**孤儿探针**（不被任何 npm script 引用，DESIGN-v19 §1.3 勘误①），
+ * 但残差锁字面量留在这里就是休眠地雷 —— 谁把它接进 CI 谁就踩响。故一并改读单一真源。 */
+ok(s.each["contingency.js"] <= B["contingency.js"], "contingency.js ≤ 配额（v19 单一真源）",
+  `${s.each["contingency.js"]} ≤ ${B["contingency.js"]}（余 ${B["contingency.js"] - s.each["contingency.js"]}）`);
 ok(s.engineNet <= 2800, "engineNet ≤ 2800", `${s.engineNet} ≤ 2800`);
 ok(s.moduleSum <= 27943, "moduleSum ≤ 27943", `${s.moduleSum} ≤ 27943`);
 

@@ -8,7 +8,8 @@
  *   ⑤ H15 降权口径不变：四型共用同一 key "sf"，不得拆 sf1..sf4
  *   ⑥ 只读 Self 铁律：sfType/selfOf 全链路不写 state.self
  *   ⑦ CAP=2 / 7 天 sA 节流逐位不动（v15 U-3 口径）
- *   ⑧ 体积闸：contingency.js ≤ 5671B（DESIGN-v17 §2.5 唯一解）
+ *   ⑧ 体积闸：contingency.js ≤ SIZE_BUDGET["contingency.js"] 配额，且净增 ≤ 由该配额派生的
+ *      NET_MAX —— 两条锁均**不写字面量**，一律从 wiring-scan.js 单一真源现算（DESIGN-v19 §3）
  */
 "use strict";
 const { test } = require("node:test");
@@ -16,6 +17,7 @@ const assert = require("node:assert");
 const fs = require("node:fs");
 const path = require("node:path");
 const H = require("./helpers.js");
+const WS = require("./wiring-scan.js");   // v19：contingency 上限的唯一真源（SIZE_BUDGET）
 
 const ROOT = path.join(__dirname, "..");
 const E = H.loadEngine();
@@ -293,9 +295,16 @@ test("AC-RS2-7 · sA 7 天节流与 CAP=2 上限在 R-S2 后逐位不变（v15 U
   assert.ok(st3.ctg.sA > 0, "sf 命中未写 sA，7 天节流失效");
 });
 
-/* ---------- ⑧ 体积闸 ---------- */
-test("AC-RS2-8 · contingency.js ≤ 5671B（DESIGN-v17 §2.5 唯一解，R-S2 净增 ≤1180B 硬顶）", () => {
+/* ---------- ⑧ 体积闸（v19 三锁归一：上限只剩 SIZE_BUDGET 一个可写位置，DESIGN-v19 §3）---------- */
+test("AC-RS2-8 · contingency.js ≤ SIZE_BUDGET 配额，且 R-S2 净增 ≤ 派生 NET_MAX（无平行字面量）", () => {
   const b = fs.statSync(path.join(ROOT, "contingency.js")).size;
-  assert.ok(b <= 5671, "contingency.js=" + b + "B 超 5671B 配额（须先砍语料条数，不许动选择器/不许申请二次配额）");
-  assert.ok(b - 4518 <= 1180, "R-S2 净增 " + (b - 4518) + "B 超 1180B 硬顶");
+  const CEILING = WS.SIZE_BUDGET["contingency.js"];
+  const V16_ANCHOR = 4518;                    // v15 R-C5 落位，历史事实（非配额），冻结
+  const NET_MAX = CEILING - V16_ANCHOR;       // 派生量：无独立可写位置
+  assert.ok(b <= CEILING,
+    "contingency.js=" + b + "B 超 " + CEILING + "B 配额（SIZE_BUDGET 单一真源；须先砍语料条数，不许动选择器/不许申请二次配额）");
+  assert.ok(b - V16_ANCHOR <= NET_MAX,
+    "R-S2 净增 " + (b - V16_ANCHOR) + "B 超派生上限 " + NET_MAX + "B（= 配额 " + CEILING + " − 锚点 " + V16_ANCHOR + "）");
+  assert.strictEqual(V16_ANCHOR + NET_MAX, CEILING,
+    "锁⑧失配：V16_ANCHOR + NET_MAX 应恒等于 SIZE_BUDGET[\"contingency.js\"]");
 });

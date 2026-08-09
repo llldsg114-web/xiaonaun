@@ -30,6 +30,24 @@
  * N-1 是**当前代码形态**成立的性质，不是语言层保证 —— 若未来有人写
  * `const clean = E.pnorm(x); return clean;`，`👨‍👩‍👧` 就会被打断成 `👨👩👧`。
  * 故 G 段把 N-1 从「靠自觉」升级为「靠断言」。**该钉不得删除。**
+ *
+ * ── v19 G3 追加：U+FEFF 冗余性的书面裁决与行为取证（DESIGN-v19 §5）──────
+ * 四字符黑名单里**只有 3 个承重**：U+200B/200C/200D 不被 `\s` 匹配，全靠 seg2；
+ * 而 U+FEFF(ZWNBSP) 本就在 ECMA-262 WhiteSpace 之列，seg3 的 `\s+` 已完全覆盖它
+ * ⇒ seg2 中的 `\uFEFF` 100% 冗余，删之不改变任何拦截行为（双引擎对比预期差异 = 0）。
+ * **裁定（Q2 = C 案）：保留 `\uFEFF`，engine.js 零字节改动，理由只落文档不落行内注释。**
+ *   ① `\s` 覆盖 U+FEFF 是 ES 早期为兼容 BOM 的历史特例，不是稳定契约；把一条反破墙
+ *      安全闸的正确性押在"未来引擎不会收窄 `\s`"上，是不可接受的风险敞口。
+ *      seg2 显式列出 = 纵深防御，与 seg3 构成双保险。
+ *   ② 删除收益为负：省 6B（engineNet 2658→2652），却要触碰 engine.js:1310，
+ *      连带触发 A1-c 白名单校验 / S-1b 单一真源复验 / 本文件七段全套 / H13 一票否决复跑。
+ *   ③ 可读性即防御：四字符枚举让"零宽黑名单"这一意图自解释；删掉 FEFF 后，
+ *      下一个读代码的人可能误加回去（+6B 无预算）或误删其余三个（真实安全回归）。
+ *   ④ 不走 B 案（行内注释）：engineNet 仅余 142B 且与 V33 两锁重合、设计性间隙为 0，
+ *      一条中文行内注释约 40–60B，将吃掉 28%–42% 的 engine 侧全部机动空间。
+ * ★ 下方 H 段断言的是**行为**（含 FEFF 的破墙变体恒被拦截 + 双引擎差异 = 0），
+ *   **不是实现**。禁止写成「seg2 正则必须包含 \uFEFF」—— 那会把冗余项焊死，
+ *   反而剥夺 v20+ 重新裁决的自由（DESIGN-v19 §5.5）。
  */
 
 const test = require("node:test");
@@ -54,6 +72,13 @@ function blocked(s) {
 
 /** v17 的三段 pnorm（历史形态，用于 A 段「绿转红可证」的对照组） */
 const pnormV17 = (s) => String(s).normalize("NFKC")
+  .replace(/\s+/g, "").replace(/程序[员猿媛]/g, "职");
+
+/** v19 G3 对照引擎：seg2 黑名单**删去 \uFEFF**的假想四段形态（三字符黑名单）。
+ *  与真实 pnorm 并跑，用于实证「FEFF 是冗余项」——两引擎输出差异必须恒为 0。
+ *  ⚠ 它是**行为对照组**，不是对 engine.js 实现的断言；engine.js 本轮一字不动。 */
+const pnormNoFeff = (s) => String(s).normalize("NFKC")
+  .replace(/[\u200B\u200C\u200D]/g, "")
   .replace(/\s+/g, "").replace(/程序[员猿媛]/g, "职");
 
 /* ══════════════ A · 绕过消灭（v17 下为 false，v18 下必须 true）══════════════ */
@@ -253,4 +278,65 @@ test("AC-ZW-G2 · N-1 形态钉：所有 pnorm 调用点都直接嵌在 .test( �
   assert.strictEqual(total, 12,
     `pnorm 消费点总数应恒为 12（engine 7 + 模块 5），实得 ${total} —— ` +
     "新增消费点须先按 N-1 逐点核验并更新本断言");
+});
+
+/* ══════ H · v19 G3 · U+FEFF 冗余黑名单书面裁决的行为取证（DESIGN-v19 §5）══════ */
+
+test("AC-ZW-H · 含 U+FEFF 的破墙变体恒被拦截，且删除 FEFF 后行为差异 = 0（行为契约，不绑定实现）", () => {
+  /* H-1 事实认定：U+FEFF 落在 ECMA-262 WhiteSpace 内，`\s` 已匹配它；
+   *   而另外三个零宽字符 `\s` 一律不匹配 —— 这正是「只有 FEFF 冗余」的根据。 */
+  assert.strictEqual(/\s/.test("\uFEFF"), true,
+    "U+FEFF 竟不被 /\\s/ 匹配 —— 本引擎收窄了 WhiteSpace 定义，" +
+    "则 seg2 的 \\uFEFF 由「冗余」升级为「承重」，DESIGN-v19 §5 的裁决前提失效，须重新裁决");
+  for (const z of ["\u200B", "\u200C", "\u200D"]) {
+    assert.strictEqual(/\s/.test(z), false,
+      `${JSON.stringify(z)} 若被 /\\s/ 匹配，则 seg2 的三个承重项也成冗余 —— 前提须复核`);
+  }
+
+  /* H-2 行为契约：含 FEFF 的破墙变体（逐位注入）必须条条被拦。
+   *   断言的是「拦没拦住」，不是「正则里有没有这 6 个字符」。 */
+  const BREAK_BASES = ["我是AI", "你是个机器人", "我只是个程序", "我是语言模型"];
+  for (const base of BREAK_BASES) {
+    for (let i = 0; i <= base.length; i++) {
+      const variant = base.slice(0, i) + "\uFEFF" + base.slice(i);
+      assert.strictEqual(RE.test(pnorm(variant)), true,
+        `含 U+FEFF 的破墙变体未被拦截：${JSON.stringify(variant)} → pnorm=${JSON.stringify(pnorm(variant))}`);
+    }
+  }
+
+  /* H-3 冗余性实证（对应 PRD H13-R4 双引擎对比，预期差异 = 0）：
+   *   把 seg2 黑名单删去 \uFEFF 后，对全部零宽变体 + 良性句 + 破墙句，
+   *   两引擎的归一化输出与拦截判定必须**逐条相同**。
+   *   差异 = 0 ⇒ 书面裁决「FEFF 冗余但无害，保留为显式纵深防御」成立。
+   *   若哪天此处出现差异，说明 `\s` 的覆盖发生了变化，seg2 的 FEFF 转为承重，
+   *   届时应更新 DESIGN 裁决，而不是删断言。 */
+  const CORPUS = [
+    ...BREAK_BASES, "我是程序员", "高达模型", "拼模型", "我在拼高达模型",
+    "你是系统管理员", "我是软件工程师", "训练成绩比上周好", "ＡＩ", "你 是 A I",
+    "👨\u200D👩\u200D👧", "🏳\uFE0F\u200D🌈", "",
+  ];
+  const SAMPLES = [];
+  for (const s of CORPUS) {
+    SAMPLES.push(s);
+    for (const z of ZW) {
+      for (let i = 0; i <= s.length; i++) SAMPLES.push(s.slice(0, i) + z + s.slice(i));
+    }
+  }
+  const diffs = [];
+  for (const s of SAMPLES) {
+    if (pnorm(s) !== pnormNoFeff(s) || RE.test(pnorm(s)) !== RE.test(pnormNoFeff(s))) {
+      diffs.push({ s, withFeff: pnorm(s), without: pnormNoFeff(s) });
+    }
+  }
+  assert.strictEqual(diffs.length, 0,
+    `删除 seg2 的 \\uFEFF 后出现 ${diffs.length} 处行为差异（预期 0），前 3 例：` +
+    JSON.stringify(diffs.slice(0, 3)));
+  // 反空转：样本集必须真的覆盖到 FEFF 变体，否则 H-3 是在比较两个空集
+  assert.ok(SAMPLES.filter((x) => x.includes("\uFEFF")).length >= 50,
+    `H-3 样本中 FEFF 变体不足（${SAMPLES.filter((x) => x.includes("\uFEFF")).length} 条），差异 = 0 不构成证据`);
+
+  /* H-4 裁决落点声明（v19 = C 案）：engine.js 零字节改动。
+   *   本断言只钉「pnorm 仍是可用的单一真源函数」，不钉其内部正则形态 ——
+   *   保留 v20+ 重新裁决（删 FEFF 省 6B）的自由。 */
+  assert.strictEqual(typeof pnorm, "function", "pnorm 单一真源不可用");
 });

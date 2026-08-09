@@ -1,0 +1,104 @@
+%% DESIGN-v19 §8 数据结构与接口 · 单一真源 + 派生锁
+%% 源：docs/DESIGN-v19.md · 架构师 高见远（Gao）
+%% v19 约束系统自我治理 · 零预算版本（四锁逐位不变 · V33 三针不翻转）
+
+classDiagram
+    class SIZE_BUDGET {
+        <<Single Source of Truth · wiring-scan.js>>
+        +int engineBase = 245737
+        +int engineNetMax = 2800
+        +int engineMax = 248537
+        +int memory_js = 13365
+        +int presence_js = 3598
+        +int texture_js = 4398
+        +int contingency_js = 6582
+        +int moduleSumMax = 27943
+        +int totalMax = 276480
+        ~v19 零改动 · 唯一可写的上限位置~
+    }
+
+    class WiringScan {
+        <<module · test/wiring-scan.js>>
+        +SIZE_BUDGET
+        +scanSizes() SizeReport
+        +scanLoaders() LoaderReport
+        +scan() ScanReport
+        ~v19 仅加注释块，逻辑/导出零改动~
+    }
+
+    class SizeReport {
+        +int engine
+        +int engineNet
+        +int moduleSum
+        +int total
+        +Map~string,int~ each
+        +string[] over
+    }
+
+    class QuotaGateV19 {
+        <<NEW probe · test/qa-v19-quota-gate.js>>
+        +Map~string,int~ T0_BYTES
+        +int V16_ANCHOR = 4518
+        +int NET_MAX
+        -chk(name, cond, detail)
+        +sectionB_diffZero() void
+        +sectionC_fourLocks() void
+        +sectionD_singleSourceScan() void
+        +sectionE_printBuffer() void
+        +exitCode int
+    }
+
+    class DerivedLocks {
+        <<v19 派生锁 · 无独立可写位置>>
+        +NET_MAX = contingency_js - V16_ANCHOR
+        +CEILING = contingency_js
+        +identity8() bool
+    }
+
+    class QaV15T1 {
+        <<npm test · qa-v15-t1.test.js>>
+        +AC_C5_6_volume()
+    }
+    class QaRs2Type {
+        <<npm test · qa-rs2-type.test.js>>
+        +AC_RS2_8_volume()
+    }
+    class QaV17IndepSize {
+        <<test:probe · qa-v17-independent-size.js>>
+        +TRUTH
+        +sectionE_ceiling()
+    }
+    class QaV16SizeProbe {
+        <<orphan · 不入 CI>>
+        +contingencyCheck()
+    }
+    class QaV18ZeroWidth {
+        <<npm test · G3 行为断言>>
+        +AC_ZW_FEFF_behaviour()
+    }
+
+    class PackageJson {
+        <<package.json>>
+        +test
+        +test_probe
+        +test_probe_fast
+        +test_all
+    }
+
+    WiringScan *-- SIZE_BUDGET : owns
+    WiringScan ..> SizeReport : produces
+    SIZE_BUDGET <.. DerivedLocks : derives from
+    QuotaGateV19 --> WiringScan : require
+    QuotaGateV19 ..> DerivedLocks : asserts identity 8
+    QuotaGateV19 ..> QaV15T1 : D段 源码扫描
+    QuotaGateV19 ..> QaRs2Type : D段 源码扫描
+    QuotaGateV19 ..> QaV17IndepSize : D段 源码扫描
+    QuotaGateV19 ..> QaV16SizeProbe : D段 源码扫描
+    QaV15T1 --> SIZE_BUDGET : reads ceiling
+    QaRs2Type --> SIZE_BUDGET : reads ceiling (NEW require)
+    QaV17IndepSize --> SIZE_BUDGET : cross-check TRUTH
+    QaV16SizeProbe --> SIZE_BUDGET : reads ceiling
+    PackageJson --> QuotaGateV19 : test:probe (全量)
+    PackageJson --> QaV17IndepSize : test:probe
+    PackageJson ..> QaV16SizeProbe : 未接线 (孤儿)
+    QaV18ZeroWidth ..> DerivedLocks : 无关 (G3 行为断言)

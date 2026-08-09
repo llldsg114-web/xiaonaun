@@ -58,9 +58,22 @@ for (const f of ["engine.js", "memory.js", "presence.js", "texture.js", "conting
   chk(`${f} byteLength==statSync`, bl === st, `byteLength ${bl} / statSync ${st}`);
 }
 
-console.log("\n--- E. R-S2 硬顶与缓冲 ---");
-chk("contingency.js ≤ 5671（R-S2 二期载体）", s.each["contingency.js"] <= 5671,
-  `实测 ${s.each["contingency.js"]}，缓冲 ${5671 - s.each["contingency.js"]}B`);
+/* --- E. contingency 天花板与真实缓冲（v19 三锁归一，DESIGN-v19 §3.3-③）---
+ * 本探针的立身契约是「刻意写死真值以规避循环论证」（上方 TRUTH 表）。故 v19 归一时
+ * **不把 E 段改成读 B**（那会退化成"读预算表自证预算表"），而是改读 TRUTH ——
+ * 唯一真值仍写死在探针内，但全文件只准出现一次，v17 遗留的第二个数字就此清零。
+ * TRUTH 与 B 的逐字段对拍已由 A 段覆盖，此处不重复。 */
+console.log("\n--- E. contingency 天花板与真实缓冲（v19 三锁归一）---");
+const CEILING = TRUTH["contingency.js"];
+const V16_ANCHOR = 4518;                 // v15 R-C5 落位，历史事实（非配额），冻结
+const NET_MAX = CEILING - V16_ANCHOR;    // 派生量：无独立可写位置，随配额自动跟随
+chk("contingency.js ≤ 配额（v19 单一真源）", s.each["contingency.js"] <= CEILING,
+  `实测 ${s.each["contingency.js"]} ≤ ${CEILING}，真实缓冲 ${CEILING - s.each["contingency.js"]}B`);
+chk("R-S2 净增 ≤ NET_MAX（派生上限）", s.each["contingency.js"] - V16_ANCHOR <= NET_MAX,
+  `净增 ${s.each["contingency.js"] - V16_ANCHOR} ≤ ${NET_MAX}（= ${CEILING} − ${V16_ANCHOR}）`);
+chk("⑧ V16_ANCHOR + NET_MAX ≡ SIZE_BUDGET[contingency]",
+  V16_ANCHOR + NET_MAX === B["contingency.js"],
+  `${V16_ANCHOR} + ${NET_MAX} = ${V16_ANCHOR + NET_MAX} vs 配额 ${B["contingency.js"]}`);
 
 console.log("\n=== 汇总 ===");
 console.log(JSON.stringify({

@@ -386,30 +386,50 @@ test("X-4 · 日配额 CAP=2 未因新增类型放宽：同 state 连打 200 轮
 
 /* ★★【快照翻转 · v17 T0/T2/T3 · 主理人 Qi 批准（DESIGN-v17 §2.5 唯一解 / §3.3 / §3.4）】★★
  *   v15 的 U-3 口径「≤470B 且 ≤4973B」是 R-C5 那一期的增量锁，v17 R-S2 二期获批
- *   **独立的 ≤1180B 硬顶**与新配额 5671B，两条锁并存、都断，不许只过一条。
- *   四把配额锁本轮全部翻数（唯一解，不许自创）：
- *     memory 14154→13824 / presence 4096→3840 / texture 5120→4608 / contingency 4973→5671
+ *   **独立的净增硬顶**与新配额，两条锁并存、都断，不许只过一条。
+ *   四把配额锁 v17 全部翻数（唯一解，不许自创；逐项数值见 wiring-scan.js v17 审批块）：
+ *     memory / presence / texture / contingency 四项同轮重切
  *     moduleSumMax 28343→27943 / engineNetMax 2400→2800 / totalMax 276480 不动
  *   严格度逐位不放松：仍是 strictEqual + 恒等式 ②（四项之和 === moduleSumMax）+ over=[]。
  *   memory/presence/texture 的「v15 零改动」口径翻转为「v17 归一化白名单内改动」，
- *   并改钉**净字节精确值**（−38 / +9 / +9），比原来只断"有没有 diff"更严。 */
-test("AC-C5-6 · contingency.js R-C5 增量 ≤470B、R-S2 净增 ≤1180B 且 ≤5671B；体积四锁自洽", () => {
+ *   并改钉**净字节精确值**（−38 / +9 / +9），比原来只断"有没有 diff"更严。
+ *
+ * ★★【v19 · contingency 三锁归一 · 主理人 Qi 批准（PRD-v19 Q1 推荐案 / DESIGN-v19 §3）】★★
+ *   本轮 SIZE_BUDGET 一个字节不改（零预算版本，四锁 ①②③④ 逐位不变，V33 三针不翻转）。
+ *   改的是「谁有资格写这个上限」——本文件原有的两个平行字面量（残差锁 / 净增锁）全部删除，
+ *   一律改由 WS.SIZE_BUDGET["contingency.js"] 这个唯一真源派生：
+ *     CEILING := B["contingency.js"]               （残差锁 ≡ 配额，不再是第二个数字）
+ *     NET_MAX := B["contingency.js"] − V16_ANCHOR  （净增锁派生，代码里不写它的算出值）
+ *   ⑧ 新增恒等式：V16_ANCHOR + NET_MAX ≡ B["contingency.js"]
+ *     ⇒ 残差锁与净增锁恒重合，「改了配额忘了净增锁」在数学上不可能发生。
+ *   v17 时代那两个字面量作为历史审批记录保留在 wiring-scan.js 的 v17 块内（:286 一带），
+ *   v19 起**不再生效**，仅供审计追溯，禁止据此写新断言。 */
+test("AC-C5-6 · contingency.js R-C5 增量 ≤470B、R-S2 净增/总量双锁均从 SIZE_BUDGET 派生；体积四锁自洽", () => {
   const cur = require("node:fs").statSync(path.join(ROOT, "contingency.js")).size;
   const base = Buffer.byteLength(BL.showAt(BL.BASE, "contingency.js"));
   assert.strictEqual(base, 4086, `v14 收口态 contingency.js 应为 4086B，实得 ${base}`);
   // v15 R-C5 那一期的落位（4518）已成为 v17 的起算点，两期增量分开钉
   const V16 = 4518;
   assert.ok(V16 - base <= 470, `R-C5 增量 ${V16 - base}B > 470B（U-3 追认口径）`);
-  assert.ok(cur - V16 <= 1180, `R-S2 二期净增 ${cur - V16}B > 1180B 硬顶（DESIGN-v17 §3.3）`);
-  assert.ok(cur <= 5671, `contingency.js ${cur}B > 5671B 硬锁（v17 §2.5 唯一解）`);
+
+  /* v19 单一真源：上限只有 SIZE_BUDGET 一个可写位置，其余全部现算派生（DESIGN-v19 §3.2） */
+  const B = WS.SIZE_BUDGET;
+  const CEILING = B["contingency.js"];
+  const NET_MAX = CEILING - V16;
+  assert.ok(cur - V16 <= NET_MAX,
+    `R-S2 二期净增 ${cur - V16}B > ${NET_MAX}B 净增上限（= SIZE_BUDGET["contingency.js"] ${CEILING} − 锚点 ${V16}，DESIGN-v19 §3.2）`);
+  assert.ok(cur <= CEILING,
+    `contingency.js ${cur}B > ${CEILING}B 配额上限（SIZE_BUDGET 单一真源，DESIGN-v19 §3；须先砍语料条数，不许自创第二个上限数字）`);
+  // 锁⑧：净增锁与残差锁结构性重合 —— 派生写法一旦被改回字面量，这条即刻转红
+  assert.strictEqual(V16 + NET_MAX, CEILING,
+    `锁⑧失配：V16_ANCHOR(${V16}) + NET_MAX(${NET_MAX}) 应恒等于 SIZE_BUDGET["contingency.js"](${CEILING})`);
 
   const s = WS.scanSizes();
   assert.deepStrictEqual(s.over, [], `单文件配额越界：${JSON.stringify(s.each)}`);
-  const B = WS.SIZE_BUDGET;
   assert.strictEqual(B["memory.js"], 13365, "v18 批准值 13824→13365（实测 13333 + 32B 缓冲）");
   assert.strictEqual(B["presence.js"], 3598, "v18 批准值 3840→3598（实测 3566 + 32B 缓冲）");
   assert.strictEqual(B["texture.js"], 4398, "v18 批准值 4608→4398（实测 4366 + 32B 缓冲）");
-  assert.strictEqual(B["contingency.js"], 6582, "v18 批准值 5671→6582（受援方 +911B · 残差式 27943−21361）");
+  assert.strictEqual(B["contingency.js"], 6582, "v18 批准值（受援方 +911B · 残差式 27943−21361；旧配额见 wiring-scan.js v18 审批块，v19 起不得在本文件复述）");
   assert.strictEqual(B.moduleSumMax, 27943, "v17 批准值 28343→27943 = totalMax − engineMax(248537)");
   assert.strictEqual(B.totalMax, 276480, "totalMax 本期不许动（270KB 承诺）");
   assert.strictEqual(B.engineNetMax, 2800, "v17 批准值 2400→2800（§2.5 唯一解）");

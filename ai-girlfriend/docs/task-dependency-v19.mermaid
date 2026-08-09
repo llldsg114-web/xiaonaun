@@ -1,0 +1,49 @@
+%% DESIGN-v19 §14 任务依赖图
+%% 源：docs/DESIGN-v19.md · 架构师 高见远（Gao）
+%% v19 约束系统自我治理 · 零预算版本（四锁逐位不变 · V33 三针不翻转）
+
+graph TD
+    T0["T0 基线（已实测全绿）<br/>13333 / 3566 / 4366 / 5652<br/>over=[] · 四锁 ①②③④ ✓"]
+
+    T01["<b>T01 · P0</b><br/>三锁归一 · npm test 侧<br/>qa-v15-t1.test.js<br/>qa-rs2-type.test.js<br/><i>净增锁派生化 + 锁⑧</i>"]
+    T02["<b>T02 · P0</b><br/>三锁归一 · 探针侧 + 真源注释<br/>qa-v17-independent-size.js<br/>qa-v16-size-probe.js<br/>wiring-scan.js（仅注释）"]
+    T03["<b>T03 · P0</b><br/>diff=0 配额门禁 + CI 接线<br/>qa-v19-quota-gate.js（新增）<br/>package.json（test:probe）"]
+    T04["<b>T04 · P1</b><br/>G3 FEFF 行为断言<br/>qa-v18-zerowidth.test.js<br/><i>engine.js 零改动</i>"]
+    T05["<b>T05 · P1</b><br/>文档收口 · 行号回填<br/>DESIGN-v19.md<br/>PRD-v19.md 勘误批注"]
+
+    QA["独立 QA 验收<br/>★ 红样验证 §4.5<br/>故意 +1B → 必须 exit 1"]
+
+    T0 --> T01
+    T0 --> T02
+    T0 --> T04
+    T01 --> T03
+    T02 --> T03
+    T02 -.->|行号漂移清单| T05
+    T01 --> T05
+    T03 --> T05
+    T04 --> T05
+    T05 --> QA
+
+    subgraph P0 ["P0 · 一票否决（G2 → G1，顺序不可倒）"]
+        T01
+        T02
+        T03
+    end
+
+    subgraph ZERO ["零字节铁律（全程）"]
+        Z1["engine.js · 0B"]
+        Z2["memory/presence/texture/contingency · 0B"]
+        Z3["SIZE_BUDGET 九值 · 逐位不变"]
+        Z4["V33 三针 · 不翻转"]
+    end
+
+    ZERO -.->|贯穿约束| P0
+    ZERO -.->|贯穿约束| T04
+
+    style T01 fill:#ffe0b2,stroke:#e65100,stroke-width:2px
+    style T02 fill:#ffe0b2,stroke:#e65100,stroke-width:2px
+    style T03 fill:#ffcdd2,stroke:#b71c1c,stroke-width:3px
+    style T04 fill:#e1f5fe,stroke:#01579b
+    style T05 fill:#f3e5f5,stroke:#4a148c
+    style QA fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px
+    style ZERO fill:#fafafa,stroke:#616161,stroke-dasharray: 5 5

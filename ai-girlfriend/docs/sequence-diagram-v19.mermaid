@@ -1,0 +1,114 @@
+%% DESIGN-v19 §9 程序调用流程（三图合一）
+%% 源：docs/DESIGN-v19.md · 架构师 高见远（Gao）
+%% v19 约束系统自我治理 · 零预算版本（四锁逐位不变 · V33 三针不翻转）
+
+%% ── §9.1 test:probe 全量 CI 执行 G1/G2 主链路 ──
+sequenceDiagram
+    autonumber
+    participant CI as CI / 交付自检
+    participant PKG as package.json<br/>test:probe
+    participant P1 as qa-probe-mutation.js
+    participant P3 as qa-v17-independent-size.js<br/>【G2 主战场】
+    participant GATE as qa-v19-quota-gate.js<br/>【G1 新增·末位】
+    participant WS as wiring-scan.js<br/>SIZE_BUDGET 真源
+    participant FS as fs.statSync()<br/>四模块实测
+
+    CI->>PKG: npm run test:probe
+    Note over PKG: for f in (...5 既有...) qa-v19-quota-gate.js<br/>任一非 0 退出即整体 exit 1
+
+    PKG->>P1: node qa-probe-mutation.js
+    P1-->>PKG: exit 0
+
+    rect rgb(232, 245, 233)
+    Note over P3,WS: ── G2：contingency 天花板单一真源 ──
+    PKG->>P3: node qa-v17-independent-size.js
+    P3->>WS: require → B = SIZE_BUDGET
+    P3->>WS: W.scanSizes()
+    WS->>FS: statSync × (engine + 4 模块)
+    FS-->>WS: 13333 / 3566 / 4366 / 5652
+    WS-->>P3: SizeReport{each, over:[]}
+    P3->>P3: A段 TRUTH 逐字段对拍 B<br/>contingency 6582 === 6582 ✓
+    P3->>P3: B段 四锁恒等式 ①②③
+    P3->>P3: C段 each[f] <= B[f] 全通过
+    P3->>P3: E段【v19 改】ceiling = TRUTH.contingency<br/>5652 <= 6582，缓冲 930B<br/>★ 5671 字面量已清零
+    P3-->>PKG: exit 0
+    end
+
+    rect rgb(255, 243, 224)
+    Note over GATE,FS: ── G1：diff=0 配额门禁（新增）──
+    PKG->>GATE: node qa-v19-quota-gate.js
+    GATE->>GATE: A段 载入写死基线 T0_BYTES<br/>(13333/3566/4366/5652)
+    GATE->>WS: require → B = SIZE_BUDGET
+    GATE->>FS: statSync × 4 模块（Q4：字节数，非哈希）
+    FS-->>GATE: 实测四值
+
+    alt 【绿路】四模块字节 === 基线
+        GATE->>GATE: B段 diff=0 ✓ 全等
+        GATE->>GATE: C段 四锁 ①②③④ + ⑧ 自证<br/>Σ=27943 / slack=0 / V33 不翻转
+        GATE->>GATE: D段 扫描 4 测试文件源码<br/>断言 5671/1180 断言性字面量 = 0
+        GATE->>GATE: E段 打印真实缓冲<br/>32/32/32/930 ← 与 :332 注释并排核对
+        GATE-->>PKG: exit 0
+        PKG-->>CI: ✅ test:probe 全绿
+    else 【红路】某模块字节 ≠ 基线（未重谈即改源码）
+        GATE->>GATE: B段 FAIL：texture.js 实测 4367 / 基线 4366 / Δ+1
+        Note over GATE: ⚠ 此时四锁仍全绿（4367 < 配额 4398）<br/>既有体积锁抓不到 —— 这正是 G1 的独立价值
+        GATE->>GATE: 打印重谈流程指引（§4.4 三件套）
+        GATE-->>PKG: exit 1
+        PKG-->>CI: ❌ 整体失败，强制走配额重谈
+    end
+    end
+
+%% ── §9.2 配额重谈闸门流程（G1 治理语义）──
+sequenceDiagram
+    autonumber
+    participant DEV as 工程师
+    participant SRC as 四模块源码
+    participant GATE as qa-v19-quota-gate.js
+    participant QI as 主理人 Qi
+    participant DOC as DESIGN-vNN + SIZE_BUDGET
+
+    DEV->>SRC: 修改 memory.js（+40B）
+    DEV->>GATE: npm run test:probe
+    GATE-->>DEV: ❌ B段红：memory 13373 / 基线 13333 / Δ+40
+
+    Note over DEV: 门禁不是障碍，是路标 —— 它告诉你「该走流程了」
+
+    DEV->>QI: 提配额重谈申请<br/>（改动理由 + Δ字节 + 让渡来源建议）
+    Note over QI,DOC: 重谈路径（不得跳步，DESIGN-v18 硬纪律）<br/>① 从 contingency 930B 余量回让（Σ 不变，最廉价）<br/>② engine 让渡 ≤142B（★须 V33 三针同步）<br/>③ 最后才考虑抬 totalMax
+    QI-->>DEV: 批准：contingency 6582→6542，memory 13365→13405
+
+    rect rgb(255, 235, 238)
+    Note over DEV,DOC: ★ 同一个 PR 内必须三件套齐全（§4.4）
+    DEV->>DOC: ① SIZE_BUDGET 两项改数（Σ 仍恒 27943）
+    DEV->>GATE: ② T0_BYTES["memory.js"] 13333 → 13373
+    DEV->>DOC: ③ DESIGN-vNN 记录重谈依据 + 批准链
+    end
+
+    DEV->>GATE: npm run test:probe
+    GATE->>GATE: B段 diff=0 ✓（基线已同步）
+    GATE->>GATE: C段 ② Σ=27943 ✓ ③ slack=0 ✓ ④ 13405>13373 ✓
+    GATE-->>DEV: ✅ 全绿，可提交
+
+%% ── §9.3 QA 红样验证（门禁可证伪性）──
+sequenceDiagram
+    autonumber
+    participant QA as QA（独立验收）
+    participant TX as texture.js
+    participant GATE as qa-v19-quota-gate.js
+    participant WS as wiring-scan scanSizes()
+
+    Note over QA: 纪律：不采信工程师报告，自制红样取证
+    QA->>TX: cp texture.js /tmp/ && printf ' ' >> texture.js  (+1B)
+    QA->>GATE: node test/qa-v19-quota-gate.js
+    GATE-->>QA: exit 1 · "texture.js 实测 4367 / 基线 4366 / Δ+1"
+
+    QA->>WS: 交叉验证：四锁是否也红？
+    WS-->>QA: over=[] ✓ 四锁全绿（4367 < 4398，余 31B）
+    Note over QA: ★ 结论：门禁抓到了四锁抓不到的东西<br/>= 「未经重谈的 diff」≠「超配额」，两者互补
+
+    QA->>TX: cp /tmp/texture.js.bak texture.js（还原）
+    QA->>GATE: node test/qa-v19-quota-gate.js
+    GATE-->>QA: exit 0 · 全绿
+    QA->>TX: git diff --stat texture.js
+    TX-->>QA: 空（还原干净，无残留）
+    Note over QA: 判定：G1 门禁**可证伪且已被证伪一次** → 通过
