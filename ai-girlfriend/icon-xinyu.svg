@@ -1,195 +1,241 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- 心屿 APP 图标：AI 女友「小暖」——柔和浅发萌妹漫头风（参考抖音二次元头像画风）。
-       无 width/height 属性，交给 cairosvg CLI 的 -W/-H 覆盖。 -->
-  <!-- 光栅化目标：cairosvg 2.8.2。只使用 linearGradient / 基础图形 / path / transform / stroke。
-       禁止 filter、radialGradient、mask、clip-path、foreignObject（cairosvg 下不安全）。 -->
-  <!-- 本轮相对上一版的画风修正：① 去掉全部天使元素（光环 haloG / 翅膀 wingF / 手持四角星 starG 与小手）；
-       ② 深 plum 发色 → 浅暖金；③ 高饱和粉紫底 → 极淡粉白蓝；④ 死黑硬描边 → 与肤发同族的柔和暖棕描边；
-       ⑤ 夸张大眼 → 大而温柔的眼型（细睫毛线 + 柔和暖褐虹膜）。 -->
-  <!-- 背景 rect 铺满 512×512 且 rx=0，保证 opaque=true（避免 iOS 圆角外露黑边）。 -->
+  <!-- 心屿 APP 图标 · AI 女友「小暖」—— v4 全量重画。
+       画风基准：用户提供的三张抖音/二次元动漫头像参考图。
+       核心特征：极淡银白发 + 近纯白底 + 忧郁梦幻表情 + 细腻动漫线稿 + 黑色蝴蝶结。
+       图标内不出现任何文字/名字。 -->
+  <!-- 相对 v3 的根因修正：
+       ① 浅暖金发 → 极淡银白/浅灰棕（#f7f4f2 → #ede8e2 → #ddd5cc），彻底去暖去甜；
+       ② 粉白蓝底 → 近纯白极淡灰（#fafafa → #f5f5f5），去掉明显粉蓝；
+       ③ 粗描边扁平矢量 → 细柔线稿 + 大量细发丝 path，恢复手绘感；
+       ④ 软萌大笑 → 忧郁淡然：垂眼型、视线偏上、极小抿嘴、微八字眉；
+       ⑤ 暖褐虹膜 → 柔和灰褐虹膜（#9a8a82 → #c4b5a8）；
+       ⑥ 呆毛/星星/爱心装饰 → 右上黑色蝴蝶结主导，淡粉心形发夹极度弱化为品牌符号。
+       v3 的天使/星星/暖金元素已全部删除，无任何保留。 -->
+  <!-- 光栅化目标：cairosvg 2.8.2。只用 linearGradient / 基础图形 / path / transform / stroke。
+       禁用 filter、radialGradient、mask、clip-path、foreignObject（cairosvg 下不安全）。
+       根 <svg> 不写 width/height，交给 CLI 的 -W/-H 决定输出尺寸。
+       背景 rect 铺满 512×512 且 rx=0，保证 opaque=true（避免 iOS 圆角外露黑边）。 -->
   <defs>
-    <!-- 背景：极淡的粉 → 近白 → 浅蓝。低饱和，呼应"心的岛屿"但不刺眼。 -->
-    <linearGradient id="bg" x1="0" y1="0" x2="0.7" y2="1">
-      <stop offset="0" stop-color="#fff0f5"/>
-      <stop offset="0.38" stop-color="#fef7f8"/>
-      <stop offset="0.72" stop-color="#f4f7fc"/>
-      <stop offset="1" stop-color="#e4effa"/>
+    <!-- 背景：几乎纯白 → 极淡灰，只留一点空气感，不带粉蓝色偏 -->
+    <linearGradient id="bg" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#fbfbfb"/>
+      <stop offset="0.45" stop-color="#f8f7f6"/>
+      <stop offset="1" stop-color="#f2f1ef"/>
     </linearGradient>
-    <!-- 后发：浅暖金，比前发略深半档，用于分出前后发层次 -->
-    <linearGradient id="hairBack" x1="0" y1="0" x2="0.2" y2="1">
-      <stop offset="0" stop-color="#f2e2c4"/>
-      <stop offset="0.55" stop-color="#e8d0a6"/>
-      <stop offset="1" stop-color="#dcbf92"/>
+    <!-- 后发：极淡银白 → 浅灰棕，比前发深半档，用于分出前后发层次 -->
+    <linearGradient id="hairBack" x1="0.1" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#ede8e2"/>
+      <stop offset="0.48" stop-color="#e2dad2"/>
+      <stop offset="1" stop-color="#d2c9c0"/>
     </linearGradient>
-    <!-- 前发/刘海：浅暖金，顶部更亮，营造柔和体积感 -->
-    <linearGradient id="hairFront" x1="0.15" y1="0" x2="0.55" y2="1">
-      <stop offset="0" stop-color="#fcf3e1"/>
-      <stop offset="0.5" stop-color="#f0dcb8"/>
-      <stop offset="1" stop-color="#e3c996"/>
+    <!-- 前发/刘海：最亮的银白，顶部近白，营造柔和体积 -->
+    <linearGradient id="hairFront" x1="0.2" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#f7f4f2"/>
+      <stop offset="0.52" stop-color="#ede8e2"/>
+      <stop offset="1" stop-color="#ddd5cc"/>
     </linearGradient>
-    <!-- 发丝高光带：用线性渐变的两端透明模拟弧形柔光（替代 radialGradient） -->
-    <linearGradient id="hairShine" x1="0" y1="0" x2="1" y2="0.35">
-      <stop offset="0" stop-color="#fffdf6" stop-opacity="0"/>
-      <stop offset="0.35" stop-color="#fffdf6" stop-opacity="0.85"/>
-      <stop offset="0.66" stop-color="#fffaee" stop-opacity="0.8"/>
-      <stop offset="1" stop-color="#fff8e8" stop-opacity="0"/>
+    <!-- 发丝柔光带：两端透明的线性渐变模拟弧形高光（替代 radialGradient） -->
+    <linearGradient id="hairShine" x1="0" y1="0" x2="1" y2="0.4">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.38" stop-color="#ffffff" stop-opacity="0.9"/>
+      <stop offset="0.68" stop-color="#fdfcfb" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#faf8f6" stop-opacity="0"/>
     </linearGradient>
-    <!-- 肤色：上亮下暖，柔和体积感 -->
+    <!-- 肤色：冷调低饱和，避免回到暖甜 -->
     <linearGradient id="skin" x1="0.3" y1="0" x2="0.7" y2="1">
-      <stop offset="0" stop-color="#fff4ea"/>
-      <stop offset="0.6" stop-color="#ffe6d5"/>
-      <stop offset="1" stop-color="#fbd6c0"/>
+      <stop offset="0" stop-color="#fdf7f3"/>
+      <stop offset="0.58" stop-color="#f8ece4"/>
+      <stop offset="1" stop-color="#f1ddd2"/>
     </linearGradient>
-    <!-- 虹膜：柔和暖褐（榛果色），配浅金发比冷蓝更自然、更温柔 -->
+    <!-- 虹膜：柔和灰褐，上深下浅，忧郁而不呆 -->
     <linearGradient id="iris" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#7d5344"/>
-      <stop offset="0.42" stop-color="#a9754f"/>
-      <stop offset="0.78" stop-color="#dcb182"/>
-      <stop offset="1" stop-color="#f6e5c8"/>
+      <stop offset="0" stop-color="#8b7b73"/>
+      <stop offset="0.4" stop-color="#9a8a82"/>
+      <stop offset="0.76" stop-color="#b5a69c"/>
+      <stop offset="1" stop-color="#c4b5a8"/>
     </linearGradient>
-    <!-- 衣领：白 → 淡蓝，漫头风只留一点点暗示 -->
-    <linearGradient id="cloth" x1="0" y1="0" x2="0.35" y2="1">
+    <!-- 衣领：白 → 极淡灰，只留一点点暗示 -->
+    <linearGradient id="cloth" x1="0" y1="0" x2="0.3" y2="1">
       <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#e7f0fb"/>
+      <stop offset="1" stop-color="#eeecea"/>
     </linearGradient>
-    <!-- 爱心发夹：品牌粉 #ff5b8a 主色 + 高光侧（造型小巧，作为品牌符号弱化保留） -->
+    <!-- 黑色蝴蝶结：#2a2a2a → #3a3a3a，柔和不死黑 -->
+    <linearGradient id="bow" x1="0.15" y1="0" x2="0.7" y2="1">
+      <stop offset="0" stop-color="#3d3d3d"/>
+      <stop offset="0.55" stop-color="#2f2f2f"/>
+      <stop offset="1" stop-color="#242424"/>
+    </linearGradient>
+    <!-- 心形发夹：淡粉品牌符号，极度弱化 -->
     <linearGradient id="heartPin" x1="0.2" y1="0" x2="0.8" y2="1">
-      <stop offset="0" stop-color="#ff97b9"/>
-      <stop offset="0.45" stop-color="#ff5b8a"/>
-      <stop offset="1" stop-color="#ef5081"/>
+      <stop offset="0" stop-color="#ffc6ce"/>
+      <stop offset="1" stop-color="#ffaeb9"/>
     </linearGradient>
   </defs>
 
-  <!-- ① 背景：必须铺满且不透明 -->
+  <!-- ① 背景：铺满且不透明 -->
   <rect x="0" y="0" width="512" height="512" rx="0" fill="url(#bg)"/>
 
-  <!-- ② 极淡光晕圆（"岛"意象），只做空气感，不抢主体 -->
-  <circle cx="256" cy="270" r="216" fill="#ffffff" opacity="0.38"/>
-  <circle cx="256" cy="270" r="216" fill="none" stroke="#ffd9e6" stroke-width="4" opacity="0.34"/>
+  <!-- ② 两枚极淡灰白光晕圆，只做空气感，保持干净 -->
+  <circle cx="256" cy="262" r="222" fill="#d9d3cd" opacity="0.11"/>
+  <circle cx="112" cy="110" r="66" fill="#d9d3cd" opacity="0.13"/>
 
-  <!-- ③ 氛围点缀：两颗柔和小星 + 一颗小爱心，低透明度，保持干净 -->
-  <path transform="translate(80,120) scale(0.62)" fill="#ffffff" opacity="0.85"
-        d="M 0 -20 C 2.5 -7 7 -2.5 20 0 C 7 2.5 2.5 7 0 20 C -2.5 7 -7 2.5 -20 0 C -7 -2.5 -2.5 -7 0 -20 Z"/>
-  <path transform="translate(440,124) scale(0.44)" fill="#ffffff" opacity="0.78"
-        d="M 0 -20 C 2.5 -7 7 -2.5 20 0 C 7 2.5 2.5 7 0 20 C -2.5 7 -7 2.5 -20 0 C -7 -2.5 -2.5 -7 0 -20 Z"/>
-  <path transform="translate(452,432) scale(0.26)" fill="#ff9ebb" opacity="0.55"
-        d="M 0 40 C -6 32 -46 8 -46 -14 C -46 -30 -34 -40 -21 -40 C -11 -40 -4 -34 0 -27 C 4 -34 11 -40 21 -40 C 34 -40 46 -30 46 -14 C 46 8 6 32 0 40 Z"/>
-  <path transform="translate(58,412) scale(0.2)" fill="#ffb6cd" opacity="0.45"
-        d="M 0 40 C -6 32 -46 8 -46 -14 C -46 -30 -34 -40 -21 -40 C -11 -40 -4 -34 0 -27 C 4 -34 11 -40 21 -40 C 34 -40 46 -30 46 -14 C 46 8 6 32 0 40 Z"/>
+  <!-- ③ 后发：长直发大块面，铺满肩部两侧并延伸出画布下缘 -->
+  <path fill="url(#hairBack)" stroke="#c9bdb2" stroke-width="2.4" stroke-linejoin="round"
+        d="M 256 110 C 158 110 102 178 99 268
+           C 97 330 91 420 83 512
+           L 429 512
+           C 421 420 415 330 413 268
+           C 410 178 354 110 256 110 Z"/>
+  <!-- 后发细发丝：多条细线模拟发束流向，发梢降透明度做柔和收束 -->
+  <g fill="none" stroke="#cfc5bb" stroke-linecap="round">
+    <path stroke-width="1.9" opacity="0.62" d="M 116 264 C 106 342 101 424 95 506"/>
+    <path stroke-width="1.6" opacity="0.52" d="M 140 246 C 128 332 123 420 119 506"/>
+    <path stroke-width="1.5" opacity="0.40" d="M 166 232 C 154 322 150 416 146 506"/>
+    <path stroke-width="1.9" opacity="0.62" d="M 396 264 C 406 342 411 424 417 506"/>
+    <path stroke-width="1.6" opacity="0.52" d="M 372 246 C 384 332 389 420 393 506"/>
+    <path stroke-width="1.5" opacity="0.40" d="M 346 232 C 358 322 362 416 366 506"/>
+    <path stroke-width="1.7" opacity="0.55" d="M 132 212 C 142 180 158 156 180 138"/>
+    <path stroke-width="1.7" opacity="0.55" d="M 380 212 C 370 180 354 156 332 138"/>
+    <path stroke-width="1.5" opacity="0.45" d="M 178 166 C 210 134 250 122 292 128"/>
+    <path stroke-width="1.4" opacity="0.38" d="M 334 148 C 358 164 374 188 383 216"/>
+  </g>
+  <!-- 头顶柔光：一主一辅，低调不抢 -->
+  <path fill="url(#hairShine)" opacity="0.85"
+        d="M 150 198 C 182 152 226 128 282 126 C 246 146 216 172 198 210
+           C 178 200 162 196 150 198 Z"/>
+  <path fill="url(#hairShine)" opacity="0.5"
+        d="M 300 130 C 332 144 356 166 370 194 C 352 182 334 176 316 174
+           C 312 158 307 143 300 130 Z"/>
 
-  <!-- ④ 后发（圆润中长发轮廓，人物最底层）。浅发＋浅底靠柔和暖棕描边保证小尺寸剪影可读，
-       描边色 #d6ab7b 与发色同族，不用死黑。 -->
-  <path fill="url(#hairBack)" stroke="#d6ab7b" stroke-width="3.2" stroke-linejoin="round"
-        d="M 256 68 C 150 68 92 150 98 256
-           C 102 324 90 394 80 452
-           C 128 474 184 466 208 448 L 304 448
-           C 328 466 384 474 432 452
-           C 422 394 410 324 414 256
-           C 420 150 362 68 256 68 Z"/>
+  <!-- ④ 脖颈（漫头风只露一小截）+ 下颌投影 -->
+  <path fill="#f1ddd2" d="M 222 370 L 290 370 L 290 428 C 290 448 274 461 256 461 C 238 461 222 448 222 428 Z"/>
+  <path fill="#e6cec1" opacity="0.55" d="M 224 372 C 240 396 272 396 288 372 L 288 384 C 272 404 240 404 224 384 Z"/>
 
-  <!-- ⑤ 细脖颈（漫头风只露一小截） -->
-  <path fill="#f7cfb7" d="M 226 394 h 60 v 52 a 30 30 0 0 1 -60 0 Z"/>
+  <!-- ⑤ 衣领暗示：底边一小片白 → 极淡灰领口，不画完整半身 -->
+  <path fill="url(#cloth)" stroke="#e4e1de" stroke-width="2.2" stroke-linejoin="round"
+        d="M 184 512 C 196 474 222 454 248 446 L 256 468 L 264 446
+           C 290 454 316 474 328 512 Z"/>
+  <path fill="none" stroke="#dedbd8" stroke-width="2.4" stroke-linecap="round"
+        d="M 248 448 L 256 470 L 264 448"/>
 
-  <!-- ⑥ 衣领暗示：底边一小片白→淡蓝领口，不画完整半身 -->
-  <path fill="url(#cloth)" stroke="#dfe9f6" stroke-width="2.5" stroke-linejoin="round"
-        d="M 166 512 C 176 484 200 468 226 462 C 240 474 272 474 286 462
-           C 312 468 336 484 346 512 Z"/>
-  <path fill="none" stroke="#ffa7c1" stroke-width="7" stroke-linecap="round" opacity="0.9"
-        d="M 226 462 C 240 476 272 476 286 462"/>
+  <!-- ⑥ 脸：圆润但略瘦长，下巴自然收窄；轮廓描边极淡暖灰 #d4c4b8（非死黑） -->
+  <path fill="url(#skin)" stroke="#d4c4b8" stroke-width="2.4" stroke-linejoin="round"
+        d="M 157 262 C 157 180 196 148 256 148 C 316 148 355 180 355 262
+           C 355 318 340 358 316 384 C 296 406 272 415 256 415
+           C 240 415 216 406 196 384 C 172 358 157 318 157 262 Z"/>
 
-  <!-- ⑦ 脸：圆润柔和、下巴自然收窄；描边用浅暖棕 #e8a98c（非死黑） -->
-  <path fill="url(#skin)" stroke="#e8a98c" stroke-width="2.8"
-        d="M 128 266 C 128 174 170 126 256 126 C 342 126 384 174 384 266
-           C 384 344 348 404 298 430 C 280 439 232 439 214 430
-           C 164 404 128 344 128 266 Z"/>
-
-  <!-- ⑧ 腮红：三层同心椭圆叠加模拟柔和晕染（不使用 radialGradient/filter） -->
-  <g fill="#ff9fb8">
-    <ellipse cx="180" cy="376" rx="26" ry="14" opacity="0.16"/>
-    <ellipse cx="180" cy="376" rx="19" ry="10.5" opacity="0.17"/>
-    <ellipse cx="180" cy="376" rx="12.5" ry="7" opacity="0.18"/>
-    <ellipse cx="332" cy="376" rx="26" ry="14" opacity="0.16"/>
-    <ellipse cx="332" cy="376" rx="19" ry="10.5" opacity="0.17"/>
-    <ellipse cx="332" cy="376" rx="12.5" ry="7" opacity="0.18"/>
+  <!-- ⑦ 腮红：三层同心椭圆叠加模拟晕染，总体几乎不可见（不使用 radialGradient/filter） -->
+  <g fill="#f0b8c0">
+    <ellipse cx="188" cy="341" rx="24" ry="11" opacity="0.07"/>
+    <ellipse cx="188" cy="341" rx="17" ry="8" opacity="0.08"/>
+    <ellipse cx="188" cy="341" rx="10" ry="5" opacity="0.09"/>
+    <ellipse cx="324" cy="341" rx="24" ry="11" opacity="0.07"/>
+    <ellipse cx="324" cy="341" rx="17" ry="8" opacity="0.08"/>
+    <ellipse cx="324" cy="341" rx="10" ry="5" opacity="0.09"/>
   </g>
 
-  <!-- ⑨ 眼睛：大但温柔。眼白 → 暖褐柔和虹膜 → 瞳仁 → 下缘反光 → 双柔高光 → 细而上扬的睫毛线。
-       睫毛用 #7a5a6a 柔和色、线宽收窄，避免上一版 #3b2440 粗黑线造成的凶相。 -->
+  <!-- ⑧ 鼻 + 嘴：极小鼻尖暗示；小嘴微抿，淡然 -->
+  <path fill="none" stroke="#e0c6b7" stroke-width="2.6" stroke-linecap="round"
+        d="M 250 352 C 253 357 258 357 261 353"/>
+  <path fill="#d49aa8" opacity="0.85" d="M 246 378 C 251 387 261 387 266 378 C 259 383 253 383 246 378 Z"/>
+  <path fill="none" stroke="#c98fa0" stroke-width="2.3" stroke-linecap="round" opacity="0.9"
+        d="M 246 378 C 252 383 260 383 266 378"/>
+
+  <!-- ⑨ 眼睛：大而略下垂的垂眼型（忧郁感），视线略偏上偏左。
+       灰褐虹膜 → 深色小瞳 → 下缘反光 → 双柔高光 → 细上眼线 + 细长睫毛。
+       上眼线收窄到 6.5（v3 为 11 的粗黑线），颜色 #7a6a62，去凶相。 -->
   <g>
     <!-- 左眼 -->
-    <ellipse cx="196" cy="322" rx="39" ry="42" fill="#fffdfa"/>
-    <ellipse cx="196" cy="326" rx="32" ry="36" fill="url(#iris)"/>
-    <ellipse cx="196" cy="330" rx="14.5" ry="19" fill="#513a2e"/>
-    <ellipse cx="196" cy="348" rx="16" ry="7" fill="#fff1d8" opacity="0.72"/>
-    <circle cx="182" cy="306" r="12" fill="#ffffff" opacity="0.95"/>
-    <circle cx="211" cy="344" r="6.5" fill="#ffffff" opacity="0.8"/>
-    <path fill="none" stroke="#7a5a6a" stroke-width="11" stroke-linecap="round"
-          d="M 158 320 C 160 272 234 272 235 320"/>
-    <path fill="none" stroke="#7a5a6a" stroke-width="7.5" stroke-linecap="round" d="M 160 302 L 147 291"/>
-    <path fill="none" stroke="#d79aae" stroke-width="4" stroke-linecap="round" opacity="0.5"
-          d="M 166 354 C 180 366 212 366 226 354"/>
+    <ellipse cx="203" cy="312" rx="31" ry="35" fill="#fdfbfa"/>
+    <ellipse cx="201" cy="309" rx="26" ry="30" fill="url(#iris)"/>
+    <ellipse cx="201" cy="306" rx="10.5" ry="13" fill="#4b403a"/>
+    <ellipse cx="203" cy="329" rx="14" ry="6" fill="#f3ece5" opacity="0.75"/>
+    <circle cx="191" cy="296" r="9.5" fill="#ffffff" opacity="0.95"/>
+    <circle cx="215" cy="325" r="5" fill="#ffffff" opacity="0.62"/>
+    <path fill="none" stroke="#7a6a62" stroke-width="6.5" stroke-linecap="round"
+          d="M 170 314 C 176 276 226 271 236 297"/>
+    <path fill="none" stroke="#7a6a62" stroke-width="3.4" stroke-linecap="round"
+          d="M 172 312 C 165 310 158 309 152 310"/>
+    <path fill="none" stroke="#7a6a62" stroke-width="2.6" stroke-linecap="round" opacity="0.8"
+          d="M 176 302 C 169 298 163 295 157 293"/>
+    <path fill="none" stroke="#c9b8ad" stroke-width="2.5" stroke-linecap="round" opacity="0.85"
+          d="M 178 340 C 192 348 216 348 230 340"/>
     <!-- 右眼 -->
-    <ellipse cx="316" cy="322" rx="39" ry="42" fill="#fffdfa"/>
-    <ellipse cx="316" cy="326" rx="32" ry="36" fill="url(#iris)"/>
-    <ellipse cx="316" cy="330" rx="14.5" ry="19" fill="#513a2e"/>
-    <ellipse cx="316" cy="348" rx="16" ry="7" fill="#fff1d8" opacity="0.72"/>
-    <circle cx="302" cy="306" r="12" fill="#ffffff" opacity="0.95"/>
-    <circle cx="331" cy="344" r="6.5" fill="#ffffff" opacity="0.8"/>
-    <path fill="none" stroke="#7a5a6a" stroke-width="11" stroke-linecap="round"
-          d="M 277 320 C 278 272 352 272 354 320"/>
-    <path fill="none" stroke="#7a5a6a" stroke-width="7.5" stroke-linecap="round" d="M 352 302 L 365 291"/>
-    <path fill="none" stroke="#d79aae" stroke-width="4" stroke-linecap="round" opacity="0.5"
-          d="M 286 354 C 300 366 332 366 346 354"/>
+    <ellipse cx="309" cy="312" rx="31" ry="35" fill="#fdfbfa"/>
+    <ellipse cx="307" cy="309" rx="26" ry="30" fill="url(#iris)"/>
+    <ellipse cx="307" cy="306" rx="10.5" ry="13" fill="#4b403a"/>
+    <ellipse cx="309" cy="329" rx="14" ry="6" fill="#f3ece5" opacity="0.75"/>
+    <circle cx="297" cy="296" r="9.5" fill="#ffffff" opacity="0.95"/>
+    <circle cx="321" cy="325" r="5" fill="#ffffff" opacity="0.62"/>
+    <path fill="none" stroke="#7a6a62" stroke-width="6.5" stroke-linecap="round"
+          d="M 342 314 C 336 276 286 271 276 297"/>
+    <path fill="none" stroke="#7a6a62" stroke-width="3.4" stroke-linecap="round"
+          d="M 340 312 C 347 310 354 309 360 310"/>
+    <path fill="none" stroke="#7a6a62" stroke-width="2.6" stroke-linecap="round" opacity="0.8"
+          d="M 336 302 C 343 298 349 295 355 293"/>
+    <path fill="none" stroke="#c9b8ad" stroke-width="2.5" stroke-linecap="round" opacity="0.85"
+          d="M 334 340 C 320 348 296 348 282 340"/>
   </g>
 
-  <!-- ⑩ 小鼻 + 恬静小嘴（淡粉 #d98aa0 系） -->
-  <path fill="none" stroke="#eab49b" stroke-width="4" stroke-linecap="round"
-        d="M 250 378 C 253 385 260 385 262 380"/>
-  <path fill="#d98aa0" d="M 243 400 C 249 413 263 413 269 400 C 261 407 251 407 243 400 Z"/>
+  <!-- ⑩ 眉：细、微八字（内端高外端低），淡灰棕 #b8a89c，忧郁不凶 -->
+  <path fill="none" stroke="#b8a89c" stroke-width="3.6" stroke-linecap="round"
+        d="M 240 253 C 222 246 190 250 170 262"/>
+  <path fill="none" stroke="#b8a89c" stroke-width="3.6" stroke-linecap="round"
+        d="M 272 253 C 290 246 322 250 342 262"/>
 
-  <!-- ⑪ 刘海：自然中分、微偏右，中间留白保证眉眼区通透 -->
-  <path fill="url(#hairFront)" stroke="#d6ab7b" stroke-width="3" stroke-linejoin="round"
-        d="M 120 254 C 112 152 170 92 256 92 C 342 92 400 152 392 254
-           C 384 214 366 186 344 170 C 344 200 332 224 312 238
-           C 320 192 306 154 274 132 C 266 162 262 184 260 202
-           C 258 184 254 166 248 136 C 216 158 194 192 202 238
-           C 180 224 168 200 168 170 C 146 186 128 214 120 254 Z"/>
-  <!-- 发丝柔光（两道，一主一辅） -->
-  <path fill="url(#hairShine)"
-        d="M 154 170 C 186 128 228 108 284 110 C 256 126 232 148 218 178
-           C 192 171 172 168 154 170 Z"/>
-  <path fill="url(#hairShine)" opacity="0.6"
-        d="M 300 120 C 330 132 352 152 364 178 C 348 168 330 162 312 160
-           C 310 144 306 131 300 120 Z"/>
+  <!-- ⑪ 空气刘海：自然中分、发梢碎而通透，下缘做锯齿状发束尖 -->
+  <path fill="url(#hairFront)" stroke="#d2c8be" stroke-width="2.2" stroke-linejoin="round"
+        d="M 138 252 C 134 168 184 116 256 116 C 328 116 378 168 374 252
+           C 368 216 356 192 340 178 C 338 208 330 230 316 246
+           C 320 210 312 178 292 154 C 288 188 282 216 274 240
+           C 272 202 268 164 258 134 C 250 166 242 202 238 242
+           C 232 212 226 180 214 156 C 200 182 194 214 198 246
+           C 184 230 176 208 174 178 C 158 192 144 216 138 252 Z"/>
+  <!-- 刘海细发丝：手绘感的关键，走向随中分左右分披 -->
+  <g fill="none" stroke="#d8cec4" stroke-linecap="round">
+    <path stroke-width="1.7" opacity="0.72" d="M 216 140 C 205 172 199 208 201 242"/>
+    <path stroke-width="1.5" opacity="0.62" d="M 238 134 C 230 170 226 208 228 240"/>
+    <path stroke-width="1.5" opacity="0.62" d="M 276 134 C 283 170 288 206 288 240"/>
+    <path stroke-width="1.7" opacity="0.72" d="M 298 140 C 309 172 317 208 317 242"/>
+    <path stroke-width="1.4" opacity="0.5" d="M 192 154 C 180 188 173 218 175 246"/>
+    <path stroke-width="1.4" opacity="0.5" d="M 322 154 C 334 188 341 218 339 246"/>
+    <path stroke-width="1.3" opacity="0.4" d="M 256 130 C 254 164 253 200 254 232"/>
+    <path stroke-width="1.3" opacity="0.36" d="M 160 196 C 150 216 143 234 140 250"/>
+    <path stroke-width="1.3" opacity="0.36" d="M 353 196 C 363 216 370 234 373 250"/>
+  </g>
 
-  <!-- ⑫ 眉毛：细眉、微弧，颜色取比发色深一档的暖棕，温柔不凶 -->
-  <path fill="none" stroke="#c79a70" stroke-width="4.5" stroke-linecap="round"
-        d="M 164 256 C 182 245 214 245 231 255"/>
-  <path fill="none" stroke="#c79a70" stroke-width="4.5" stroke-linecap="round"
-        d="M 348 256 C 330 245 298 245 281 255"/>
-  <!-- 眉下极淡眼影线，进一步柔化眉眼关系 -->
-  <path fill="none" stroke="#eda9bd" stroke-width="3" stroke-linecap="round" opacity="0.42"
-        d="M 164 272 C 182 266 208 266 223 272"/>
-  <path fill="none" stroke="#eda9bd" stroke-width="3" stroke-linecap="round" opacity="0.42"
-        d="M 348 272 C 330 266 304 266 289 272"/>
+  <!-- ⑫ 两侧前发：长直发框脸，垂至画布下缘，末端自然收窄 -->
+  <path fill="url(#hairFront)" stroke="#d2c8be" stroke-width="2.2" stroke-linejoin="round"
+        d="M 144 232 C 128 318 130 406 140 500 C 164 504 188 496 200 484
+           C 184 402 174 306 178 238 Z"/>
+  <path fill="url(#hairFront)" stroke="#d2c8be" stroke-width="2.2" stroke-linejoin="round"
+        d="M 368 232 C 384 318 382 406 372 500 C 348 504 324 496 312 484
+           C 328 402 338 306 334 238 Z"/>
+  <!-- 侧发细发丝 + 低透明度发梢，制造透气的手绘发束 -->
+  <g fill="none" stroke="#d5cbc1" stroke-linecap="round">
+    <path stroke-width="1.7" opacity="0.7" d="M 157 250 C 145 330 147 412 155 490"/>
+    <path stroke-width="1.5" opacity="0.58" d="M 186 252 C 176 332 178 410 186 482"/>
+    <path stroke-width="1.3" opacity="0.34" d="M 170 300 C 162 366 164 428 170 488"/>
+    <path stroke-width="1.7" opacity="0.7" d="M 355 250 C 367 330 365 412 357 490"/>
+    <path stroke-width="1.5" opacity="0.58" d="M 326 252 C 336 332 334 410 326 482"/>
+    <path stroke-width="1.3" opacity="0.34" d="M 342 300 C 350 366 348 428 342 488"/>
+  </g>
 
-  <!-- ⑬ 两侧前发：框脸但圆润，末端自然收窄 -->
-  <path fill="url(#hairFront)" stroke="#d6ab7b" stroke-width="3" stroke-linejoin="round"
-        d="M 134 232 C 118 306 124 386 140 450 C 164 444 184 430 192 412
-           C 174 354 170 286 176 236 Z"/>
-  <path fill="url(#hairFront)" stroke="#d6ab7b" stroke-width="3" stroke-linejoin="round"
-        d="M 378 232 C 394 306 388 386 372 450 C 348 444 328 430 320 412
-           C 338 354 342 286 336 236 Z"/>
+  <!-- ⑬ 黑色蝴蝶结发饰（右上方，参考图 1 的主视觉配饰）。
+       双环 + 结心 + 两条飘带，深灰高光柔和，线条不硬。 -->
+  <g transform="translate(356,150) rotate(12) scale(0.7)">
+    <path fill="url(#bow)" d="M -6 0 C -26 -32 -62 -32 -67 -7 C -71 16 -38 29 -6 12 Z"/>
+    <path fill="url(#bow)" d="M 6 0 C 26 -32 62 -32 67 -7 C 71 16 38 29 6 12 Z"/>
+    <path fill="#272727" d="M -7 10 C -19 34 -27 53 -21 69 C -9 57 1 37 4 18 Z"/>
+    <path fill="#2e2e2e" d="M 9 10 C 21 34 31 51 27 67 C 13 55 3 37 1 18 Z"/>
+    <ellipse cx="0" cy="6" rx="11" ry="10" fill="#3a3a3a"/>
+    <path fill="#5c5c5c" opacity="0.5" d="M -50 -15 C -40 -23 -25 -24 -16 -16 C -27 -16 -40 -12 -50 -15 Z"/>
+    <path fill="#5c5c5c" opacity="0.42" d="M 20 -17 C 30 -24 45 -23 53 -15 C 43 -17 30 -15 20 -17 Z"/>
+  </g>
 
-  <!-- ⑭ 呆毛：一小撮柔和翘发，增加软萌感 -->
-  <path fill="url(#hairFront)" stroke="#d6ab7b" stroke-width="2.6" stroke-linejoin="round"
-        d="M 248 96 C 240 74 250 56 270 48 C 260 62 260 74 268 84
-           C 262 86 254 90 248 96 Z"/>
-
-  <!-- ⑮ 爱心发夹（品牌符号 #ff5b8a，别在右侧刘海，scale 0.5 小巧精致、白描边细） -->
-  <g transform="translate(344,160) rotate(12)">
-    <path transform="scale(0.5)" fill="url(#heartPin)" stroke="#ffffff" stroke-width="6"
+  <!-- ⑭ 心形发夹：品牌符号，淡粉半透明、tiny 尺寸，极度弱化，不抢黑蝴蝶结 -->
+  <g transform="translate(171,214) rotate(-14) scale(0.17)">
+    <path fill="url(#heartPin)" opacity="0.62"
           d="M 0 40 C -6 32 -46 8 -46 -14 C -46 -30 -34 -40 -21 -40 C -11 -40 -4 -34 0 -27 C 4 -34 11 -40 21 -40 C 34 -40 46 -30 46 -14 C 46 8 6 32 0 40 Z"/>
-    <ellipse cx="-9" cy="-8" rx="5.5" ry="3.6" fill="#ffffff" opacity="0.7" transform="rotate(-32)"/>
   </g>
 </svg>
