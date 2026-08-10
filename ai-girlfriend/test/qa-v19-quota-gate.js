@@ -71,6 +71,22 @@
  *      ⚠ 下一轮若再想走路径③，可让渡量已不足百字节；请优先走「contingency 余量回让」。
  *   ④ T05：本文件 :40「36 个」去具体化（见该处注释）。同源漂移风险已从注释层根除。
  *
+ * ── v22 变更说明（T-budget 反向路径 / T-route 基线迁移 / 锁② 第二证人）─────
+ *   ① T-budget：与 v21 路径③ **方向相反** —— memory/presence/texture 三个连续零增长模块
+ *      回让 E=40B（13+13+14）予 engine，用于 P0-2 的 H13 覆盖闭合（engine.js:1307 +41B）。
+ *      派生结果：engineNetMax 右移 +40 = 2740、engineMax/V33 右移 +40 = **248477**、
+ *      moduleSumMax 左移 −40 = 28003（= totalMax 276480 − engineMax 248477，slack 恒 0）。
+ *      contingency 配额与 totalMax **逐位不动** ⇒ 锁⑧ 恒等式 4518+2164=6682 免受波及。
+ *   ② C 段 ② 的第二证人字面量随之左移 −40（见下方 MODULE_SUM_WITNESS 注释）。
+ *      **双证人结构**：只改 wiring-scan.js 的真源而漏改见证值，算术对、门禁照样红。
+ *   ③ T-route：`T0_BYTES["contingency.js"]` 迁移 +38（sfType 增 repair 分支 · 方案 E），
+ *      落在既有配额内 ⇒ 三件套的①项「结案为空」（与 v21 T04「真的调整」性质不同）。
+ *   ④ 三模块缓冲由 32B 收窄至 19/19/18B：安全性由 B 段 `diff=0` 硬闸兜底 ——
+ *      这三项任何字节变动都会先被硬闸拦住，不会静默吃掉缓冲。
+ *   ⚠ 本轮是治理体系建立以来 engine.js 字节数**首次**真正变动（v19–v21 三版均零改动），
+ *     故「实测值族」硬钉（engine 净增 / 落位 / 相对 BASE 净增）集体被惊动，
+ *     T-v33 的实际触达面是 **13 个文件**，而非 `248437` 这一字面量精确落的 7 个。
+ *
  * 退出码：任一段失败 → 1；全绿 → 0。
  */
 
@@ -105,14 +121,33 @@ const T0_BYTES = {
    *   门禁的价值 100% 取决于「改基线比重谈配额更麻烦」，合并成一步就等于把这个价值抹掉。
    * 历史值 5652 → 6270 自此仅作审计轨迹，**不得**再当作 contingency 的现行基线。
    * ⚠ 上方三项一个字符都未动（memory/presence/texture 本轮字节零改动，各仍余 32B）。 */
-  "contingency.js": 6626,
+  /* ★ v22 T-route 基线迁移 6626 → 6664（Δ+38 · sfType() 增加 repair 分支 · 方案 E 含当日冲突门）。
+   * 三件套（DESIGN-v19 §4.4）已履行：
+   *   ① SIZE_BUDGET 调整 → **本项结案为空**：contingency 配额 6682 逐位不动（6664 落在旧配额内，
+   *      锁④ `6682 > 6664` 成立，余 18B），故无需为 contingency 重谈。注意这与 v21 T04 性质不同 ——
+   *      v21 是「真的调整」，v22 contingency 是「结案为空」。（本轮真正重谈的是三模块回让 engine，
+   *      见 wiring-scan.js v22 审批块，与 contingency 无关。）
+   *   ② 本项同步到落地实测值 6664（`fs.statSync(contingency.js).size` 实测，非纸面算术）。
+   *      落地后锁④ 为 `6682 > 6664`，**余 18B**（与 texture 的 18B 同档，请珍惜）。
+   *   ③ DESIGN-v22 §3.2 记录方案 E 的选型依据（A-2 否决 PM 原案 +8B / A-6 四方案对比）+ 批准链。
+   * ★ 为何是 +38B 而不是 PM 原案的 +8B：+8B 判据 `security<.5 && p>=0` 不携带「刚刚发生过冲突」
+   *   的信息，会在**平静对话**里冒出道歉（DESIGN-v22 A-2 否决级）。方案 E 追加当日冲突门
+   *   `O(s.negGate).count>0`，多花 30B 换 AC-3.6 成立。
+   * 历史值 5652 → 6270 → 6626 自此仅作审计轨迹，**不得**再当作 contingency 的现行基线。
+   * ⚠ 上方三项一个字符都未动（memory/presence/texture 本轮字节仍零改动 —— 它们本轮只是
+   *   **配额**各回让 13/13/14B 予 engine，源码字节数 13333/3566/4366 逐位不变，diff=0 硬闸继续生效）。 */
+  "contingency.js": 6664,
 };
 
 /** ★ C 段锁② 的**第二证人**（与 SIZE_BUDGET.moduleSumMax 分离，规避「真源自证真源」）。
  * 与 T0_BYTES 同属「受控常量，与配额同级」，改它必须走 §4.4 三件套。
  * v21：27943 → 28043（路径③ engine 让渡 D=100B，锁② 两边同步右移，Q3 已批）。
+ * v22：28043 → 28003（反向路径：memory/presence/texture 三模块回让 E=40B 予 engine，
+ *      engineMax 派生右移 40 ⇒ moduleSumMax = totalMax − engineMax 左移 40，锁② 两边同步）。
+ *      ⚠ 这是**双证人**结构：只改 wiring-scan.js 的 moduleSumMax 而漏改本行，门禁会输出
+ *        「28003 === 28003（受控见证值 28043）」并判 FAIL —— 算术对、门禁照样红，这正是设计用意。
  * 只此一个可写位置 —— B 段重谈提示文案也从这里派生，不再另写一遍字面量。 */
-const MODULE_SUM_WITNESS = 28043;
+const MODULE_SUM_WITNESS = 28003;
 
 /** v15 R-C5 落位 —— 历史事实（非配额），冻结不再变；净增上限由它与配额派生。 */
 const V16_ANCHOR = 4518;

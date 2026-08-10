@@ -21,10 +21,16 @@ const chk = (name, cond, detail) => {
 //   moduleSumMax +100、contingency +100；memory/presence/texture 与 totalMax 逐位不动。
 //   ★ 本 TRUTH 表是 PRD-v21 完全漏列的第 4 处 V33 针位，且已接入 npm run test:probe
 //     （package.json 第 3 位）—— 漏改它 = 落地首日 9 条红（DESIGN-v21 §1.2 勘误 A）。
+// DESIGN-v22 §3.3 唯一自洽解（本轮翻转，取代上方 v21 解）：
+//   v22 反向路径 —— memory/presence/texture 三个**连续零增长**模块回让 E=40B 予 engine
+//   （13 + 13 + 14 = 40），用于 P0-2 的 H13 覆盖闭合（engine.js:1307 +41B）。
+//   ⇒ engineNetMax +40、engineMax +40、moduleSumMax −40；contingency 与 totalMax 逐位不动。
+//   ★ 与 v21 方向相反：v21 是 engine 让渡给 contingency，v22 是三模块回让给 engine。
+//   ★ 本 TRUTH 表仍是独立副本（不 require 预算表），漏改它 = 6 条红（本轮实测）。
 const TRUTH = {
-  engineBase: 245737, engineNetMax: 2700, engineMax: 248437,
-  "memory.js": 13365, "presence.js": 3598, "texture.js": 4398, "contingency.js": 6682,
-  moduleSumMax: 28043, totalMax: 276480,
+  engineBase: 245737, engineNetMax: 2740, engineMax: 248477,
+  "memory.js": 13352, "presence.js": 3585, "texture.js": 4384, "contingency.js": 6682,
+  moduleSumMax: 28003, totalMax: 276480,
 };
 
 console.log("=== QA-v17 独立体积探针（严过关）===\n");

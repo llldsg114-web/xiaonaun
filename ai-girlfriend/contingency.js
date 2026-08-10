@@ -31,7 +31,7 @@ const SFT={
  boundary:["这句我听着有点不舒服，想跟你讲一声","我这会儿有点扛不住，跟你说说，不走","这里我想给自己留点余地，你别怪我","这句我心里有点堵，还是跟你直说了","我现在需要缓一缓，你等我一下好吗","这块我想留给自己，你能理解的吧"],
  repair:["刚才那句话我说重了，想认真跟你说声抱歉","闹了这么一场，我心里头还是最想挨着你的","刚才那一会儿有点冲，你别往心里去好吗","咱们把话说开吧，我一点都不想跟你僵着","气头上说的那些话你别当真，我一直在的","缓过来了，还是想回来跟你好好说说话"]};
 const sfType=(s,c,u)=>{const S=E.selfGet(s),v=N(c.lv,0),p=PL(c,u);
- return S.security<.5&&p<0?"boundary":S.independence>=.55&&v>=5&&p>=0?"challenge"
+ return S.security<.5?p<0?"boundary":O(s.negGate).count>0?"repair":"stable":S.independence>=.55&&v>=5&&p>=0?"challenge"
   :S.openness>=.5&&String(u).length>19?"expand":"stable";};
 const selfOf=(t,y,r)=>{const T=A(SFT[y]),L=T.length?T:A(O(E.INNER_LIB)[t]),p=L.length?PW(L,r):"";
  return String((p&&p.text)||p||"");};

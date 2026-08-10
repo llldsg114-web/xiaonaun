@@ -333,16 +333,15 @@ test("AC-RS2-8 · contingency.js ≤ SIZE_BUDGET 配额，且 R-S2 净增 ≤ �
     "锁⑧失配：V16_ANCHOR + NET_MAX 应恒等于 SIZE_BUDGET[\"contingency.js\"]");
 });
 
-/* ---------- ⑨ v21 · 第 5 语料型 repair（TA 主体）---------- */
-/* ★ 口径声明（必读）：本轮 repair 是**纯数据增补** —— 语料入表、质量门全过，但
- *   `sfType()` 选择器未改，故选型层**暂不可达**。这与 AC-RS2-4b 记录的 expand 遮蔽
- *   不是一回事：expand 在选型层可达、被 :43 c2 门在 cd 层抢占；repair 是选型层就不产出。
- *   ⚠ PRD-v21 P0-6 / AC-7 要求「新型可被路由命中（非死代码）」，而 DESIGN-v21 §6.1 T03
- *     裁定本轮只做「数据，非 engine 侧」。二者存在**未消解的分歧**，已上报主理人。
- *   本测试的作用是把当前事实**钉成断言**而不是留成沉默盲区：
- *   一旦后续轮次给 repair 接上路由，下面第 2 条断言会立刻转红，
- *   逼迫改动者回来同步本口径 —— 死代码不许无声地存在，接活也不许无声地发生。 */
-test("AC-RS2-9 · repair 型语料就位（6 条 · 质量门全过）；选型层暂不可达（纯数据增补，记录不修）", () => {
+/* ---------- ⑨ v22 · 第 5 语料型 repair（P0-3 路由启用 · 见 DESIGN-v22 §3.2）---------- */
+/* ★ 口径变更（A-3 假绿修复，v22 强制改写）：v21 时 repair 是纯数据增补、选型层暂不可达，
+ *   本测试当时用「笛卡尔扫描 hit===0」反向断言钉住该事实。但 v22 起 sfType() 已接入 repair
+ *   路由（方案 E，含当日冲突门 negGate.count>0）。若沿用旧式反向断言，会因 baseState 不含
+ *   negGate 字段 ⇒ O(s.negGate).count 恒 undefined ⇒ >0 恒 false ⇒ hit 仍 ===0 ⇒ 测试**继续报绿**，
+ *   而生产早已可达 —— 这正是 A-3 否决级「假绿」：护栏被自己绕过（DESIGN-v22 §0 A-3）。
+ *   ⇒ v22 改为**正向断言**：repair 确可达 + 五型互不遮蔽 + 平静对话绝不冒道歉（AC-3.6）。
+ *   构造态必须**显式带 negGate**，否则无法证真（这正是 A-3 揭示的盲区，旧 baseState 无此字段）。 */
+test("AC-RS2-9 · repair 路由可达：五型互不遮蔽 + 平静对话不冒道歉（AC-3.6 · 正向断言）", () => {
   // 1) 语料就位且可被 selfOf 正常取用 —— 路由一接上即刻可用，数据侧不欠账
   assert.ok(Array.isArray(C.SFT.repair), "SFT.repair 未定义或非数组");
   assert.strictEqual(C.SFT.repair.length, PER_TYPE, "repair 应为 " + PER_TYPE + " 条");
@@ -352,32 +351,61 @@ test("AC-RS2-9 · repair 型语料就位（6 条 · 质量门全过）；选型�
   assert.ok(got.size >= 2, "repair 取样不足：" + got.size);
   for (const line of got) assert.ok(C.SFT.repair.indexOf(line) >= 0, "repair 取到了非本型语料：" + line);
 
-  // 2) 选型层不可达取证：全条件笛卡尔扫一遍，sfType 恒不返回 repair
-  let hit = 0;
+  // 语料落在 contingency.js 源码内（防"测试里造数据、源码里没有"的假绿）
+  const src = fs.readFileSync(path.join(ROOT, "contingency.js"), "utf8");
+  assert.ok(src.indexOf("repair:[") >= 0, "contingency.js 源码中找不到 repair 语料表");
+  for (const x of C.SFT.repair) assert.ok(src.indexOf(x) >= 0, "repair 语料未落盘到 contingency.js：" + x);
+
+  // 2) repair 确可达（方案 E）：security<.5 ∧ 极性>=0 ∧ 当日确有负面事件（negGate.count>0）
+  //    ★ 关键：构造态必须显式带 negGate —— 旧 baseState 无此字段会令 O(s.negGate).count 恒 undefined，
+  //      从而误判「不可达」造成 A-3 假绿。此处正面证明可达。
+  const conflictState = baseState({ self: { security: 0.47 }, negGate: { date: "2022-01-01", count: 1, lastByFamily: {}, streak: 0 } });
+  assert.strictEqual(
+    C.sfType(conflictState, CTX({ lv: 5 }), QUIET),
+    "repair", "security=.47 + 中性语气 + 当日有冲突 应走 repair");
+
+  // 3) 五型互不遮蔽（结构互斥 + 降级正确，任一型都可达且不被其它型吞掉）
+  // boundary：security<.5 ∧ 极性<0
+  assert.strictEqual(C.sfType(baseState({ self: { security: 0.47 } }), CTX({ lv: 5, ue: { type: "sad" } }), QUIET),
+    "boundary", "boundary 必须可达且不被 repair 遮蔽");
+  // repair：security<.5 ∧ 极性>=0 ∧ 当日冲突
+  assert.strictEqual(C.sfType(baseState({ self: { security: 0.47 }, negGate: { date: "x", count: 2, lastByFamily: {}, streak: 0 } }), CTX({ lv: 5 }), QUIET),
+    "repair", "repair 必须可达");
+  // stable（低安全带·今日无冲突）：security<.5 ∧ 极性>=0 ∧ negGate.count=0 ⇒ 回落 stable，**不许道歉**
+  const calmNoConflict = baseState({ self: { security: 0.47 }, negGate: { date: "x", count: 0, lastByFamily: {}, streak: 0 } });
+  assert.strictEqual(C.sfType(calmNoConflict, CTX({ lv: 5 }), QUIET),
+    "stable", "无冲突的低安全态应回落 stable，不得误触 repair（A-2 平静对话冒道歉禁令）");
+  // challenge：security>=.5 ∧ independence>=.55 ∧ lv>=5 ∧ 极性>=0（repair 不侵入此区）
+  assert.strictEqual(C.sfType(baseState({ self: { security: 0.6, independence: 0.55 } }), CTX({ lv: 5 }), QUIET),
+    "challenge", "challenge 必须可达且不被 repair 遮蔽");
+  // expand：security>=.5 ∧ openness>=.5 ∧ 长文本
+  assert.strictEqual(C.sfType(baseState({ self: { security: 0.6, independence: 0.3, openness: 0.5 } }), CTX({ lv: 5 }), LONG),
+    "expand", "expand 必须可达");
+  // stable（兜底·高安全但条件不足）
+  assert.strictEqual(C.sfType(baseState({ self: { security: 0.6, independence: 0.3, openness: 0.3 } }), CTX({ lv: 4 }), QUIET),
+    "stable", "兜底 stable 必须可达");
+
+  // 4) AC-3.6 反例扫描：平静对话（security∈[0.45,0.5) × 正负极性 × lv∈{4,5,6}）× 当日无冲突 ⇒ repair 命中必为 0
+  //    ★ 旧式「hit===0」反向断言之盲区：baseState 无 negGate ⇒ O(s.negGate).count 恒 undefined ⇒ >0 恒 false ⇒ 假绿。
+  //      此处反向补刀——显式给 negGate.count=0，确证平静对话**绝不**冒道歉。
+  let repairHits = 0, scanTotal = 0;
   const UES = ["neutral", "joy", "sad", "tired", "angry", "affection"];
-  for (const sec of [0.45, 0.47, 0.499, 0.5, 0.55, 0.6, 0.8]) {
-    for (const ind of [0.3, 0.5, 0.549, 0.55, 0.7, 0.9]) {
-      for (const opn of [0.3, 0.499, 0.5, 0.7, 0.9]) {
-        for (const lv of [2, 4, 5, 6]) {
+  for (const sec of [0.45, 0.47, 0.48, 0.49, 0.499]) {
+    for (const ind of [0.3, 0.5, 0.7, 0.9]) {
+      for (const opn of [0.3, 0.5, 0.7, 0.9]) {
+        for (const lv of [4, 5, 6]) {
           for (const ue of UES) {
-            for (const u of [QUIET, LONG, "嗯", ""]) {
-              const st = baseState({ self: { security: sec, openness: opn, independence: ind } });
-              if (C.sfType(st, CTX({ lv, ue: { type: ue } }), u) === "repair") hit++;
+            const st = baseState({ self: { security: sec, openness: opn, independence: ind }, negGate: { date: "x", count: 0, lastByFamily: {}, streak: 0 } });
+            scanTotal++;
+            if (C.sfType(st, CTX({ lv, ue: { type: ue } }), QUIET) === "repair") {
+              repairHits++;
+              console.error("FALSE-REPAIR sec=" + sec + " ue=" + ue + " lv=" + lv);
             }
           }
         }
       }
     }
   }
-  assert.strictEqual(hit, 0,
-    "sfType 已能返回 repair（" + hit + " 次命中）—— 说明路由已接入。" +
-    "这不是坏事，但必须同步：① 本断言改为断言可达 + 补触发条件用例；" +
-    "② 复核 H15 单类 ≤50% 占比口径；③ 复核 contingency.js 体积（选择器改动会吃配额余量）。");
-
-  // 3) 语料落在 contingency.js 源码内（防"测试里造数据、源码里没有"的假绿）
-  const src = fs.readFileSync(path.join(ROOT, "contingency.js"), "utf8");
-  assert.ok(src.indexOf("repair:[") >= 0, "contingency.js 源码中找不到 repair 语料表");
-  for (const x of C.SFT.repair) {
-    assert.ok(src.indexOf(x) >= 0, "repair 语料未落盘到 contingency.js：" + x);
-  }
+  assert.strictEqual(repairHits, 0,
+    "AC-3.6 违反：平静对话冒出道歉 " + repairHits + "/" + scanTotal + " 次（security∈[0.45,0.5) × 当日无冲突，repair 不应命中）");
 });

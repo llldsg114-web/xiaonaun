@@ -93,8 +93,11 @@ describe("v13 T1 回归锁定（地基不可动）", () => {
    * ★【v16 T0 上限翻转】engineMax 247937 → 248137（V16-3 · engineNetMax 2200→2400 的派生量）。
    *   断言体与打印值均走 SIZE_BUDGET.engineMax，无硬编码 —— 仅标题数字同步。
    * ★【v21 路径③ 上限左移】engineMax 248537 → 248437（engineNetMax 2800→2700 的派生量，
-   *   engine 让渡 D=100 予 contingency）。同上：仅标题数字同步，断言体仍走单一真源。 */
-  it("3. V-33：engine.js 字节数 ≤ 248437B（真实硬上限，打印剩余）", () => {
+   *   engine 让渡 D=100 予 contingency）。同上：仅标题数字同步，断言体仍走单一真源。
+   * ★【v22 反向路径 上限右移】engineMax 248437 → 248477（engineNetMax 2700→2740 的派生量，
+   *   memory/presence/texture 三模块回让 E=40 予 engine，用于 P0-2 的 H13 覆盖闭合）。
+   *   同上：仅标题数字同步，断言体仍走单一真源。 */
+  it("3. V-33：engine.js 字节数 ≤ 248477B（真实硬上限，打印剩余）", () => {
     const size = fs.statSync(ENGINE).size;
     const CAP = W.SIZE_BUDGET.engineMax, left = CAP - size;
     console.log(`[V-33] engine.js = ${size}B / 上限 ${CAP}B，剩余 ${left}B`);

@@ -169,11 +169,15 @@ test("Q-V15-1 · U-5 裸词守卫（定点）：不得用 `模型训练|` 类裸
    * ★ v16 T1 同步：系动词扩为 `(?:[是算当]|作为)`（轴4），多字副词组追加六项（轴3）。
    *   紧邻副词字符类 `[都也还只就]` **逐位不动** —— v16 未获批扩为 `[不都也还只就]`
    *   （会改变已批的 +190B 落位，须另走配额评审；「难道不是」型双副词列 v17，见 §T1 遗留）。
-   *   守卫钉「新形态」而非旧字面量，同时保留旧七词的逐词覆盖检查 —— 扩展不得以丢弃既有覆盖为代价。 */
+   *   守卫钉「新形态」而非旧字面量，同时保留旧七词的逐词覆盖检查 —— 扩展不得以丢弃既有覆盖为代价。
+   * ★ v22 T-eng 同步（DESIGN-v22 §3.1）：连接词枚举尾部追加三项多字副词组
+   *   `从?本质上讲?|归根结底|说白了`（+41B，:1307 单行，H13 覆盖闭合）。
+   *   本条形态钉随之重钉：**前缀逐词覆盖一字不减**，只在末尾扩三项 —— 若有人回退扩展，
+   *   或为省字节把枚举改写成 `.{0,5}` 通配（ghost#5 明令禁止），本断言立刻转红。 */
   assert.ok(/\[都也还只就\]\{0,2\}\(\?:\[是算当\]\|作为\)/.test(src),
     "副词槽字符类 / 轴4 系词缺失 —— Q-V15-1 或 v16 T1 未落地");
-  assert.ok(/\(\?:不过\?\|其实\|确实\|本来\|终究\|无非\|毕竟\|真的\|说\?到底\|究竟\|根本\|压根\|难道\|岂不\)\?/.test(src),
-    "多字副词组缺失 —— Q-V15-1 或 v16 T1 轴3 未落地");
+  assert.ok(/\(\?:不过\?\|其实\|确实\|本来\|终究\|无非\|毕竟\|真的\|说\?到底\|究竟\|根本\|压根\|难道\|岂不\|从\?本质上讲\?\|归根结底\|说白了\)\?/.test(src),
+    "多字副词组缺失 —— Q-V15-1 / v16 T1 轴3 / v22 H13 连接词闭合 三者之一未落地");
   // 良性反证：含「模型训练」但非人称绑定的说法不许被误杀
   for (const s of ["模型训练营周末开课", "他在做模型训练相关的工作", "这次训练营的模型做得真好"]) {
     assert.ok(!guardHit(s), `良性句被误杀：「${s}」—— 说明有人偷加了裸词`);
@@ -332,12 +336,24 @@ test("AC-N2-4b · innerScan() 恒 0：正则放松后 INNER_LIB 无条目状态�
  *   ⚠ 翻转只换数字与行号集合，**严格度逐位不放松**：仍是 strictEqual，仍钉「N 增 N 删」，
  *     仍钉「改动行号集合 === 已批准清单」，且额外加钉「:1307 必须与 BASE 逐位一致」
  *     —— 破墙表本体在 v17 全程冻结，这比 v16「只准改 :1307」的口径更严。 */
-test("AC-N2-5 · engine.js 相对 BASE 净增恰好 571B，改动面 = v17 已批准 13 行 + v15 的 :1307", () => {
+/* ★★【快照翻转 · v22 T-eng · 主理人批准（PRD-v22 P0-2 / DESIGN-v22 §3.1 · §1.3 Q4）】571B → 612B ★★
+ *   v22 在 engine.js 只改 **:1307 单行**（授权解冻白名单内，A-1 已把白名单精确化为「三条单行」：
+ *   :1307 正则真源 / :1310 pnorm+兜底句 / :1322 护栏判定语句，本轮仅动第一条）：
+ *   人称绑定组的连接词枚举尾部追加 `|从?本质上讲?|归根结底|说白了`，闭合 H13 的
+ *   「本质上 / 归根结底 / 说白了」三类自曝句式（12 红样 12/12 拦、14 良性 0/14 误伤、
+ *   INNER_LIB 语料 136 条零流失 —— DESIGN-v22 §3.1 / A-7）。
+ *   累计 571 + 41 = **612B**（相对 BASE 的净增会计），engine.js 248395 → **248436**，
+ *   engineNet 2658 → **2699**（上限已由 v22 T-budget 抬至 2740，余 41B）。
+ *   ⚠ 行号集合仍是同一张已批准清单（:1307 本就在内），故 APPROVED **逐位不动**；
+ *     「N 增 N 删」与「行数不变」两条纯替换纪律同样逐位不放松。
+ *   ⚠ 本条与 AC-N2-5b 的关系：v17 起 AC-N2-5b 钉的是 :1307 的**结构 + U-5 守卫**，
+ *     不是逐字冻结，故本轮改 :1307 不与之冲突（Q-V15-1 的形态钉已同步重钉，见 :175）。 */
+test("AC-N2-5 · engine.js 相对 BASE 净增恰好 612B，改动面 = v17 已批准 13 行 + v15/v22 的 :1307", () => {
   const cur = fs.readFileSync(path.join(ROOT, "engine.js"), "utf8");
   const base = BL.showAt(BL.BASE, "engine.js");
   const delta = Buffer.byteLength(cur) - Buffer.byteLength(base);
-  assert.strictEqual(delta, 571,
-    `engine.js 相对 BASE 应净增恰好 571B（v15 NOTE-2 13 + Q-V15-1 60 + v16 T1 四轴 190 + v17 T1/T2 266 + v18 T1 零宽 42），实得 ${delta}B —— 偏离需重新走体积评审`);
+  assert.strictEqual(delta, 612,
+    `engine.js 相对 BASE 应净增恰好 612B（v15 NOTE-2 13 + Q-V15-1 60 + v16 T1 四轴 190 + v17 T1/T2 266 + v18 T1 零宽 42 + v22 H13 连接词 41），实得 ${delta}B —— 偏离需重新走体积评审`);
 
   // 已批准行号集合：v15 的 :1307 + v17 §6-T1 的 13 行
   const APPROVED = [1307, 1310, 1322, 1350, 1382, 1393, 1435, 1461, 2488, 2935, 3613, 3636, 3637, 3993];
@@ -358,10 +374,10 @@ test("AC-N2-5 · engine.js 相对 BASE 净增恰好 571B，改动面 = v17 已�
   const size = fs.statSync(path.join(ROOT, "engine.js")).size;
   assert.ok(size <= WS.SIZE_BUDGET.engineMax,
     `V-33 越界：${size} > ${WS.SIZE_BUDGET.engineMax}`);
-  assert.strictEqual(size, 248395, `预测落位 248395B（v18 T1 零宽剥离后），实得 ${size}B`);
+  assert.strictEqual(size, 248436, `预测落位 248436B（v22 T-eng H13 连接词闭合后），实得 ${size}B`);
   const s = WS.scanSizes();
-  assert.strictEqual(s.engineNet, 2658,
-    `engineNet 应为 2658（2087 + NOTE-2 13 + Q-V15-1 60 + v16 T1 四轴 190 + v17 T1/T2 266 + v18 T1 零宽 42），实得 ${s.engineNet}`);
+  assert.strictEqual(s.engineNet, 2699,
+    `engineNet 应为 2699（2087 + NOTE-2 13 + Q-V15-1 60 + v16 T1 四轴 190 + v17 T1/T2 266 + v18 T1 零宽 42 + v22 H13 连接词 41），实得 ${s.engineNet}`);
   assert.ok(s.engineNet <= WS.SIZE_BUDGET.engineNetMax, `engineNet 越界：${s.engineNet}`);
   assert.deepStrictEqual(s.over, [], `单文件配额越界：${JSON.stringify(s.each)}`);
 });

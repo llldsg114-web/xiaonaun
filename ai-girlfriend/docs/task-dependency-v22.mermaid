@@ -1,0 +1,17 @@
+graph TD
+    TB["T-budget · P0-1 配额重谈<br/>test/wiring-scan.js + qa-v19:115"] --> ENG["T-eng · P0-2 H13 闭合<br/>engine.js:1307 +41B"]
+    TB --> ROU["T-route · P0-3 repair 路由<br/>contingency.js:33 +38B"]
+    ENG --> V33["T-v33 · V33/配额引脚全量同步<br/>13 文件 = 配额族7 + 实测值族6"]
+    ROU --> V33
+    ENG --> SW["T-sw · C0-b 缓存升版<br/>sw.js CACHE v24→v25 + manifest<br/>released 逐字不动 C-2"]
+    ROU --> SW
+    TB --> QA["T-qa · 验收闸<br/>AC-RS2-9改写 + 2新探针"]
+    ENG --> QA
+    ROU --> QA
+    V33 --> QA
+    SW --> QA
+
+    classDef p0 fill:#ffe0e0,stroke:#c00;
+    classDef p1 fill:#fff4d6,stroke:#b8860b;
+    class TB,ENG,ROU,QA p0;
+    class V33,SW p1;

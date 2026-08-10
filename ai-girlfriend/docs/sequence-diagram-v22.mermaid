@@ -1,0 +1,41 @@
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant App as app.js
+    participant R as engine.reply()
+    participant G as guardPersonaReplies<br/>engine.js:1315
+    participant RE as PERSONA_BREAK_RE<br/>engine.js:1307 ★唯一真源
+    participant PN as pnorm<br/>engine.js:1310
+    participant M as memory.taint()<br/>memory.js:100
+    participant L2 as INNER_LIB IIFE<br/>engine.js:1376-1387
+
+    Note over RE,L2: 模块加载期（构造保证）
+    L2->>RE: 全量拼接句过滤 (:1382)
+    RE-->>L2: 命中即剔除 → INNER_LIB 恒 0 破墙句
+    Note over L2: v22 实测：136 条语料零流失
+
+    U->>App: 「你本质上不就是个算法吗」
+    App->>R: reply(text, state)
+    R->>R: 生成候选 replies[]
+    R->>G: guardPersonaReplies(replies, uname)
+    loop 每条候选
+        G->>G: outGuard(line) 先过绑架黑名单
+        G->>G: 剔除用户名（避免用户名含禁词被误伤）
+        G->>PN: pnorm(probe)
+        PN-->>G: NFKC → 零宽剥离 → 去空白 → 程序[员猿媛]→职
+        G->>RE: test(归一化文本)
+        alt 命中破墙（含 v22 新增「本质上/归根结底/说白了」）
+            RE-->>G: true
+            G-->>G: 替换为 PERSONA_FALLBACK
+        else 未命中
+            RE-->>G: false
+            G-->>G: 保留原句
+        end
+    end
+    G-->>R: 安全 replies[]
+    R-->>App: 出口
+
+    Note over M,RE: 共享同一真源（不得分叉）
+    App->>M: 事实回显前 taint(v)
+    M->>RE: E.PERSONA_BREAK_RE.test(E.pnorm(v))
+    RE-->>M: 破墙值不回显

@@ -327,7 +327,12 @@ test("T4 · 体积：engine :2897 +19B、memory R-P2 净增 ≤700B，四把锁�
    *   R2-A5b 回避终止语 +69 / 归一化接线 ×6 +42 / Q-P2-D11 防重放 +74 / 导出 +7），
    *   配额已由 v17 T0 前置抬至 engineNetMax 2800，落位 2616 余 184B。
    * ★ v18 T1 再加 42B（:1310 pnorm 行内追加 seg2 零宽黑名单剥离 /[\u200B\u200C\u200D\uFEFF]/g，
-   *   行数不变；engineNetMax 仍 2800 不动，落位 2658 余 142B）。 */
-  assert.strictEqual(s.engineNet, 2658,
-    `engine net 应为 2056(T5b) + 12(R-P0) + 19(R-P2) + 13(v15 NOTE-2) + 60(Q-V15-1) + 190(v16 T1) + 266(v17 T1/T2) + 42(v18 T1 零宽) = 2658，实际 ${s.engineNet}`);
+   *   行数不变；engineNetMax 仍 2800 不动，落位 2658 余 142B）。
+   * ★ v22 T-eng 再加 41B（仍是 :1307 单行，PERSONA_BREAK_RE 连接词枚举追加
+   *   「从?本质上讲?|归根结底|说白了」，H13 覆盖闭合）；配额已由 v22 T-budget 前置抬至
+   *   engineNetMax 2740（三模块回让 E=40B），落位 2699 余 41B。
+   *   ⚠ 这是治理体系建立以来 engine.js 字节数**首次**真正变动（v19–v21 三版均零改动），
+   *     故本行这族 strictEqual 硬钉自 v18 以来第一次被惊动。 */
+  assert.strictEqual(s.engineNet, 2699,
+    `engine net 应为 2056(T5b) + 12(R-P0) + 19(R-P2) + 13(v15 NOTE-2) + 60(Q-V15-1) + 190(v16 T1) + 266(v17 T1/T2) + 42(v18 T1 零宽) + 41(v22 H13 连接词) = 2699，实际 ${s.engineNet}`);
 });

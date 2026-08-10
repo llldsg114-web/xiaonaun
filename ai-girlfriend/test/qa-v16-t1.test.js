@@ -230,8 +230,15 @@ test("AC-G-8 · 体积：over=[] 且 engineNet ≤ engineNetMax", () => {
     `engineNet ${s.engineNet} > 上限 ${SIZE_BUDGET.engineNetMax}`);
   /* ★★【快照翻转 · v18 T1 · DESIGN-v18 §6-T1】2616 → 2658（+42，:1310 行内追加零宽剥离）★★
    *   上限仍是 v17 T0 抬定的 engineNetMax 2800（v18 未动），落位 2658 余 142B。仍是 strictEqual 硬钉。 */
-  assert.strictEqual(s.engineNet, 2658,
-    `v18 T1 后 engineNet 应为 2658（v17 的 2616 + 零宽黑名单剥离的 42），实为 ${s.engineNet}`);
+  /* ★★【快照翻转 · v22 T-eng · DESIGN-v22 §3.1 / §5 T-eng】2658 → 2699（+41）★★
+   *   落点仍是 :1307 单行：PERSONA_BREAK_RE 人称绑定组的连接词枚举追加
+   *   「从?本质上讲?|归根结底|说白了」，闭合 H13 的三类自曝句式（AC-2.1）。
+   *   上限由 v22 T-budget 前置抬至 engineNetMax 2740（memory/presence/texture 回让 E=40B），
+   *   落位 2699 余 41B。仍是 strictEqual 硬钉，严格度逐位不放松。
+   *   ⚠ 这是治理体系建立以来 engine.js 字节数**首次**真正变动（v19–v21 三版 engine 零改动），
+   *     本行属 DESIGN-v22 §5 T-v33「实测值族」连带惊动的针位之一。 */
+  assert.strictEqual(s.engineNet, 2699,
+    `v22 T-eng 后 engineNet 应为 2699（v18 落位 + H13 连接词枚举的 41），实为 ${s.engineNet}`);
   /* 四锁恒等式 */
   assert.strictEqual(SIZE_BUDGET.engineMax, SIZE_BUDGET.engineBase + SIZE_BUDGET.engineNetMax,
     "锁①：engineMax ≠ engineBase + engineNetMax");

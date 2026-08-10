@@ -307,6 +307,6 @@ test("V-108 · 体积四锁全绿，over = []", () => {
   assert.ok(z.engineNet <= W.SIZE_BUDGET.engineNetMax, "engineNet " + z.engineNet);
   assert.ok(z.moduleSum <= W.SIZE_BUDGET.moduleSumMax, "moduleSum " + z.moduleSum);
   assert.ok(z.total <= W.SIZE_BUDGET.totalMax, "total " + z.total);
-  assert.strictEqual(z.engineNet, 2658,
-    "T5 是纯模块改动；2658 = 2087 + v15 NOTE-2 的 13B + Q-V15-1 副词槽的 60B + v16 T1 四轴的 190B（均落 :1307 单行）+ v17 T1/T2 的 266B（13 行行内追加）+ v18 T1 零宽剥离的 42B（:1310 行内追加）");
+  assert.strictEqual(z.engineNet, 2699,
+    "T5 是纯模块改动；2699 = 2087 + v15 NOTE-2 的 13B + Q-V15-1 副词槽的 60B + v16 T1 四轴的 190B（均落 :1307 单行）+ v17 T1/T2 的 266B（13 行行内追加）+ v18 T1 零宽剥离的 42B（:1310 行内追加）+ v22 H13 连接词枚举的 41B（:1307 单行）");
 });

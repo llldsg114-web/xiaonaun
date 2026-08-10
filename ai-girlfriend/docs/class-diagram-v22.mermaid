@@ -1,0 +1,42 @@
+classDiagram
+    direction LR
+
+    class Engine {
+        +RegExp PERSONA_BREAK_RE
+        +String pnorm(text)
+        +String guardPersonaReplies(replies, uname)
+        +Object selfGet(state)
+        +Object negGate
+    }
+    class NegGate {
+        +String date
+        +Number count
+        +String lastByFamily
+        +Number streak
+    }
+    class Contingency {
+        +String sfType(s, c, u)
+        +String selfOf(tier, type, rng)
+        +Object selfAllow(s, c, u)
+        +String contingencePass(reply, rs, ctx)
+        +Object SFT
+    }
+    class SFT {
+        +Array stable
+        +Array expand
+        +Array challenge
+        +Array boundary
+        +Array repair
+    }
+    class QuotaGate {
+        +Object SIZE_BUDGET
+        +Object T0_BYTES
+        +Number MODULE_SUM_WITNESS
+    }
+
+    Engine "1" *-- "1" NegGate : 状态持有
+    Engine ..> Contingency : 导出 PERSONA_BREAK_RE / pnorm
+    Contingency "1" *-- "1" SFT : 取表渲染
+    Contingency ..> NegGate : sfType 读 count
+    Contingency ..> Engine : selfGet 取安全感
+    QuotaGate ..> Engine : 体积校验（四锁）
