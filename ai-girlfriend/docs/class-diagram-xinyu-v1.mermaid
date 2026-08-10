@@ -1,0 +1,38 @@
+classDiagram
+    class MePage {
+        +HTMLInputElement meSearch
+        +HTMLButtonElement meSearchClear
+        +HTMLElement meSearchEmpty
+        +HTMLElement meBody
+        +initMeGroups()
+        +initMeSearch()
+        +toggleGroup(group: HTMLElement)
+        +applySearch(query: string)
+    }
+
+    class MeGroup {
+        +HTMLElement head
+        +HTMLElement body
+        +String name
+        +Number count
+        +Boolean collapsed
+        +toggle()
+    }
+
+    class MeCard {
+        +String id
+        +HTMLElement title
+        +HTMLElement[] tips
+        +HTMLElement[] rows
+        +Boolean hit
+    }
+
+    class CharacterIdentity {
+        +String name
+        +String gender
+        +applyCharIdentity()
+    }
+
+    MePage "1" --> "5" MeGroup : contains
+    MeGroup "1" --> "1..*" MeCard : contains
+    CharacterIdentity ..> MeCard : injects data-xn-* textContent

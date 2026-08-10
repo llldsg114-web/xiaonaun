@@ -1,0 +1,34 @@
+sequenceDiagram
+    autonumber
+    participant User
+    participant DOM as page-me DOM
+    participant JS as app.js initMeGroups / initMeSearch
+    participant Store as localStorage (业务数据)
+
+    Note over DOM,JS: 初始化：在 applyCharIdentity 与 bindSettings 之后
+    JS->>DOM: querySelectorAll('.me-group-head') 绑定 click/keydown
+    JS->>DOM: querySelectorAll('.me-card') 建立命中列表
+    JS->>DOM: #me-search input 事件绑定
+    JS->>DOM: #me-search-clear click 绑定
+
+    User->>DOM: 点击组头
+    DOM->>JS: click handler
+    JS->>DOM: group.classList.toggle('collapsed')
+    JS->>DOM: head.setAttribute('aria-expanded', ...)
+    DOM-->>User: 箭头旋转 / 卡片显隐
+
+    User->>DOM: 输入关键词「同步」
+    DOM->>JS: input handler
+    JS->>DOM: body.classList.add('searching')
+    JS->>DOM: 对每个 card 匹配 textContent
+    JS->>DOM: 命中 card.classList.add('me-hit-on') / 未命中 .me-hit-off
+    JS->>DOM: 含命中项的 group.classList.add('has-hit')
+    JS->>DOM: 空结果提示显隐
+    DOM-->>User: 命中组展开、无关卡片隐藏
+
+    User->>DOM: 点击清除按钮
+    DOM->>JS: clear handler
+    JS->>DOM: input.value = ''
+    JS->>DOM: body.classList.remove('searching')
+    JS->>DOM: 移除 has-hit / me-hit-on / me-hit-off
+    DOM-->>User: 恢复搜索前折叠态

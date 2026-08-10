@@ -11,6 +11,23 @@
   --text-light: #a48d99;
   --bubble-her: #ffffff;
   --bubble-me: linear-gradient(135deg, #ff8fab, #ff6b95);
+
+  /* —— v26 视觉刷新 token（新增，不覆盖任何既有变量）—— */
+  --r-card: 18px;   /* 卡片 / 分组头圆角 */
+  --r-ctl: 12px;    /* 输入框 / 按钮 */
+  --r-pill: 999px;  /* chip / 徽标 */
+  --gap-xs: 6px;
+  --gap-sm: 10px;
+  --gap-md: 14px;
+  --gap-lg: 18px;
+  --ease: cubic-bezier(.4, 0, .2, 1);
+  --group-head: #c43d66;  /* 组头：层级最重 */
+  --card-title: #4a3540;  /* 卡片标题：中 */
+  --tip-text: #9b7f8a;    /* 提示文字：最轻 */
+  --search-bg: #fff;
+  --search-border: rgba(255,123,156,.35);
+  --hairline: rgba(255,123,156,.14);
+  --card-shadow: 0 2px 8px rgba(242,92,130,.06);
 }
 
 html, body {
@@ -884,3 +901,125 @@ body::after { width: 55vw; height: 55vw; right: -12vw; bottom: -8vh;
   animation: demoIn .22s ease;
 }
 @keyframes demoIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+/* ============================================================
+   我的页 v26 · 分组 / 折叠 / 搜索 + 视觉刷新
+   纪律：只增不改既有布局系统；隐藏一律用 .me-hit-off，
+   绝不复用全局 .hidden（!important，会打架 #sync-body / #push-body）。
+   ============================================================ */
+
+/* —— 搜索框 —— */
+.me-search-wrap { position: relative; margin-bottom: var(--gap-md); }
+.me-search {
+  width: 100%;
+  border: 1.5px solid var(--search-border);
+  border-radius: var(--r-ctl);
+  padding: 11px 38px 11px 14px;
+  font-size: 15px;
+  background: var(--search-bg);
+  color: var(--text);
+  outline: none;
+  transition: border-color .2s var(--ease), box-shadow .2s var(--ease);
+}
+.me-search::placeholder { color: var(--tip-text); }
+.me-search:focus {
+  border-color: var(--pink);
+  box-shadow: 0 0 0 3px rgba(255,123,156,.15);
+}
+.me-search-clear {
+  position: absolute; right: 7px; top: 50%;
+  transform: translateY(-50%);
+  width: 26px; height: 26px;
+  border: 0; border-radius: 50%;
+  background: transparent; color: var(--text-light);
+  font-size: 19px; line-height: 1; cursor: pointer;
+  display: none;
+}
+.me-search-wrap.has-value .me-search-clear {
+  display: flex; align-items: center; justify-content: center;
+}
+.me-search-clear:active { background: var(--pink-bg); }
+.me-empty {
+  text-align: center; padding: 28px 12px;
+  color: var(--tip-text); font-size: 14px;
+}
+
+/* —— 分组容器 —— */
+.me-group { margin-bottom: var(--gap-md); }
+.me-group-head {
+  display: flex; align-items: center; gap: var(--gap-xs);
+  padding: 13px 16px;
+  background: rgba(255,255,255,.72);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-card);
+  box-shadow: var(--card-shadow);
+  cursor: pointer; user-select: none;
+  transition: background .15s var(--ease), box-shadow .15s var(--ease);
+}
+.me-group-head:focus-visible { outline: 2px solid var(--pink); outline-offset: 2px; }
+.me-group-head:active { background: #fff0f4; box-shadow: 0 1px 4px rgba(242,92,130,.05); }
+.me-group-icon { font-size: 18px; line-height: 1; }
+.me-group-name {
+  flex: 1; font-size: 16px; font-weight: 700;
+  color: var(--group-head); letter-spacing: .3px;
+}
+.me-group-count {
+  font-size: 12px; font-weight: 600; color: var(--pink-deep);
+  background: var(--pink-bg); padding: 2px 9px;
+  border-radius: var(--r-pill);
+}
+.me-group-arrow {
+  width: 8px; height: 8px; margin: 0 4px 3px 2px;
+  border-right: 2px solid var(--text-light);
+  border-bottom: 2px solid var(--text-light);
+  transform: rotate(45deg);
+  transition: transform .22s var(--ease);
+}
+
+/* 折叠态：整组 body 收起（display 瞬态，避开 max-height 对动态高度的截断） */
+.me-group.collapsed .me-group-body { display: none; }
+.me-group.collapsed .me-group-arrow { transform: rotate(-45deg); }
+
+/* —— 组内卡片：留白 + 层级 + 轻量描边 —— */
+.me-group-body { padding-top: var(--gap-sm); animation: meGroupIn .22s var(--ease); }
+@keyframes meGroupIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.me-group-body .me-card {
+  margin-bottom: var(--gap-sm);
+  border-radius: var(--r-card);
+  padding: 16px 16px 17px;
+  border: 1px solid var(--hairline);
+  box-shadow: var(--card-shadow);
+  transition: background .2s var(--ease), box-shadow .2s var(--ease);
+}
+.me-group-body .me-card:last-child { margin-bottom: 0; }
+
+/* 字阶：组头(16/700/主色) > 卡片标题(15/700/深) > 提示(12/低饱和) */
+.me-body .me-title { font-size: 15px; font-weight: 700; color: var(--card-title); margin-bottom: 9px; }
+.me-body .me-tip { color: var(--tip-text); }
+.me-body .me-sub { color: var(--tip-text); font-weight: 600; }
+.me-body .me-save { border-radius: var(--r-ctl); }
+.me-body .me-card input[type="text"],
+.me-body .me-card input[type="password"] { border-radius: var(--r-ctl); }
+.me-foot { color: var(--tip-text); padding: 14px 0 6px; }
+
+/* —— 搜索态 —— */
+.me-body.searching .me-group { display: none; }                       /* 先全部收起 */
+.me-body.searching .me-group.has-hit { display: block; }              /* 命中组恢复 */
+.me-body.searching .me-group.has-hit .me-group-body { display: block; } /* 强制展开，不动 collapsed 类 */
+.me-body.searching .me-group.has-hit .me-group-arrow { transform: rotate(45deg); }
+.me-card.me-hit-off { display: none; }                                /* 未命中卡片：独立类，不用 .hidden */
+.me-card.me-hit-on {
+  background: #fff8fa;
+  box-shadow: 0 0 0 1.5px rgba(255,123,156,.28), var(--card-shadow);
+}
+
+/* —— 无障碍：尊重系统的「减弱动态效果」 —— */
+@media (prefers-reduced-motion: reduce) {
+  .me-search,
+  .me-group-head,
+  .me-group-arrow,
+  .me-group-body .me-card { transition: none; }
+  .me-group-body { animation: none; }
+}

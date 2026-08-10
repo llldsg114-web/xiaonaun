@@ -1,6 +1,6 @@
 {
   "//": "TD 真相源：被缓存资产内容 ↔ sw.js CACHE 键。由 qa-v21-sw-guard.js 只读校验。重算程序见 docs/CHANGELOG.md v21 条目。",
-  "cacheVersion": "xiaonuan-v25",
+  "cacheVersion": "xiaonuan-v26",
   "cacheVersionNote": "待发布键。下方 assets 的指纹隶属于它。改任一被缓存资产后必须重算 assets；若该键已发布过，还必须先升键。",
   "released": {
     "cacheVersion": "xiaonuan-v23",
@@ -23,18 +23,18 @@
     }
   },
   "assets": {
-    "/": "f76d8539497c7a730170e76883d02f76fb1a45aeccdd7b5971a37af544f64767",
-    "/index.html": "f76d8539497c7a730170e76883d02f76fb1a45aeccdd7b5971a37af544f64767",
-    "/style.css": "b4d7a6d9c02612dea7012144b733734affeed203f0f7404edc708fe7e27e0e06",
+    "/": "0798209d66a99a0a2029a0838164010b165d3a4e54ded980a6b3b0ee275d0370",
+    "/index.html": "0798209d66a99a0a2029a0838164010b165d3a4e54ded980a6b3b0ee275d0370",
+    "/style.css": "e19306bf10a06d22292fb33a23d16bb3528c0bad746990895a5a93c30d455910",
     "/engine.js": "ab272002cfabd23f0db4b50a90b89595e93d22748501809292de1b3333d71079",
-    "/app.js": "07623687468aa4300176ebed2e6855b93b63539e830914435434d70ef2d4dab6",
+    "/app.js": "200826397854d0a22825dbdce9ddcd96bda407db324ed65bb17c6945f6fa5023",
     "/localmodel.js": "7979f6a85f2202cd78bf9da24eb52399abc7aff9414491aad7a5d2f61e2fc8e3",
     "/memory.js": "e9bc76a178db3955a73ad4a975ffd879706f0c6bfab1c2d6b9dd3772f746dd21",
     "/presence.js": "8924c42baf31319804d05b09aeaf7f38f235b6e74da68bd6b0806f80ac8211ea",
     "/texture.js": "dad00580ae828b49d1ea9915c64c3ec5683d18545bc5234af4ed8e8ddb4ee7eb",
     "/contingency.js": "38aeafdc347a291a65db4d6d1f5e623e7613a908ff189552cc2de776dfaa6093",
-    "/manifest.json": "ef514828841ad7ba363df3e17cb5af6697049aea3fdaf8cbaa93a8544f555627",
-    "/icon-192.png": "41daa30b76fe4341a6cba398f3b105c6dfdc3cb190f2995daa0ddc0063bf9c05",
-    "/icon-512.png": "7186ce627bf691196651cec9c416a0f75da7c8986d56887394835c6c2395e9da"
+    "/manifest.json": "d04ea30a718af131638cc2fa62a7366b6526219c81b219c4d94b084d57198227",
+    "/icon-192.png": "9257474288199c80ed371216171271e75f45009b8caaca3428f8ffce59f60db9",
+    "/icon-512.png": "c18eb778487d1736acb33a55aa9025c5fa9125809d1597bd4908145ca417de9e"
   }
 }

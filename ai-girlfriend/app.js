@@ -3790,7 +3790,8 @@ function bindSettings() {
 function applyCharIdentity() {
   const ch = currentChar();
   const role = ch.gender === "male" ? "男友" : "女友";
-  if (typeof document !== "undefined") document.title = `${ch.name} · 你的 AI ${role}`;
+  // 产品名「心屿」为应用外壳标识；ch.name 仍由角色层注入，${role} 保留，男版显示「心屿 · 你的 AI 男友」
+  if (typeof document !== "undefined") document.title = `心屿 · 你的 AI ${role}`;
   document.querySelectorAll('[data-xn="name"]').forEach(el => el.textContent = ch.name);
   document.querySelectorAll('[data-xn="title"]').forEach(el => el.textContent = `${ch.name} · 你的 AI ${role}`);
   document.querySelectorAll('[data-xn-prefix]').forEach(el => el.textContent = el.getAttribute("data-xn-prefix") + ch.name);
@@ -3900,6 +3901,87 @@ function bindSearch() {
   });
 }
 
+/* ================= 设置页：分组折叠 / 设置项搜索 =================
+   纯呈现层。三条纪律：
+   ① 不碰任何设置项 id 与 localStorage key（INV-1 / INV-2）；
+   ② 隐藏卡片用独立类 .me-hit-off，绝不复用全局 .hidden（后者带 !important，
+      会与 #sync-body / #push-body 等业务显隐互相打架，INV-6）；
+   ③ 折叠初始态写在 HTML 的 class 上，JS 只做 toggle，避免首屏闪烁（FOUC）。 */
+
+/**
+ * 绑定 5 个分组头的展开 / 折叠。
+ * 点击整个组头（不只是箭头）即切换，并同步 aria-expanded 供读屏器识别。
+ * @returns {void}
+ */
+function initMeGroups() {
+  const body = document.querySelector(".me-body");
+  if (!body) return;
+  body.querySelectorAll(".me-group-head").forEach(head => {
+    const group = head.closest(".me-group");
+    if (!group) return;
+    const toggle = () => {
+      const collapsed = group.classList.toggle("collapsed");
+      head.setAttribute("aria-expanded", String(!collapsed));
+    };
+    head.addEventListener("click", toggle);
+    head.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+        e.preventDefault();
+        toggle();
+      }
+    });
+  });
+}
+
+/**
+ * 绑定设置项实时搜索。
+ * 每次输入都重新读取 .me-card 的 textContent（不缓存索引）——性别切换后
+ * applyCharIdentity() 会重写卡片内的角色文案，缓存索引会立刻过期。
+ * @returns {void}
+ */
+function initMeSearch() {
+  const body = document.querySelector(".me-body");
+  const input = document.getElementById("me-search");
+  if (!body || !input) return;
+  const clearBtn = document.getElementById("me-search-clear");
+  const empty = document.getElementById("me-search-empty");
+  const wrap = input.closest(".me-search-wrap");
+
+  const apply = () => {
+    const q = (input.value || "").trim().toLowerCase();
+    const searching = q.length > 0;
+    if (wrap) wrap.classList.toggle("has-value", searching);
+    body.classList.toggle("searching", searching);
+    body.querySelectorAll(".me-group").forEach(g => g.classList.remove("has-hit"));
+
+    let anyHit = false;
+    body.querySelectorAll(".me-card").forEach(card => {
+      const hit = !searching || (card.textContent || "").toLowerCase().includes(q);
+      card.classList.toggle("me-hit-off", !hit);
+      card.classList.toggle("me-hit-on", searching && hit);
+      if (!hit) return;
+      anyHit = true;
+      const group = card.closest(".me-group");
+      if (group) group.classList.add("has-hit");
+    });
+
+    if (empty) empty.classList.toggle("hidden", !(searching && !anyHit));
+  };
+
+  input.addEventListener("input", apply);
+  input.addEventListener("keydown", e => {
+    if (e.key === "Escape") { input.value = ""; apply(); }
+  });
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      input.value = "";
+      apply();
+      input.focus();
+    });
+  }
+  apply(); // 首帧对齐：清空态下移除一切搜索类，折叠态完全由 HTML 决定
+}
+
 /* ================= 初始化 ================= */
 function init() {
   // 今日心情
@@ -3927,6 +4009,9 @@ function init() {
   bindTabs(); bindInput(); bindActions(); bindSettings(); bindCall(); bindGames(); bindPropose(); bindOutfit(); bindGender(); bindSearch(); bindDayDetail();
   bindVoice(); bindNotify(); bindCloudSave(); bindLocalModel(); bindSync(); bindPush();
   bindArcUI();
+  // 设置页分组 / 搜索：必须排在 refreshCharacter()→applyCharIdentity() 与 bindSettings() 之后，
+  // 这样卡片里的角色文案（data-xn-*）已注入完毕，搜索读到的是最终文本。
+  initMeGroups(); initMeSearch();
   if (S.localModel.enabled) ensureLocalModelLoaded(); // 后台自动加载，用户打开"我的"时可能已就绪
   maybeConsolidate();
   renderAllMessages();

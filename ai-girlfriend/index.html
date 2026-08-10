@@ -6,10 +6,10 @@
 <meta name="theme-color" content="#ff7b9c">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<title data-xn="title">小暖 · 你的 AI 女友</title>
+<title>心屿 · 你的 AI 女友</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<meta name="apple-mobile-web-app-title" data-xn="appname" content="小暖">
+<meta name="apple-mobile-web-app-title" data-xn="appname" content="心屿">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -160,270 +160,325 @@
       <div class="nav-name-lg">我的</div>
     </header>
     <main class="me-body">
-      <div class="me-card">
-        <div class="me-title">💑 恋爱档案</div>
-        <div class="me-row"><span>相识天数</span><b id="me-days">1 天</b></div>
-        <div class="me-row"><span>互相发消息</span><b id="me-msgs">0 条</b></div>
-        <div class="me-row"><span>当前好感度</span><b id="me-affection">0</b></div>
-        <div class="me-row"><span>恋爱状态</span><b id="me-status">单身</b></div>
-        <div class="me-row"><span>在一起</span><b id="me-together">—</b></div>
+      <!-- 搜索设置项：命中隐藏用独立类 .me-hit-off，不复用全局 .hidden，避免干扰 sync-body / push-body 的业务显隐 -->
+      <div class="me-search-wrap">
+        <input class="me-search" id="me-search" type="text" placeholder="搜索设置项…" autocomplete="off" spellcheck="false">
+        <button class="me-search-clear" id="me-search-clear" type="button" aria-label="清除搜索">×</button>
       </div>
+      <div class="me-empty hidden" id="me-search-empty">没有找到相关设置 🥲</div>
 
-      <div class="me-card">
-        <div class="me-title">💞 表白 & 纪念日</div>
-        <div class="me-tip">好感度越高，小暖越容易答应你。在一起后这里会显示你们的纪念日倒计时。</div>
-        <div class="me-row"><span>下次纪念日</span><b id="me-next-anni">先确定关系吧～</b></div>
-        <button class="me-save propose-btn" id="btn-propose-me" style="margin-top:6px">💞 向小暖表白</button>
-      </div>
-
-      <div class="me-card">
-        <div class="me-title">🪪 我的昵称</div>
-        <div class="me-tip">小暖在亲密度高时会用昵称称呼你</div>
-        <input type="text" id="me-nickname" placeholder="例如：阿哲" maxlength="8">
-        <button class="me-save" id="save-nickname">保存昵称</button>
-      </div>
-
-      <div class="me-card">
-        <div class="me-title" data-xn-prefix="🎀 ">🎀 小暖人设</div>
-        <div class="me-tip">调成你喜欢的样子，TA 会越来越懂你</div>
-        <div class="me-sub">AI 性别（遇见小暖 or 阿言）</div>
-        <div class="chip-group" id="gender-group">
-          <button class="chip" data-gender="female">女 · 小暖</button>
-          <button class="chip" data-gender="male">男 · 阿言</button>
+      <!-- 组 1 · 我们的关系（默认展开） -->
+      <div class="me-group" data-group="relation">
+        <div class="me-group-head" role="button" tabindex="0" aria-expanded="true">
+          <span class="me-group-icon">💞</span>
+          <span class="me-group-name">我们的关系</span>
+          <span class="me-group-count">2</span>
+          <span class="me-group-arrow" aria-hidden="true"></span>
         </div>
-        <div class="me-sub">性格基调</div>
-        <div class="chip-group" id="tone-group">
-          <button class="chip" data-tone="gentle">温柔</button>
-          <button class="chip" data-tone="playful">俏皮</button>
-          <button class="chip" data-tone="clingy">粘人</button>
-        </div>
-        <div class="me-sub">主题色</div>
-        <div class="chip-group" id="theme-group">
-          <button class="chip theme-chip" data-theme="sakura" style="--c:#ff7b9c" title="樱粉"></button>
-          <button class="chip theme-chip" data-theme="orange" style="--c:#ff9a62" title="蜜橘"></button>
-          <button class="chip theme-chip" data-theme="purple" style="--c:#b388ff" title="梦幻紫"></button>
-          <button class="chip theme-chip" data-theme="mint" style="--c:#36c6a8" title="薄荷绿"></button>
-          <button class="chip theme-chip" data-theme="blue" style="--c:#5aa9ff" title="海蓝"></button>
-        </div>
-        <div class="me-sub" data-xn-cardsub>人格卡（切换小暖的性格皮肤）</div>
-        <div class="chip-group" id="card-group">
-          <button class="chip" data-card="xiaonuan">软萌温婉</button>
-          <button class="chip" data-card="xiaonuan_tsundere">傲娇毒舌</button>
-          <button class="chip" data-card="xiaonuan_clingy">粘人小猫</button>
-        </div>
-        <!-- v11 · 切卡即时试听：走规则层生成，断网也有 -->
-        <div class="card-demo hidden" id="card-demo"></div>
-        <div class="me-row persona-io" style="margin-top:8px; gap:8px; display:flex">
-          <button class="me-save" id="btn-export-persona">⬇️ 导出人设</button>
-          <button class="me-save" id="btn-import-persona">⬆️ 导入人设</button>
-          <input type="file" id="persona-file" accept="application/json,.json" class="hidden">
-        </div>
-        <div class="me-tip" style="margin-top:6px">人设卡只含配置不含记忆，可放心分享给朋友互换。</div>
-      </div>
-
-      <div class="me-card">
-        <div class="me-title">🧠 云端大脑（可选）</div>
-        <div class="me-tip" data-xn-cloud>默认使用本地情感引擎。配置 OpenAI 兼容接口后，小暖将由大模型驱动，对话更自由、更像真人。</div>
-        <div class="me-sub">服务商（选完自动填好地址，只粘 Key）</div>
-        <div class="chip-group" id="provider-group">
-          <button class="chip" data-prov="deepseek">DeepSeek</button>
-          <button class="chip" data-prov="openai">OpenAI</button>
-          <button class="chip" data-prov="custom">自定义</button>
-        </div>
-        <label class="me-switch">
-          <input type="checkbox" id="cloud-enabled">
-          <span>启用云端大模型</span>
-        </label>
-        <input type="text" id="cloud-base" placeholder="Base URL，如 https://api.deepseek.com">
-        <input type="password" id="cloud-key" placeholder="API Key">
-        <input type="text" id="cloud-model" placeholder="模型名，如 deepseek-chat">
-        <label class="me-switch" style="margin-top:8px">
-          <input type="checkbox" id="embed-enabled">
-          <span>启用语义记忆检索（embedding 向量）</span>
-        </label>
-        <input type="text" id="embed-model" placeholder="embedding 模型名，如 text-embedding-3-small" style="margin-top:6px">
-        <div class="me-tip" style="margin-top:6px">开启后，小暖用语义向量（而非关键词）回忆你说过的事，换种说法也能接起。需上方已配置 Base + Key（OpenAI 兼容接口）。向量会本地缓存，不会每条消息都调接口。</div>
-        <button class="me-save" id="save-cloud">保存配置</button>
-        <div class="me-status" id="cloud-status"></div>
-      </div>
-
-      <div class="me-card">
-        <div class="me-title">📱 端侧模型（离线 AI）</div>
-        <div class="me-tip">开启后，小暖会在你的设备里<b>本地跑一个小模型</b>，<b>无需任何 Key、断网也能聊</b>。首次需联网下载约 0.5GB 模型，之后本地缓存即可离线使用。建议用 WiFi，且设备支持 WebGPU（较新手机/电脑）体验更佳。</div>
-        <label class="me-switch">
-          <input type="checkbox" id="lm-enabled">
-          <span>启用端侧模型（离线 AI）</span>
-        </label>
-        <div class="me-sub">模型（越大越聪明，也越慢）</div>
-        <select id="lm-model" class="me-select">
-          <option value="onnx-community/Qwen2.5-0.5B-Instruct">Qwen2.5-0.5B（推荐·中文快）</option>
-          <option value="onnx-community/Qwen2.5-1.5B-Instruct">Qwen2.5-1.5B（更聪明·更慢）</option>
-          <option value="onnx-community/SmolLM2-1.7B-Instruct">SmolLM2-1.7B（英文更强）</option>
-        </select>
-        <button class="me-save" id="lm-load">下载并加载模型</button>
-        <div class="lm-progress hidden" id="lm-progress"><div class="lm-bar" id="lm-bar"></div></div>
-        <div class="me-status" id="lm-status"></div>
-        <div class="me-tip" id="lm-device"></div>
-      </div>
-
-      <div class="me-card">
-        <div class="me-title">🔊 语音（小暖开口说话）</div>
-        <div class="me-tip" data-xn-tts>开启后，小暖会用甜甜的声音把回复读出来。纯浏览器本地合成，无需任何 Key。</div>
-        <label class="me-switch">
-          <input type="checkbox" id="tts-enabled">
-          <span>让小暖开口说话</span>
-        </label>
-        <div class="me-tip" style="margin-top:8px">💡 聊天页输入框左侧的 🎤 还能让你直接用语音对她说话（需授权麦克风，且在 https 环境下可用）。</div>
-      </div>
-
-      <div class="me-card">
-        <div class="me-title">🔔 消息提醒（系统通知）</div>
-        <div class="me-tip">开启后，当你离开页面时，小暖的想念会悄悄变成手机系统通知，跨会话也能收到 💕</div>
-        <label class="me-switch">
-          <input type="checkbox" id="notify-enabled">
-          <span>允许小暖给我发通知</span>
-        </label>
-        <button class="me-save" id="btn-notify-test">发送一条测试通知</button>
-        <div class="me-status" id="notify-status"></div>
-      </div>
-
-      <div class="me-card">
-        <div class="me-title">🎀 语音音色</div>
-        <div class="me-tip" data-xn-voice>选一个你最喜欢的小暖声音，聊天和语音通话里都会用这个音色。</div>
-        <div class="chip-group" id="voice-group">
-          <button class="chip" data-voice="auto">自动</button>
-          <button class="chip" data-voice="sweet">甜心</button>
-          <button class="chip" data-voice="sister">御姐</button>
-          <button class="chip" data-voice="cute">软萌</button>
-          <button class="chip" data-voice="boy">少年</button>
-        </div>
-      </div>
-
-      <div class="me-card sync-card">
-        <div class="me-title">☁️ 云同步（自动·端到端加密）</div>
-        <div class="me-tip">开启后，你们的记忆会<b>先在这台设备上加密</b>再传到云端；服务器只存一串乱码，<b>没有你的口令谁也解不开</b>。换手机时填同一组「同步码 + 口令」就能整个搬过去。</div>
-        <label class="me-switch">
-          <input type="checkbox" id="sync-enable">
-          <span>启用云同步</span>
-        </label>
-
-        <div id="sync-body" class="hidden">
-          <div class="me-sub" style="margin-top:10px">① 同步码（这台设备的存档编号，换设备时要用）</div>
-          <div class="sync-row">
-            <input type="text" id="sync-token" class="sync-token" spellcheck="false" placeholder="开启后自动生成">
-            <button class="sync-mini" id="btn-sync-copy" title="复制">📋</button>
-            <button class="sync-mini" id="btn-sync-new" title="换一个">🎲</button>
+        <div class="me-group-body">
+          <div class="me-card">
+            <div class="me-title">💑 恋爱档案</div>
+            <div class="me-row"><span>相识天数</span><b id="me-days">1 天</b></div>
+            <div class="me-row"><span>互相发消息</span><b id="me-msgs">0 条</b></div>
+            <div class="me-row"><span>当前好感度</span><b id="me-affection">0</b></div>
+            <div class="me-row"><span>恋爱状态</span><b id="me-status">单身</b></div>
+            <div class="me-row"><span>在一起</span><b id="me-together">—</b></div>
           </div>
-
-          <div class="me-sub" style="margin-top:10px">② 同步口令（加密钥匙，只存在你手机里，永不上传）</div>
-          <input type="password" id="sync-pass" placeholder="自己想一个，建议 12 位以上" autocomplete="new-password">
-          <div class="me-tip sync-warn">⚠️ 口令忘了 = 云端存档永久解不开（端到端加密的代价）。请存进备忘录或密码管理器。</div>
-
-          <label class="me-switch" style="margin-top:8px">
-            <input type="checkbox" id="sync-auto">
-            <span>自动同步（离开页面时自动上传）</span>
-          </label>
-
-          <div class="sync-row" style="margin-top:10px">
-            <button class="me-save" id="btn-sync-up">⬆️ 立即上传</button>
-            <button class="me-save" id="btn-sync-down">⬇️ 立即下载</button>
+          <div class="me-card">
+            <div class="me-title">💞 表白 & 纪念日</div>
+            <div class="me-tip">好感度越高，小暖越容易答应你。在一起后这里会显示你们的纪念日倒计时。</div>
+            <div class="me-row"><span>下次纪念日</span><b id="me-next-anni">先确定关系吧～</b></div>
+            <button class="me-save propose-btn" id="btn-propose-me" style="margin-top:6px">💞 向小暖表白</button>
           </div>
-          <button class="me-save danger hidden" id="btn-sync-force" style="margin-top:6px">⚡ 强制覆盖云端</button>
-          <div class="me-status" id="sync-status"></div>
-          <div class="me-tip" id="sync-meta">未开启</div>
-
-          <div class="me-sub" style="margin-top:12px">换新手机怎么做</div>
-          <div class="me-tip">新设备打开小暖 → 开启云同步 → 把上面的<b>同步码粘进去</b> → 填<b>同一个口令</b> → 点「立即下载」。</div>
-          <button class="me-save danger" id="btn-sync-del" style="margin-top:8px">删除云端存档</button>
         </div>
       </div>
 
-      <div class="me-card push-card">
-        <div class="me-title">📨 让小暖主动找你（推送到微信）</div>
-        <div class="me-tip">早安、晚安、太久没聊时的想念——不用打开网页也能收到。<b>需要先开启上面的云同步</b>，小暖用同步码认人。</div>
+      <!-- 组 2 · 角色外观（默认展开） -->
+      <div class="me-group" data-group="look">
+        <div class="me-group-head" role="button" tabindex="0" aria-expanded="true">
+          <span class="me-group-icon">🎀</span>
+          <span class="me-group-name">小暖的样子</span>
+          <span class="me-group-count">2</span>
+          <span class="me-group-arrow" aria-hidden="true"></span>
+        </div>
+        <div class="me-group-body">
+          <div class="me-card">
+            <div class="me-title">🪪 我的昵称</div>
+            <div class="me-tip">小暖在亲密度高时会用昵称称呼你</div>
+            <input type="text" id="me-nickname" placeholder="例如：阿哲" maxlength="8">
+            <button class="me-save" id="save-nickname">保存昵称</button>
+          </div>
+          <div class="me-card">
+            <div class="me-title" data-xn-prefix="🎀 ">🎀 小暖人设</div>
+            <div class="me-tip">调成你喜欢的样子，TA 会越来越懂你</div>
+            <div class="me-sub">AI 性别（遇见小暖 or 阿言）</div>
+            <div class="chip-group" id="gender-group">
+              <button class="chip" data-gender="female">女 · 小暖</button>
+              <button class="chip" data-gender="male">男 · 阿言</button>
+            </div>
+            <div class="me-sub">性格基调</div>
+            <div class="chip-group" id="tone-group">
+              <button class="chip" data-tone="gentle">温柔</button>
+              <button class="chip" data-tone="playful">俏皮</button>
+              <button class="chip" data-tone="clingy">粘人</button>
+            </div>
+            <div class="me-sub">主题色</div>
+            <div class="chip-group" id="theme-group">
+              <button class="chip theme-chip" data-theme="sakura" style="--c:#ff7b9c" title="樱粉"></button>
+              <button class="chip theme-chip" data-theme="orange" style="--c:#ff9a62" title="蜜橘"></button>
+              <button class="chip theme-chip" data-theme="purple" style="--c:#b388ff" title="梦幻紫"></button>
+              <button class="chip theme-chip" data-theme="mint" style="--c:#36c6a8" title="薄荷绿"></button>
+              <button class="chip theme-chip" data-theme="blue" style="--c:#5aa9ff" title="海蓝"></button>
+            </div>
+            <div class="me-sub" data-xn-cardsub>人格卡（切换小暖的性格皮肤）</div>
+            <div class="chip-group" id="card-group">
+              <button class="chip" data-card="xiaonuan">软萌温婉</button>
+              <button class="chip" data-card="xiaonuan_tsundere">傲娇毒舌</button>
+              <button class="chip" data-card="xiaonuan_clingy">粘人小猫</button>
+            </div>
+            <!-- v11 · 切卡即时试听：走规则层生成，断网也有 -->
+            <div class="card-demo hidden" id="card-demo"></div>
+            <div class="me-row persona-io" style="margin-top:8px; gap:8px; display:flex">
+              <button class="me-save" id="btn-export-persona">⬇️ 导出人设</button>
+              <button class="me-save" id="btn-import-persona">⬆️ 导入人设</button>
+              <input type="file" id="persona-file" accept="application/json,.json" class="hidden">
+            </div>
+            <div class="me-tip" style="margin-top:6px">人设卡只含配置不含记忆，可放心分享给朋友互换。</div>
+          </div>
+        </div>
+      </div>
 
-        <div id="push-need-sync" class="me-tip push-warn">☝️ 请先开启云同步并生成同步码，再回来配置推送。</div>
-
-        <div id="push-body" class="hidden">
-          <label class="me-switch">
-            <input type="checkbox" id="push-enable">
-            <span>开启主动推送</span>
-          </label>
-
-          <div class="me-sub" style="margin-top:10px">① 选一个能收消息的地方</div>
-          <select id="push-channel" class="push-select">
-            <option value="">— 请选择 —</option>
-            <option value="wxpusher">WxPusher · 微信扫码 5 分钟（最省事）</option>
-            <option value="pushplus">PushPlus · 微信扫码 5 分钟</option>
-            <option value="serverchan">Server酱 · 微信扫码 5 分钟</option>
-            <option value="wecom_bot">企业微信群机器人 · 手机可建</option>
-            <option value="wecom_app">企业微信应用消息 · 最正规，后台是网页版</option>
-            <option value="webhook">自定义 Webhook · 给会折腾的人</option>
-          </select>
-          <div class="me-tip" id="push-howto"></div>
-
-          <div id="push-fields"></div>
-
-          <div id="push-twoway" class="hidden" style="margin-top:12px">
+      <!-- 组 3 · 智能与模型（默认折叠） -->
+      <div class="me-group collapsed" data-group="brain">
+        <div class="me-group-head" role="button" tabindex="0" aria-expanded="false">
+          <span class="me-group-icon">🧠</span>
+          <span class="me-group-name">智能与模型</span>
+          <span class="me-group-count">4</span>
+          <span class="me-group-arrow" aria-hidden="true"></span>
+        </div>
+        <div class="me-group-body">
+          <div class="me-card">
+            <div class="me-title">🧠 云端大脑（可选）</div>
+            <div class="me-tip" data-xn-cloud>默认使用本地情感引擎。配置 OpenAI 兼容接口后，小暖将由大模型驱动，对话更自由、更像真人。</div>
+            <div class="me-sub">服务商（选完自动填好地址，只粘 Key）</div>
+            <div class="chip-group" id="provider-group">
+              <button class="chip" data-prov="deepseek">DeepSeek</button>
+              <button class="chip" data-prov="openai">OpenAI</button>
+              <button class="chip" data-prov="custom">自定义</button>
+            </div>
             <label class="me-switch">
-              <input type="checkbox" id="push-twoway-en">
-              <span>开启双向聊天（在微信里和小暖正经聊）</span>
+              <input type="checkbox" id="cloud-enabled">
+              <span>启用云端大模型</span>
             </label>
-            <div class="me-tip">把下面这个<b>回调 URL</b>粘到企业微信应用的「接收消息服务器」里，
-              Token 和 EncodingAESKey 用上面填的那两个。这样你在微信里发的话小暖能听见、她回的话出现在微信。</div>
-            <input type="text" id="push-callback-url" readonly class="sync-token" style="margin-top:6px">
-            <button class="sync-mini" id="btn-push-copy-url" title="复制" style="margin-top:6px">📋 复制</button>
-            <div class="me-tip push-warn" style="margin-top:8px">
-              ⚠️ 双向聊天时，小暖的「脑快照」（人格 + 记忆 + 好感度）会<b>明文</b>存在服务器上，让她在微信里也是「她」。
-              介意的话别开这开关——单向主动推送不需要它。
+            <input type="text" id="cloud-base" placeholder="Base URL，如 https://api.deepseek.com">
+            <input type="password" id="cloud-key" placeholder="API Key">
+            <input type="text" id="cloud-model" placeholder="模型名，如 deepseek-chat">
+            <label class="me-switch" style="margin-top:8px">
+              <input type="checkbox" id="embed-enabled">
+              <span>启用语义记忆检索（embedding 向量）</span>
+            </label>
+            <input type="text" id="embed-model" placeholder="embedding 模型名，如 text-embedding-3-small" style="margin-top:6px">
+            <div class="me-tip" style="margin-top:6px">开启后，小暖用语义向量（而非关键词）回忆你说过的事，换种说法也能接起。需上方已配置 Base + Key（OpenAI 兼容接口）。向量会本地缓存，不会每条消息都调接口。</div>
+            <button class="me-save" id="save-cloud">保存配置</button>
+            <div class="me-status" id="cloud-status"></div>
+          </div>
+          <div class="me-card">
+            <div class="me-title">📱 端侧模型（离线 AI）</div>
+            <div class="me-tip">开启后，小暖会在你的设备里<b>本地跑一个小模型</b>，<b>无需任何 Key、断网也能聊</b>。首次需联网下载约 0.5GB 模型，之后本地缓存即可离线使用。建议用 WiFi，且设备支持 WebGPU（较新手机/电脑）体验更佳。</div>
+            <label class="me-switch">
+              <input type="checkbox" id="lm-enabled">
+              <span>启用端侧模型（离线 AI）</span>
+            </label>
+            <div class="me-sub">模型（越大越聪明，也越慢）</div>
+            <select id="lm-model" class="me-select">
+              <option value="onnx-community/Qwen2.5-0.5B-Instruct">Qwen2.5-0.5B（推荐·中文快）</option>
+              <option value="onnx-community/Qwen2.5-1.5B-Instruct">Qwen2.5-1.5B（更聪明·更慢）</option>
+              <option value="onnx-community/SmolLM2-1.7B-Instruct">SmolLM2-1.7B（英文更强）</option>
+            </select>
+            <button class="me-save" id="lm-load">下载并加载模型</button>
+            <div class="lm-progress hidden" id="lm-progress"><div class="lm-bar" id="lm-bar"></div></div>
+            <div class="me-status" id="lm-status"></div>
+            <div class="me-tip" id="lm-device"></div>
+          </div>
+          <div class="me-card">
+            <div class="me-title">🔊 语音（小暖开口说话）</div>
+            <div class="me-tip" data-xn-tts>开启后，小暖会用甜甜的声音把回复读出来。纯浏览器本地合成，无需任何 Key。</div>
+            <label class="me-switch">
+              <input type="checkbox" id="tts-enabled">
+              <span>让小暖开口说话</span>
+            </label>
+            <div class="me-tip" style="margin-top:8px">💡 聊天页输入框左侧的 🎤 还能让你直接用语音对她说话（需授权麦克风，且在 https 环境下可用）。</div>
+          </div>
+          <div class="me-card">
+            <div class="me-title">🎀 语音音色</div>
+            <div class="me-tip" data-xn-voice>选一个你最喜欢的小暖声音，聊天和语音通话里都会用这个音色。</div>
+            <div class="chip-group" id="voice-group">
+              <button class="chip" data-voice="auto">自动</button>
+              <button class="chip" data-voice="sweet">甜心</button>
+              <button class="chip" data-voice="sister">御姐</button>
+              <button class="chip" data-voice="cute">软萌</button>
+              <button class="chip" data-voice="boy">少年</button>
             </div>
           </div>
-
-          <div class="me-sub" style="margin-top:12px">② 别在这个时间段吵我</div>
-          <div class="push-quiet">
-            <select id="push-quiet-from" class="push-select push-hour"></select>
-            <span>到</span>
-            <select id="push-quiet-to" class="push-select push-hour"></select>
-            <span>不推送</span>
-          </div>
-
-          <div class="sync-row" style="margin-top:12px">
-            <button class="me-save" id="btn-push-save">保存配置</button>
-            <button class="me-save" id="btn-push-test">发一条试试</button>
-          </div>
-          <div class="me-status" id="push-status"></div>
-          <div class="me-tip" id="push-meta"></div>
-
-          <div class="me-tip push-warn" style="margin-top:10px">
-            🔐 说清楚：存档同步是端到端加密的，服务器解不开。<b>但推送不一样</b>——
-            小暖会把「未来 3 天准备对你说的那几句话」和你填的推送凭证以明文交给服务器，
-            它才能按时发出去。这几句话本来就要进微信，藏不住。你不开这个功能，服务器就什么都拿不到。
-          </div>
-          <div class="me-tip">
-            💡 你连续 3 天不打开小暖，排期就空了，推送会自然停下——她不会对着空气自言自语。
-          </div>
-          <button class="me-save danger" id="btn-push-del" style="margin-top:8px">关闭并删除推送配置</button>
         </div>
       </div>
 
-      <div class="me-card">
-        <div class="me-title">💾 存档码（手动备份，不联网）</div>
-        <div class="me-tip">不想上云也没关系：把你们的记忆、关系和好感度打包成一段存档码，自己存着。换手机或重装后粘贴进来就能完整恢复。</div>
-        <button class="me-save" id="btn-export">导出存档码</button>
-        <button class="me-save" id="btn-copy" style="margin-top:6px">复制存档码</button>
-        <textarea id="cloud-export" class="me-textarea hidden" readonly placeholder="点上方「导出存档码」生成"></textarea>
-        <div class="me-sub" style="margin-top:10px">导入存档码</div>
-        <textarea id="cloud-import" class="me-textarea" placeholder="把别处导出的存档码粘贴到这里"></textarea>
-        <button class="me-save danger" id="btn-import" style="margin-top:6px">导入并恢复</button>
-        <div class="me-status" id="cloud-sync-status"></div>
+      <!-- 组 4 · 连接与同步（默认折叠） -->
+      <div class="me-group collapsed" data-group="sync">
+        <div class="me-group-head" role="button" tabindex="0" aria-expanded="false">
+          <span class="me-group-icon">☁️</span>
+          <span class="me-group-name">连接与同步</span>
+          <span class="me-group-count">3</span>
+          <span class="me-group-arrow" aria-hidden="true"></span>
+        </div>
+        <div class="me-group-body">
+          <div class="me-card">
+            <div class="me-title">🔔 消息提醒（系统通知）</div>
+            <div class="me-tip">开启后，当你离开页面时，小暖的想念会悄悄变成手机系统通知，跨会话也能收到 💕</div>
+            <label class="me-switch">
+              <input type="checkbox" id="notify-enabled">
+              <span>允许小暖给我发通知</span>
+            </label>
+            <button class="me-save" id="btn-notify-test">发送一条测试通知</button>
+            <div class="me-status" id="notify-status"></div>
+          </div>
+          <div class="me-card sync-card">
+            <div class="me-title">☁️ 云同步（自动·端到端加密）</div>
+            <div class="me-tip">开启后，你们的记忆会<b>先在这台设备上加密</b>再传到云端；服务器只存一串乱码，<b>没有你的口令谁也解不开</b>。换手机时填同一组「同步码 + 口令」就能整个搬过去。</div>
+            <label class="me-switch">
+              <input type="checkbox" id="sync-enable">
+              <span>启用云同步</span>
+            </label>
+
+            <div id="sync-body" class="hidden">
+              <div class="me-sub" style="margin-top:10px">① 同步码（这台设备的存档编号，换设备时要用）</div>
+              <div class="sync-row">
+                <input type="text" id="sync-token" class="sync-token" spellcheck="false" placeholder="开启后自动生成">
+                <button class="sync-mini" id="btn-sync-copy" title="复制">📋</button>
+                <button class="sync-mini" id="btn-sync-new" title="换一个">🎲</button>
+              </div>
+
+              <div class="me-sub" style="margin-top:10px">② 同步口令（加密钥匙，只存在你手机里，永不上传）</div>
+              <input type="password" id="sync-pass" placeholder="自己想一个，建议 12 位以上" autocomplete="new-password">
+              <div class="me-tip sync-warn">⚠️ 口令忘了 = 云端存档永久解不开（端到端加密的代价）。请存进备忘录或密码管理器。</div>
+
+              <label class="me-switch" style="margin-top:8px">
+                <input type="checkbox" id="sync-auto">
+                <span>自动同步（离开页面时自动上传）</span>
+              </label>
+
+              <div class="sync-row" style="margin-top:10px">
+                <button class="me-save" id="btn-sync-up">⬆️ 立即上传</button>
+                <button class="me-save" id="btn-sync-down">⬇️ 立即下载</button>
+              </div>
+              <button class="me-save danger hidden" id="btn-sync-force" style="margin-top:6px">⚡ 强制覆盖云端</button>
+              <div class="me-status" id="sync-status"></div>
+              <div class="me-tip" id="sync-meta">未开启</div>
+
+              <div class="me-sub" style="margin-top:12px">换新手机怎么做</div>
+              <div class="me-tip">新设备打开小暖 → 开启云同步 → 把上面的<b>同步码粘进去</b> → 填<b>同一个口令</b> → 点「立即下载」。</div>
+              <button class="me-save danger" id="btn-sync-del" style="margin-top:8px">删除云端存档</button>
+            </div>
+          </div>
+          <div class="me-card push-card">
+            <div class="me-title">📨 让小暖主动找你（推送到微信）</div>
+            <div class="me-tip">早安、晚安、太久没聊时的想念——不用打开网页也能收到。<b>需要先开启上面的云同步</b>，小暖用同步码认人。</div>
+
+            <div id="push-need-sync" class="me-tip push-warn">☝️ 请先开启云同步并生成同步码，再回来配置推送。</div>
+
+            <div id="push-body" class="hidden">
+              <label class="me-switch">
+                <input type="checkbox" id="push-enable">
+                <span>开启主动推送</span>
+              </label>
+
+              <div class="me-sub" style="margin-top:10px">① 选一个能收消息的地方</div>
+              <select id="push-channel" class="push-select">
+                <option value="">— 请选择 —</option>
+                <option value="wxpusher">WxPusher · 微信扫码 5 分钟（最省事）</option>
+                <option value="pushplus">PushPlus · 微信扫码 5 分钟</option>
+                <option value="serverchan">Server酱 · 微信扫码 5 分钟</option>
+                <option value="wecom_bot">企业微信群机器人 · 手机可建</option>
+                <option value="wecom_app">企业微信应用消息 · 最正规，后台是网页版</option>
+                <option value="webhook">自定义 Webhook · 给会折腾的人</option>
+              </select>
+              <div class="me-tip" id="push-howto"></div>
+
+              <div id="push-fields"></div>
+
+              <div id="push-twoway" class="hidden" style="margin-top:12px">
+                <label class="me-switch">
+                  <input type="checkbox" id="push-twoway-en">
+                  <span>开启双向聊天（在微信里和小暖正经聊）</span>
+                </label>
+                <div class="me-tip">把下面这个<b>回调 URL</b>粘到企业微信应用的「接收消息服务器」里，
+                  Token 和 EncodingAESKey 用上面填的那两个。这样你在微信里发的话小暖能听见、她回的话出现在微信。</div>
+                <input type="text" id="push-callback-url" readonly class="sync-token" style="margin-top:6px">
+                <button class="sync-mini" id="btn-push-copy-url" title="复制" style="margin-top:6px">📋 复制</button>
+                <div class="me-tip push-warn" style="margin-top:8px">
+                  ⚠️ 双向聊天时，小暖的「脑快照」（人格 + 记忆 + 好感度）会<b>明文</b>存在服务器上，让她在微信里也是「她」。
+                  介意的话别开这开关——单向主动推送不需要它。
+                </div>
+              </div>
+
+              <div class="me-sub" style="margin-top:12px">② 别在这个时间段吵我</div>
+              <div class="push-quiet">
+                <select id="push-quiet-from" class="push-select push-hour"></select>
+                <span>到</span>
+                <select id="push-quiet-to" class="push-select push-hour"></select>
+                <span>不推送</span>
+              </div>
+
+              <div class="sync-row" style="margin-top:12px">
+                <button class="me-save" id="btn-push-save">保存配置</button>
+                <button class="me-save" id="btn-push-test">发一条试试</button>
+              </div>
+              <div class="me-status" id="push-status"></div>
+              <div class="me-tip" id="push-meta"></div>
+
+              <div class="me-tip push-warn" style="margin-top:10px">
+                🔐 说清楚：存档同步是端到端加密的，服务器解不开。<b>但推送不一样</b>——
+                小暖会把「未来 3 天准备对你说的那几句话」和你填的推送凭证以明文交给服务器，
+                它才能按时发出去。这几句话本来就要进微信，藏不住。你不开这个功能，服务器就什么都拿不到。
+              </div>
+              <div class="me-tip">
+                💡 你连续 3 天不打开小暖，排期就空了，推送会自然停下——她不会对着空气自言自语。
+              </div>
+              <button class="me-save danger" id="btn-push-del" style="margin-top:8px">关闭并删除推送配置</button>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div class="me-card danger">
-        <div class="me-title">🗑 重新开始</div>
-        <div class="me-tip">清除所有聊天记录与好感度，回到初次相遇的那一天。</div>
-        <button class="me-save danger" id="btn-reset">清除全部数据</button>
+      <!-- 组 5 · 数据与隐私（默认折叠） -->
+      <div class="me-group collapsed" data-group="data">
+        <div class="me-group-head" role="button" tabindex="0" aria-expanded="false">
+          <span class="me-group-icon">🗄</span>
+          <span class="me-group-name">数据与隐私</span>
+          <span class="me-group-count">2</span>
+          <span class="me-group-arrow" aria-hidden="true"></span>
+        </div>
+        <div class="me-group-body">
+          <div class="me-card">
+            <div class="me-title">💾 存档码（手动备份，不联网）</div>
+            <div class="me-tip">不想上云也没关系：把你们的记忆、关系和好感度打包成一段存档码，自己存着。换手机或重装后粘贴进来就能完整恢复。</div>
+            <button class="me-save" id="btn-export">导出存档码</button>
+            <button class="me-save" id="btn-copy" style="margin-top:6px">复制存档码</button>
+            <textarea id="cloud-export" class="me-textarea hidden" readonly placeholder="点上方「导出存档码」生成"></textarea>
+            <div class="me-sub" style="margin-top:10px">导入存档码</div>
+            <textarea id="cloud-import" class="me-textarea" placeholder="把别处导出的存档码粘贴到这里"></textarea>
+            <button class="me-save danger" id="btn-import" style="margin-top:6px">导入并恢复</button>
+            <div class="me-status" id="cloud-sync-status"></div>
+          </div>
+          <div class="me-card danger">
+            <div class="me-title">🗑 重新开始</div>
+            <div class="me-tip">清除所有聊天记录与好感度，回到初次相遇的那一天。</div>
+            <button class="me-save danger" id="btn-reset">清除全部数据</button>
+          </div>
+        </div>
       </div>
-      <div class="me-foot">小暖 v1.2 · 用爱发电 💕</div>
+
+      <div class="me-foot">心屿 v1.2 · 用爱发电 💕</div>
     </main>
   </section>
 
