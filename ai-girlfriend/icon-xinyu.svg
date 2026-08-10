@@ -1,35 +1,179 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Xinyu app icon: chibi anime style. No width/height attrs so cairosvg CLI -W/-H can override. -->
+  <!-- Rasterizer target: cairosvg 2.8.2. Only linearGradient, basic shapes, path, transform, stroke.
+       Avoid filter, radialGradient, mask, clip-path, foreignObject (unsafe under cairosvg). -->
+  <!-- Background rect fills 512x512 with rx=0 to guarantee opaque=true (no iOS black corners). -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <!-- 品牌底色：粉(#ffd9e8) → 淡紫过渡 → 浅蓝(#cfe6ff)，"心的岛屿"意象。
+         中间补一档淡紫，避免粉→蓝直连出现灰浊断层带。 -->
+    <linearGradient id="bg" x1="0" y1="0" x2="0.85" y2="1">
       <stop offset="0" stop-color="#ffd9e8"/>
-      <stop offset="0.55" stop-color="#ffc3da"/>
+      <stop offset="0.42" stop-color="#ffc9e3"/>
+      <stop offset="0.74" stop-color="#e7dcf6"/>
       <stop offset="1" stop-color="#cfe6ff"/>
     </linearGradient>
-    <radialGradient id="cheek" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#ff8fb0" stop-opacity="0.85"/>
-      <stop offset="1" stop-color="#ff8fb0" stop-opacity="0"/>
-    </radialGradient>
+    <!-- 头发：暖调深梅棕，与粉蓝底形成高对比剪影，保证 192px 下轮廓可辨 -->
+    <linearGradient id="hairBack" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6d4557"/>
+      <stop offset="1" stop-color="#452c3c"/>
+    </linearGradient>
+    <linearGradient id="hairFront" x1="0.1" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#8a5a6d"/>
+      <stop offset="0.55" stop-color="#6d4557"/>
+      <stop offset="1" stop-color="#553549"/>
+    </linearGradient>
+    <!-- 发丝高光带（用线性渐变模拟弧形反光，替代 radialGradient） -->
+    <linearGradient id="hairShine" x1="0" y1="0" x2="1" y2="0.3">
+      <stop offset="0" stop-color="#c98fa3" stop-opacity="0"/>
+      <stop offset="0.35" stop-color="#d79cb0" stop-opacity="0.75"/>
+      <stop offset="0.65" stop-color="#d79cb0" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#c98fa3" stop-opacity="0"/>
+    </linearGradient>
+    <!-- 肤色：上亮下暖，制造柔和体积感 -->
+    <linearGradient id="skin" x1="0.3" y1="0" x2="0.7" y2="1">
+      <stop offset="0" stop-color="#fff0e4"/>
+      <stop offset="0.6" stop-color="#ffe2ce"/>
+      <stop offset="1" stop-color="#fbd2ba"/>
+    </linearGradient>
+    <!-- 虹膜：上深下亮的经典动漫瞳（呼应底色的蓝） -->
+    <linearGradient id="iris" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#33245c"/>
+      <stop offset="0.45" stop-color="#4f57ad"/>
+      <stop offset="0.8" stop-color="#7fb4ea"/>
+      <stop offset="1" stop-color="#b6dcfa"/>
+    </linearGradient>
+    <!-- 衣领 -->
+    <linearGradient id="cloth" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e3eeff"/>
+    </linearGradient>
+    <!-- 爱心发夹：品牌粉 #ff5b8a 主色 + 高光侧 -->
+    <linearGradient id="heartPin" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#ff8fb4"/>
+      <stop offset="0.45" stop-color="#ff5b8a"/>
+      <stop offset="1" stop-color="#e8376e"/>
+    </linearGradient>
   </defs>
+
+  <!-- ① 背景：必须铺满且不透明 -->
   <rect x="0" y="0" width="512" height="512" rx="0" fill="url(#bg)"/>
-  <path d="M140 132 q14 -20 28 0 q14 -20 28 0 q0 20 -28 38 q-28 -18 -28 -38 z" fill="#ffffff" opacity="0.7"/>
-  <path d="M330 110 q10 -15 20 0 q10 -15 20 0 q0 15 -20 28 q-20 -13 -20 -28 z" fill="#ffffff" opacity="0.55"/>
-  <path d="M156 250 q-6 -150 100 -150 q106 0 100 150 q0 70 -22 140 q-78 36 -156 0 q-22 -70 -22 -140 z" fill="#f6bfd6"/>
-  <path d="M132 250 q-16 86 10 158 q-34 -12 -44 -76 q-8 -74 34 -82 z" fill="#eea9c8"/>
-  <path d="M380 250 q16 86 -10 158 q34 -12 44 -76 q8 -74 -34 -82 z" fill="#eea9c8"/>
-  <path d="M150 460 q6 -86 106 -86 q100 0 106 86 z" fill="#ffffff" opacity="0.96"/>
-  <rect x="234" y="372" width="44" height="64" rx="20" fill="#ffe2cf"/>
-  <ellipse cx="256" cy="266" rx="116" ry="130" fill="#ffe7d4"/>
-  <path d="M150 232 q14 -118 106 -118 q92 0 106 118 q-26 -42 -54 -38 q-12 -32 -52 -28 q-40 -4 -52 28 q-28 -4 -54 38 z" fill="#f6bfd6"/>
-  <g>
-    <ellipse cx="210" cy="270" rx="21" ry="27" fill="#4b3654"/>
-    <ellipse cx="302" cy="270" rx="21" ry="27" fill="#4b3654"/>
-    <circle cx="218" cy="262" r="7.5" fill="#ffffff"/>
-    <circle cx="310" cy="262" r="7.5" fill="#ffffff"/>
-    <circle cx="205" cy="278" r="3.5" fill="#ffffff" opacity="0.75"/>
-    <circle cx="297" cy="278" r="3.5" fill="#ffffff" opacity="0.75"/>
+
+  <!-- ② 背景装饰：光晕"岛"、闪光、漂浮小爱心 -->
+  <circle cx="256" cy="248" r="206" fill="#ffffff" opacity="0.20"/>
+  <circle cx="256" cy="248" r="206" fill="none" stroke="#ffffff" stroke-width="5" opacity="0.34"/>
+  <circle cx="86" cy="404" r="30" fill="#ffffff" opacity="0.22"/>
+  <circle cx="438" cy="386" r="22" fill="#ffffff" opacity="0.20"/>
+  <g fill="#ffffff" opacity="0.82">
+    <path transform="translate(84,116) scale(0.92)" d="M 0 -20 C 2.5 -7 7 -2.5 20 0 C 7 2.5 2.5 7 0 20 C -2.5 7 -7 2.5 -20 0 C -7 -2.5 -2.5 -7 0 -20 Z"/>
+    <path transform="translate(436,104) scale(0.66)" d="M 0 -20 C 2.5 -7 7 -2.5 20 0 C 7 2.5 2.5 7 0 20 C -2.5 7 -7 2.5 -20 0 C -7 -2.5 -2.5 -7 0 -20 Z"/>
+    <path transform="translate(52,268) scale(0.46)" d="M 0 -20 C 2.5 -7 7 -2.5 20 0 C 7 2.5 2.5 7 0 20 C -2.5 7 -7 2.5 -20 0 C -7 -2.5 -2.5 -7 0 -20 Z"/>
   </g>
-  <ellipse cx="178" cy="310" rx="25" ry="15" fill="url(#cheek)"/>
-  <ellipse cx="334" cy="310" rx="25" ry="15" fill="url(#cheek)"/>
-  <path d="M238 320 q18 16 36 0" stroke="#d98aa0" stroke-width="5" fill="none" stroke-linecap="round"/>
-  <path d="M332 206 q11 -15 22 0 q11 -15 22 0 q0 15 -22 28 q-22 -13 -22 -28 z" fill="#ff5b8a"/>
+  <!-- 漂浮小爱心（点缀） -->
+  <path transform="translate(444,192) scale(0.34)" fill="#ff5b8a" opacity="0.88"
+        d="M 0 40 C -6 32 -46 8 -46 -14 C -46 -30 -34 -40 -21 -40 C -11 -40 -4 -34 0 -27 C 4 -34 11 -40 21 -40 C 34 -40 46 -30 46 -14 C 46 8 6 32 0 40 Z"/>
+  <path transform="translate(66,196) scale(0.24)" fill="#ffffff" opacity="0.7"
+        d="M 0 40 C -6 32 -46 8 -46 -14 C -46 -30 -34 -40 -21 -40 C -11 -40 -4 -34 0 -27 C 4 -34 11 -40 21 -40 C 34 -40 46 -30 46 -14 C 46 8 6 32 0 40 Z"/>
+
+  <!-- ③ 后发（整齐短发轮廓，位于人物最底层） -->
+  <path fill="url(#hairBack)"
+        d="M 256 66 C 142 66 92 164 100 266 C 104 344 86 412 78 462
+           C 130 478 196 468 220 448 L 292 448 C 316 468 382 478 434 462
+           C 426 412 408 344 412 266 C 420 164 370 66 256 66 Z"/>
+
+  <!-- ④ 脖颈（在脸与衣领之下） -->
+  <path fill="#f4c6ad" d="M 226 344 h 60 v 50 a 30 30 0 0 1 -60 0 Z"/>
+
+  <!-- ⑤ 肩与衣领 -->
+  <path fill="url(#cloth)"
+        d="M 90 512 C 94 450 152 414 212 402 C 232 418 280 418 300 402
+           C 360 414 418 450 422 512 Z"/>
+  <path fill="none" stroke="#ff5b8a" stroke-width="9" stroke-linecap="round"
+        d="M 212 402 C 232 420 280 420 300 402"/>
+
+  <!-- ⑥ 脸（下巴收窄的动漫脸型，描一层浅色轮廓提升小尺寸辨识度） -->
+  <path fill="url(#skin)" stroke="#f3b89e" stroke-width="3"
+        d="M 140 236 C 140 152 178 106 256 106 C 334 106 372 152 372 236
+           C 372 306 342 356 298 384 C 282 394 230 394 214 384
+           C 170 356 140 306 140 236 Z"/>
+
+  <!-- ⑦ 腮红：三层同心椭圆叠加，模拟柔和径向晕染（不使用 radialGradient/filter） -->
+  <g fill="#ff8fb0">
+    <ellipse cx="184" cy="330" rx="27" ry="15" opacity="0.18"/>
+    <ellipse cx="184" cy="330" rx="21" ry="11.5" opacity="0.20"/>
+    <ellipse cx="184" cy="330" rx="14" ry="7.5" opacity="0.22"/>
+    <ellipse cx="328" cy="330" rx="27" ry="15" opacity="0.18"/>
+    <ellipse cx="328" cy="330" rx="21" ry="11.5" opacity="0.20"/>
+    <ellipse cx="328" cy="330" rx="14" ry="7.5" opacity="0.22"/>
+  </g>
+
+  <!-- ⑧ 眼睛：大而有神，瞳孔分层（眼白 → 虹膜渐变 → 瞳仁 → 双高光 → 下缘反光） -->
+  <g>
+    <!-- 左眼 -->
+    <ellipse cx="206" cy="292" rx="32" ry="38" fill="#ffffff"/>
+    <ellipse cx="206" cy="296" rx="26" ry="32" fill="url(#iris)"/>
+    <ellipse cx="206" cy="300" rx="12.5" ry="17" fill="#241a3a"/>
+    <ellipse cx="206" cy="318" rx="13" ry="6" fill="#cfeaff" opacity="0.75"/>
+    <circle cx="194" cy="278" r="10.5" fill="#ffffff"/>
+    <circle cx="217" cy="311" r="5.5" fill="#ffffff" opacity="0.9"/>
+    <path fill="none" stroke="#3b2440" stroke-width="12" stroke-linecap="round"
+          d="M 174 292 C 174 254 238 254 238 292"/>
+    <path fill="none" stroke="#3b2440" stroke-width="9" stroke-linecap="round" d="M 236 274 L 249 262"/>
+    <path fill="none" stroke="#c58fa2" stroke-width="4" stroke-linecap="round" opacity="0.6"
+          d="M 182 320 C 194 331 218 331 230 320"/>
+    <!-- 右眼 -->
+    <ellipse cx="306" cy="292" rx="32" ry="38" fill="#ffffff"/>
+    <ellipse cx="306" cy="296" rx="26" ry="32" fill="url(#iris)"/>
+    <ellipse cx="306" cy="300" rx="12.5" ry="17" fill="#241a3a"/>
+    <ellipse cx="306" cy="318" rx="13" ry="6" fill="#cfeaff" opacity="0.75"/>
+    <circle cx="294" cy="278" r="10.5" fill="#ffffff"/>
+    <circle cx="317" cy="311" r="5.5" fill="#ffffff" opacity="0.9"/>
+    <path fill="none" stroke="#3b2440" stroke-width="12" stroke-linecap="round"
+          d="M 274 292 C 274 254 338 254 338 292"/>
+    <path fill="none" stroke="#3b2440" stroke-width="9" stroke-linecap="round" d="M 276 274 L 263 262"/>
+    <path fill="none" stroke="#c58fa2" stroke-width="4" stroke-linecap="round" opacity="0.6"
+          d="M 282 320 C 294 331 318 331 330 320"/>
+  </g>
+
+  <!-- ⑨ 小巧鼻 + 浅笑嘴 -->
+  <path fill="none" stroke="#e9a98f" stroke-width="4.5" stroke-linecap="round"
+        d="M 250 316 C 253 324 259 324 262 318"/>
+  <path fill="#d4536f" d="M 238 344 C 246 365 266 365 274 344 C 262 351 250 351 238 344 Z"/>
+
+  <!-- ⑩ 刘海（覆盖额头上缘，中分留白露出额头，保证眉毛可见） -->
+  <path fill="url(#hairFront)"
+        d="M 134 240 C 126 146 180 84 256 84 C 332 84 386 146 378 240
+           C 370 206 354 180 334 166 C 334 194 324 214 306 226
+           C 312 184 296 152 268 132 C 262 158 258 174 256 190
+           C 254 174 250 158 244 132 C 216 152 200 184 206 226
+           C 188 214 178 194 178 166 C 158 180 142 206 134 240 Z"/>
+  <!-- 发丝高光带 -->
+  <path fill="url(#hairShine)"
+        d="M 168 158 C 196 118 232 100 282 102 C 258 116 236 136 224 162
+           C 202 156 184 154 168 158 Z"/>
+
+  <!-- ⑪ 眉毛（画在刘海之上；微弧上扬，配浓密长睫毛显温柔可爱，避免压眼） -->
+  <path fill="none" stroke="#5a3a4b" stroke-width="4.5" stroke-linecap="round"
+        d="M 180 234 C 196 226 222 226 234 234"/>
+  <path fill="none" stroke="#5a3a4b" stroke-width="4.5" stroke-linecap="round"
+        d="M 332 234 C 316 226 290 226 278 234"/>
+  <!-- 眉下方细眼影线，柔化眉毛造成的"凶"感 -->
+  <path fill="none" stroke="#e08aa6" stroke-width="3.5" stroke-linecap="round" opacity="0.55"
+        d="M 178 250 C 196 244 218 244 232 250"/>
+  <path fill="none" stroke="#e08aa6" stroke-width="3.5" stroke-linecap="round" opacity="0.55"
+        d="M 334 250 C 316 244 294 244 280 250"/>
+
+  <!-- ⑫ 面颊两侧前发（框住脸，增强动漫感） -->
+  <path fill="url(#hairFront)"
+        d="M 150 220 C 136 288 140 362 154 424 C 176 418 194 406 202 390
+           C 186 336 182 274 188 224 Z"/>
+  <path fill="url(#hairFront)"
+        d="M 362 220 C 376 288 372 362 358 424 C 336 418 318 406 310 390
+           C 326 336 330 274 324 224 Z"/>
+
+  <!-- ⑬ 爱心发夹（品牌符号 #ff5b8a，别在右侧刘海上，必须清晰可见） -->
+  <g transform="translate(332,146) rotate(14)">
+    <path transform="scale(0.6)" fill="url(#heartPin)" stroke="#ffffff" stroke-width="6"
+          d="M 0 40 C -6 32 -46 8 -46 -14 C -46 -30 -34 -40 -21 -40 C -11 -40 -4 -34 0 -27 C 4 -34 11 -40 21 -40 C 34 -40 46 -30 46 -14 C 46 8 6 32 0 40 Z"/>
+    <ellipse cx="-12" cy="-9" rx="7" ry="5" fill="#ffffff" opacity="0.72" transform="rotate(-32)"/>
+  </g>
 </svg>
