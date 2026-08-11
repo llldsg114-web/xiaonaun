@@ -1,6 +1,6 @@
 {
   "//": "TD 真相源：被缓存资产内容 ↔ sw.js CACHE 键。由 qa-v21-sw-guard.js 只读校验。重算程序见 docs/CHANGELOG.md v21 条目。",
-  "cacheVersion": "xiaonuan-v30",
+  "cacheVersion": "xiaonuan-v31",
   "cacheVersionNote": "待发布键。下方 assets 的指纹隶属于它。改任一被缓存资产后必须重算 assets；若该键已发布过，还必须先升键。",
   "released": {
     "cacheVersion": "xiaonuan-v23",
@@ -34,7 +34,7 @@
     "/texture.js": "dad00580ae828b49d1ea9915c64c3ec5683d18545bc5234af4ed8e8ddb4ee7eb",
     "/contingency.js": "38aeafdc347a291a65db4d6d1f5e623e7613a908ff189552cc2de776dfaa6093",
     "/manifest.json": "d04ea30a718af131638cc2fa62a7366b6526219c81b219c4d94b084d57198227",
-    "/icon-192.png": "66ccf758b5241f780a72108c8f288f9e3842152e951501480b25f317f1f3a0c7",
-    "/icon-512.png": "c2589e9b433afaf193922bc752d1cc077020e03879058a673f720c92d61f5fac"
+    "/icon-192.png": "36edd4d8bbe08b34c00ebc7d58ba9518fb703e045d6a054436fc24e7578c8a2f",
+    "/icon-512.png": "74ee8bf6b56ff7d39cc944e0ad4c760a49c024bda669312c9444ee5c663a1ddf"
   }
 }
