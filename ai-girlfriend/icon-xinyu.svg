@@ -1,55 +1,56 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- 心屿 APP 图标 · v7 暖色化 / 色彩丰富重制（全量重写 v6）。
-       用户否决 v6（冷蓝紫 + 冷描边，读感「太黑/太冷/不温馨」）。本轮改用暖亮多彩调色板，
-       保留「APP 图标（符号化品牌标，非人物）」概念：心(心) + 岛(屿) 仍在，无人物无文字。
-       结构：① 暖三色不透明渐变底 + 极淡暖白光晕 → ② 居中暖白心形（含上左玻璃高光）
-       → ③ 心形内含多彩屿小场景：暖黄太阳(含柔光晕) / 清新 aqua 水波 / 友好绿丘 / 小白云 / 珊瑚粉 sparkle。
-       全程仅浅色友好描边，无黑无冷色调。
+  <!-- 心屿 APP 图标 · v8 全浅粉彩重制（全量重写 v7）。
+       用户仍说「不要黑色」：v7 虽无字面黑色，但其绿丘(中饱和偏暗绿) 与 aqua 水波(偏暗青) 中等饱和偏暗，
+       在小尺寸读感发「黑/暗」。本轮把每个元素都改成高亮低饱和浅粉彩，整体仍多彩但通透轻盈。
+       构图不变（心+太阳+水波+屿+云+sparkle），仅把颜色全部提亮为 pastel：
+       背景暖三色渐变(#ffe9d6 杏→#ffd9e6 玫瑰→#fff4d6 奶油) / 暖白心形(#ffffff→#fff6fa,描边 #ffdce6)
+       / 心形内多彩屿小场景（暖黄太阳 #fff1bf→#ffe9a0 / 浅 aqua 水波 #cdeef0→#b3e2e8 / 浅薄荷绿丘 #d9efc2→#c2e3a6
+       / 小白云 / 珊瑚粉 sparkle #ffc6d2）。所有描边同为浅粉彩。无人物无文字无暗色。
        cairosvg 2.8.2 约束：仅 linearGradient，禁 filter / radialGradient / mask / clip-path / foreignObject。
        根 <svg> 不写 width/height，交给 CLI -W/-H。背景 rect 铺满 512×512 且 rx=0 → 不透明（防 iOS 圆角黑边）。 -->
   <defs>
-    <!-- 背景：暖三色渐变 杏(#ffd9a8) → 柔玫瑰(#ffb3c6) → 奶油(#fff0c2) -->
+    <!-- 背景：浅粉彩三色渐变 杏(#ffe9d6) → 柔玫瑰(#ffd9e6) → 奶油(#fff4d6) -->
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffd9a8"/>
-      <stop offset="0.5" stop-color="#ffb3c6"/>
-      <stop offset="1" stop-color="#fff0c2"/>
+      <stop offset="0" stop-color="#ffe9d6"/>
+      <stop offset="0.5" stop-color="#ffd9e6"/>
+      <stop offset="1" stop-color="#fff4d6"/>
     </linearGradient>
-    <!-- 心形：暖白 白(#ffffff) → 极淡暖粉(#fff3f6) -->
+    <!-- 心形：暖白 白(#ffffff) → 极淡粉(#fff6fa) -->
     <linearGradient id="heartFill" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#fff3f6"/>
+      <stop offset="1" stop-color="#fff6fa"/>
     </linearGradient>
     <!-- 心形高光：白(不透明) → 透明，上左 lobe 的玻璃质感 -->
     <linearGradient id="shine" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#ffffff" stop-opacity="0.9"/>
       <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
-    <!-- 太阳：暖黄 #ffe27a → #ffcf4d -->
+    <!-- 太阳：浅暖黄 #fff1bf → #ffe9a0 -->
     <linearGradient id="sunGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffe27a"/>
-      <stop offset="1" stop-color="#ffcf4d"/>
+      <stop offset="0" stop-color="#fff1bf"/>
+      <stop offset="1" stop-color="#ffe9a0"/>
     </linearGradient>
-    <!-- 水波：清新 aqua #aee6e0 → #84d3cc（非冷蓝） -->
+    <!-- 水波：浅 aqua #cdeef0 → #b3e2e8 -->
     <linearGradient id="waterGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#aee6e0"/>
-      <stop offset="1" stop-color="#84d3cc"/>
+      <stop offset="0" stop-color="#cdeef0"/>
+      <stop offset="1" stop-color="#b3e2e8"/>
     </linearGradient>
-    <!-- 屿（绿丘）：友好绿 #bfe39a → #8fc96e -->
+    <!-- 屿（绿丘）：浅薄荷绿 #d9efc2 → #c2e3a6 -->
     <linearGradient id="islandGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#bfe39a"/>
-      <stop offset="1" stop-color="#8fc96e"/>
+      <stop offset="0" stop-color="#d9efc2"/>
+      <stop offset="1" stop-color="#c2e3a6"/>
     </linearGradient>
   </defs>
 
-  <!-- ① 背景：铺满且不透明（暖三色渐变） -->
+  <!-- ① 背景：铺满且不透明（浅粉彩三色渐变） -->
   <rect x="0" y="0" width="512" height="512" rx="0" fill="url(#bg)"/>
 
-  <!-- ② 两枚极淡暖白光晕圆，只做空气感，保持干净 -->
-  <circle cx="256" cy="250" r="232" fill="#fff3e0" opacity="0.12"/>
-  <circle cx="128" cy="108" r="66" fill="#fff3e0" opacity="0.16"/>
+  <!-- ② 两枚极淡纯白光晕圆，只做空气感，保持干净 -->
+  <circle cx="256" cy="250" r="232" fill="#ffffff" opacity="0.16"/>
+  <circle cx="128" cy="108" r="66" fill="#ffffff" opacity="0.20"/>
 
-  <!-- ③ 暖白心形（心）：大且居中，浅暖描边（非黑） -->
-  <path fill="url(#heartFill)" stroke="#ffd9e2" stroke-width="2"
+  <!-- ③ 暖白心形（心）：大且居中，浅暖粉描边（非黑） -->
+  <path fill="url(#heartFill)" stroke="#ffdce6" stroke-width="2"
         d="M 256 396
            C 150 316 96 256 96 201
            C 96 154 132 126 170 126
@@ -58,12 +59,12 @@
            C 380 126 416 154 416 201
            C 416 256 362 316 256 396 Z"/>
 
-  <!-- ④ 太阳：暖黄圆 + 柔光晕，位于心形右上叶（温暖明亮） -->
-  <circle cx="330" cy="176" r="44" fill="#ffe9a8" opacity="0.45"/>
-  <circle cx="330" cy="176" r="30" fill="url(#sunGrad)" stroke="#ffd24d" stroke-width="1.5"/>
+  <!-- ④ 太阳：浅暖黄圆 + 柔光晕，位于心形右上叶（温暖明亮） -->
+  <circle cx="330" cy="176" r="44" fill="#fff3c8" opacity="0.5"/>
+  <circle cx="330" cy="176" r="30" fill="url(#sunGrad)" stroke="#ffe79a" stroke-width="1.5"/>
 
   <!-- ⑤ 珊瑚粉 4 角 sparkle，靠近太阳作暖色点缀 -->
-  <path fill="#ff9eb5" stroke="#ff8aa5" stroke-width="0.8"
+  <path fill="#ffc6d2" stroke="#ffb3c4" stroke-width="0.8"
         d="M 372 135
            Q 372 150 387 150
            Q 372 150 372 165
@@ -71,11 +72,11 @@
            Q 372 150 372 135 Z"/>
 
   <!-- ⑥ 小白云（两枚交叠椭圆），漂在水面上方 -->
-  <ellipse cx="192" cy="252" rx="30" ry="17" fill="#ffffff" stroke="#ffe3ea" stroke-width="1.2"/>
-  <ellipse cx="220" cy="248" rx="22" ry="14" fill="#ffffff" stroke="#ffe3ea" stroke-width="1.2"/>
+  <ellipse cx="192" cy="252" rx="30" ry="17" fill="#ffffff" stroke="#ffeef2" stroke-width="1.2"/>
+  <ellipse cx="220" cy="248" rx="22" ry="14" fill="#ffffff" stroke="#ffeef2" stroke-width="1.2"/>
 
-  <!-- ⑦ 水波：清新 aqua 圆润波带（屿下半部） -->
-  <path fill="url(#waterGrad)" stroke="#7fc8c0" stroke-width="1.5"
+  <!-- ⑦ 水波：浅 aqua 圆润波带（屿下半部） -->
+  <path fill="url(#waterGrad)" stroke="#c4e9ec" stroke-width="1.5"
         d="M 150 292
            C 172 300 196 286 220 292
            C 242 298 270 288 296 292
@@ -84,20 +85,20 @@
            C 282 352 230 352 210 346
            C 180 338 156 318 150 292 Z"/>
   <!-- 水面浅色波纹高光（仅描边，无滤镜） -->
-  <path fill="none" stroke="#c7f0ea" stroke-width="2" stroke-linecap="round"
+  <path fill="none" stroke="#e2f6f8" stroke-width="2" stroke-linecap="round"
         d="M 168 308
            C 188 314 206 304 226 308
            C 248 313 272 304 296 308
            C 316 312 336 305 352 308"/>
 
-  <!-- ⑧ 屿：友好绿丘，从水中升起，居中 -->
-  <path fill="url(#islandGrad)" stroke="#7bbf63" stroke-width="1.5"
+  <!-- ⑧ 屿：浅薄荷绿丘，从水中升起，居中 -->
+  <path fill="url(#islandGrad)" stroke="#cfe9b4" stroke-width="1.5"
         d="M 198 320
            C 198 296 220 282 256 282
            C 292 282 314 296 314 320
            C 296 326 216 326 198 320 Z"/>
   <!-- 绿丘柔和高光 -->
-  <ellipse cx="240" cy="296" rx="20" ry="10" fill="#d4efb4" opacity="0.6"/>
+  <ellipse cx="240" cy="296" rx="20" ry="10" fill="#e8f6d6" opacity="0.6"/>
 
   <!-- ⑨ 心形高光：上左 lobe 玻璃质感（最后绘制，叠在最上） -->
   <ellipse cx="190" cy="176" rx="40" ry="50" transform="rotate(-20 190 176)" fill="url(#shine)"/>
