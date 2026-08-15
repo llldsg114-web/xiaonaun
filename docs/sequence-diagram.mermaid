@@ -1,0 +1,60 @@
+sequenceDiagram
+    autonumber
+    participant D as 对话层(前端)
+    participant S as McpServer (Streamable HTTP)
+    participant A as TokenMiddleware
+    participant SM as StateMachine
+    participant ID as IdempotencyStore
+    participant MS as MemoryStore
+    participant BR as Bridge
+    participant EB as EnvelopeBuilder
+    participant AL as AuditLog
+
+    Note over D,AL: 场景一：xinchao_context（只读，≈2200 token 信封）
+    D->>S: xinchao_context {session_id...}
+    S->>A: verify(Bearer, scope="read")
+    A-->>S: AuthResult{ok:true}
+    S->>SM: getState()
+    SM-->>S: StateVector(12维)
+    S->>MS: retrieve(session_id, vector, topK)
+    MS-->>S: EmotionalMemory[]
+    S->>EB: build(session_id, vector, memories)
+    EB->>EB: estimateTokens + trimMemories(保底≤2200)
+    EB-->>S: ContextEnvelope
+    S->>BR: filterForUser(envelope)
+    BR-->>S: 已过滤信封(绝不含量 dreams/longing/autonomous)
+    S->>AL: record(read access)
+    S-->>D: ContextEnvelope(JSON)
+
+    Note over D,AL: 场景二：xinchao_event（写入 + 幂等）
+    D->>S: xinchao_event {event_id, type, payload, ...}
+    S->>A: verify(Bearer, scope="write")
+    A-->>S: AuthResult{ok:true}
+    S->>S: 校验 type∈三类 & event_id 存在
+    alt 非法（type 非三类 / event_id 缺失）
+        S-->>D: {accepted:false, code:ERR_INVALID_EVENT_TYPE | ERR_MISSING_EVENT_ID}
+    else 合法
+        S->>ID: seen(event_id)?
+        alt 已存在（幂等命中）
+            ID-->>S: 历史结果
+            S-->>D: {accepted:true, idempotent:true, applied_state_delta:{}, envelope_version}
+        else 新事件
+            S->>SM: applyConversationEvent(event)
+            SM-->>S: StateDelta(单事件增量≤上限, 裁剪[0,1])
+            S->>MS: 若为情感片段则 writeMemory()
+            S->>ID: mark(event_id, delta)
+            S->>AL: record(write access)
+            S-->>D: {accepted:true, idempotent:false, applied_state_delta, envelope_version}
+        end
+    end
+
+    Note over D,AL: 场景三：xinchao_handoff_note（≤1200字符, 72h TTL）
+    D->>S: xinchao_handoff_note {note_id, content, ttl_seconds, from, to}
+    S->>S: 校验 chars≤1200 & ttl=259200
+    alt 超长
+        S-->>D: {stored:false, code:ERR_NOTE_TOO_LONG}
+    else 合法
+        S->>MS: writeHandoff(note)
+        S->>AL: record(write access)
+        S-->>D: {stored:true, ttl_seconds, expires_at, chars}
+    end
