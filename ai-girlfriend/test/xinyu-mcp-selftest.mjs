@@ -66,6 +66,15 @@ async function main() {
   eq("subject = 设备 id", store.getSubject(), d1);
   store.clear();
   eq("clear 后无令牌", store.getAccessToken(), "");
+  // 续期相关（P1-2）：refresh_token 读取 / 清除 access / 续期写回
+  store.setTokens({ access_token: "at-r", refresh_token: "rt-r", expires_at: Date.now() + 3600_000, token_type: "Bearer" });
+  eq("getRefreshToken 读取", store.getRefreshToken(), "rt-r");
+  store.clearAccessToken();
+  eq("clearAccessToken 后无 access", store.getAccessToken(), "");
+  ok("clearAccessToken 保留 refresh", store.getRefreshToken() === "rt-r");
+  store.refresh({ access_token: "at-r2", refresh_token: "rt-r2", expires_in: 3600 });
+  eq("refresh 写回新 access", store.getAccessToken(), "at-r2");
+  ok("refresh 由 expires_in 推导 expires_at", typeof store.load().expires_at === "number" && store.load().expires_at > Date.now());
 
   console.log("\n[mcp-client] crc32 / event_id / summarize");
   eq("crc32 标准校验值 (123456789)", crc32("123456789"), 0xcbf43926 >>> 0);
@@ -81,23 +90,77 @@ async function main() {
   ok("event_id 格式合规", /^xinyu-[\w-]+-[0-9a-z]+-[0-9a-z]+$/.test(eid1));
   ok("同内容同会话 event_id 稳定（冻结时钟）", eid1 === eid2);
   ok("不同内容 event_id 不同", mc._stableEventId("不同", sid) !== eid1);
-  // summarize：提取最强 2-3 维 + narrative
+  // summarize：从 state_vector 取最强 2-3 维 + narrative（D3 信封字段对齐）
   const env = {
-    dimensions: [
-      { name: "affection", value: 0.91 },
-      { name: "calm", value: -0.42 },
-      { name: "curiosity", value: 0.13 },
-      { name: "jealousy", value: 0.02 },
-    ],
+    state_vector: {
+      possess: 0.78, monitor: 0.71, crave: 0.63, share: 0.55, libido: 0.10,
+      curiosity: 0.40, boredom: 0.05, social: 0.20, duty: 0.30,
+      reflection: 0.12, grieve: 0.08, anger: 0.02,
+    },
     narrative: "她今天整体很黏你，但有点小醋意。",
   };
   const frag = mc.summarize(env);
-  ok("summarize 含最强维 affection", frag.includes("affection: 0.91"));
-  ok("summarize 含次强维 calm", frag.includes("calm: -0.42"));
-  ok("summarize 不含最弱维 jealousy", !frag.includes("jealousy"));
-  ok("summarize 含 narrative", frag.includes("她今天整体很黏你"));
+  // 最强 3 维：possess .78 / monitor .71 / crave .63（share .55 为第 4 强，不入 top3）
+  ok("summarize 含最强维 想她占有(0.78)", frag.includes("想她占有(0.78)"));
+  ok("summarize 含 惦记她(0.71)", frag.includes("惦记她(0.71)"));
+  ok("summarize 含 馋她黏着(0.63)", frag.includes("馋她黏着(0.63)"));
+  ok("summarize 不含第4强 想和她分享", !frag.includes("想和她分享"));
+  ok("summarize 标签映射正确（非原始键名）", !frag.includes("possess") && !frag.includes("monitor"));
+  ok("summarize 含 narrative 正文", frag.includes("她今天整体很黏你，但有点小醋意"));
+  ok("summarize 结构 = narrative。她此刻最强烈的心绪是：<d1>、<d2>、<d3>。",
+    frag === "她今天整体很黏你，但有点小醋意。她此刻最强烈的心绪是：想她占有(0.78)、惦记她(0.71)、馋她黏着(0.63)。");
   eq("buildFragment 等价 summarize", mc.buildFragment(env), frag);
+  // 空 state_vector → 仅 narrative（不报错）
+  const envEmptyVec = { narrative: "她只是安静地陪着你。" };
+  eq("空 state_vector 仅 narrative", mc.summarize(envEmptyVec), "她只是安静地陪着你。");
+  // 无 narrative 仅维度 → 输出「她此刻最强烈的心绪是：…」
+  const envNoNarr = { state_vector: { anger: 0.90, calmx: 0.10 } };
+  ok("仅维度时输出 她此刻最强烈的心绪是：", mc.summarize(envNoNarr).startsWith("她此刻最强烈的心绪是："));
+  // 兼容旧 dimensions 数组回退（不影响新契约）
+  const envLegacy = { dimensions: [{ name: "affection", value: 0.91 }, { name: "calm", value: -0.42 }], narrative: "n" };
+  ok("兼容 dimensions 数组回退", mc.summarize(envLegacy).includes("affection(0.91)"));
   eq("summarize 空信封返回空串", mc.summarize(null), "");
+
+  console.log("\n[mcp-client] P1-2 续期 / 401 重试");
+  // ensureValidToken：access 即将过期 + 有 refresh → 调 AS /token 换新并写回
+  const rstore = new TokenStore();
+  rstore.setTokens({ access_token: "old-at", refresh_token: "rt-x", expires_at: Date.now() - 1000, token_type: "Bearer" });
+  const mcR = new McpClient({ proxyUrl: "/api/mcp", asBase: "http://localhost:3100" });
+  mcR._store = rstore;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    const headers = { get: () => "application/json" };
+    if (u.includes("/token")) return { ok: true, status: 200, headers, json: async () => ({ access_token: "new-at", refresh_token: "rt-x2", expires_in: 3600, token_type: "Bearer" }) };
+    return { ok: true, status: 200, headers, json: async () => ({ result: { content: [] } }) };
+  };
+  try {
+    const ready = await mcR.ensureValidToken();
+    ok("ensureValidToken 续期后返回 true", ready === true);
+    eq("ensureValidToken 写回新 access", rstore.getAccessToken(), "new-at");
+    ok("ensureValidToken 写回新 refresh", rstore.getRefreshToken() === "rt-x2");
+  } finally { globalThis.fetch = realFetch; }
+  // _call 收到 401 → 清 access + refresh 重试一次（重试用新 token）
+  const fstore = new TokenStore();
+  fstore.setTokens({ access_token: "expired-at", refresh_token: "rt-y", expires_at: Date.now() + 999999, token_type: "Bearer" });
+  const mcF = new McpClient({ proxyUrl: "/x", asBase: "http://localhost:3100" });
+  mcF._store = fstore;
+  let callCount = 0;
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    const headers = { get: () => "application/json" };
+    if (u.includes("/token")) return { ok: true, status: 200, headers, json: async () => ({ access_token: "refreshed-at", refresh_token: "rt-y", expires_in: 3600, token_type: "Bearer" }) };
+    callCount++;
+    if (callCount === 1) return { ok: false, status: 401, headers, json: async () => ({}) };
+    const body = JSON.parse(opts.body);
+    return { ok: true, status: 200, headers, json: async () => ({ result: { content: [{ type: "text", text: JSON.stringify({ ok: true, token: body.params.arguments.token }) }] } }) };
+  };
+  try {
+    const out = await mcF._call("xinchao_context", { token: "expired-at", subject: "s", session_id: "s" });
+    ok("_call 401 后重试成功", out && out.ok === true);
+    eq("_call 401 重试用新 token", out.token, "refreshed-at");
+    ok("_call 401 仅重试一次（共 2 次调用）", callCount === 2);
+  } finally { globalThis.fetch = realFetch; }
 
   console.log(`\n结果：通过 ${pass} / 失败 ${fail}`);
   process.exit(fail === 0 ? 0 : 1);

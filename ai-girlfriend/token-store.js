@@ -54,6 +54,43 @@ export class TokenStore {
   }
 
   /**
+   * 取 refresh_token（供 refresh_token grant 续期）。
+   * @returns {string} refresh_token（无则空串）
+   */
+  getRefreshToken() {
+    const t = this.load();
+    return t && t.refresh_token ? t.refresh_token : "";
+  }
+
+  /**
+   * 仅清除 access_token（保留 refresh_token 与 expires_at），供 _call 收到 401 后触发续期的前置清理。
+   * 不抛错（隐私模式/不可用时静默）。
+   */
+  clearAccessToken() {
+    try {
+      const t = this.load();
+      if (!t) return;
+      delete t.access_token;
+      this.save(t);
+    } catch (_) {}
+  }
+
+  /**
+   * 续期写入：合并新令牌（保留既有字段），并由 expires_in 推导 expires_at。
+   * @param {object} newTokens 含 access_token / refresh_token / expires_in 等
+   * @returns {object} 合并后的令牌对象
+   */
+  refresh(newTokens) {
+    const t = this.load() || {};
+    const merged = Object.assign({}, t, newTokens || {});
+    if (!merged.expires_at && Number(newTokens && newTokens.expires_in) > 0) {
+      merged.expires_at = Date.now() + Number(newTokens.expires_in) * 1000;
+    }
+    this.save(merged);
+    return merged;
+  }
+
+  /**
    * 是否已过期（提前 30s 视为过期，给续期留余量）。
    * 无令牌 → true；无 expires_at → 视为有效（false）。
    * @returns {boolean}

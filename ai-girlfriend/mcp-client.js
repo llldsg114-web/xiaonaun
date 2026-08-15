@@ -31,6 +31,25 @@ const REDIRECT_URI =
 /** JSON-RPC 调用超时（ms） */
 const RPC_TIMEOUT = 8000;
 
+/**
+ * 12 维键 → 小暖内心独白中文标签（固定映射，绝不自创）。
+ * 引擎信封字段：ContextEnvelope.state_vector: Record<DimensionKey, number>（12 个键）。
+ */
+const DIMENSION_LABELS = {
+  possess: "想她占有",
+  monitor: "惦记她",
+  crave: "馋她黏着",
+  share: "想和她分享",
+  libido: "性欲",
+  curiosity: "好奇",
+  boredom: "无聊",
+  social: "社交欲",
+  duty: "责任感",
+  reflection: "自省",
+  grieve: "委屈/失落",
+  anger: "生气",
+};
+
 /* ===================== 纯函数（可在 node 下断言） ===================== */
 
 /** CRC32 查表（IEEE 802.3 多项式） */
@@ -154,6 +173,7 @@ export class McpClient {
    * @returns {Promise<object|null>} 信封对象；无令牌/失败 → null（静默降级）
    */
   async getMindContext() {
+    try { await this.ensureValidToken(); } catch (_) {}
     const tok = this._store.getAccessToken();
     if (!tok) return null;
     const { subject, sessionId } = this.identity();
@@ -173,6 +193,7 @@ export class McpClient {
    * @returns {Promise<void>} 失败静默（仅 console.warn）
    */
   async sendInteractionEvent(evt) {
+    try { await this.ensureValidToken(); } catch (_) {}
     const tok = this._store.getAccessToken();
     if (!tok) return;
     const { subject, sessionId } = this.identity();
@@ -209,6 +230,67 @@ export class McpClient {
   }
 
   /**
+   * 调用前确保 access_token 有效（临近过期/缺失则用 refresh_token 续期一次）。
+   * 失败静默：返回 false（由调用方降级，不抛错阻断对话）。
+   * @returns {Promise<boolean>} true=已有有效令牌（或续期成功），false=无令牌且无法续期
+   */
+  async ensureValidToken() {
+    const store = this._store;
+    const hasRefresh = !!store.getRefreshToken();
+    // 已有 access 且未临近过期（token-store 自带 30s 余量）→ 直接可用
+    if (store.getAccessToken() && !store.isExpired()) return true;
+    // 无 refresh_token → 无法续期
+    if (!hasRefresh) return false;
+    // 调 AS /token 续期
+    try {
+      await this._refreshToken();
+      return !!store.getAccessToken();
+    } catch (e) {
+      console.warn("[xinyu-mcp] refresh_token 续期失败（降级）:", e && e.message);
+      return false;
+    }
+  }
+
+  /**
+   * 用 refresh_token 向 AS /token 换取新 access（含新 refresh）。
+   * @returns {Promise<void>} 失败抛错（由 ensureValidToken / _call 401 分支捕获后静默）
+   * @private
+   */
+  async _refreshToken() {
+    const store = this._store;
+    const rt = store.getRefreshToken();
+    if (!rt) throw new Error("无 refresh_token");
+    const body = new URLSearchParams();
+    body.set("grant_type", "refresh_token");
+    body.set("client_id", CLIENT_ID);
+    body.set("refresh_token", rt);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), RPC_TIMEOUT);
+    let res;
+    try {
+      res = await fetch(this.asBase.replace(/\/+$/, "") + "/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) throw new Error("refresh HTTP " + res.status);
+    const data = await res.json();
+    const at = data && data.access_token;
+    if (!at) throw new Error("refresh 响应缺少 access_token");
+    const expiresIn = Number(data.expires_in) > 0 ? Number(data.expires_in) : 3600;
+    store.refresh({
+      access_token: at,
+      refresh_token: data.refresh_token || rt,
+      expires_in: expiresIn,
+      token_type: data.token_type || "Bearer",
+    });
+  }
+
+  /**
    * 把心智信封摘要为自然语言片段（追加进 system prompt）。
    * @param {object} envelope
    * @returns {string}
@@ -218,30 +300,82 @@ export class McpClient {
   }
 
   /**
-   * 摘要式提取：最强 2–3 维 + narrative（字段缺失安全跳过）。
-   * 不塞全量 12 维原始结构，仅给大模型一段可读的心智状态。
+   * 摘要式提取：从信封 state_vector（Record<DimensionKey, number>，12 维）取最强 2–3 维，
+   * 结合 narrative 生成自然语言片段（字段缺失安全跳过；空 state_vector 仅返回 narrative，不报错）。
+   * 保留对旧字段 dimensions / dims（数组形态）的兼容回退。
+   * 注：外层注入锚点（app.js callCloud / est）已自带「【当前心智状态】」前缀，本方法只产出片段正文。
    * @param {object} envelope
    * @returns {string}
    */
   summarize(envelope) {
     if (!envelope || typeof envelope !== "object") return "";
-    const parts = [];
-    const dims = envelope.dimensions || envelope.dims || null;
-    if (Array.isArray(dims) && dims.length) {
-      const top = dims
-        .slice()
-        .sort((a, b) => Math.abs(Number(b.value)) - Math.abs(Number(a.value)))
-        .slice(0, 3);
-      for (const d of top) {
-        const name = d && (d.name || d.key) ? (d.name || d.key) : "?";
-        const v = (d && typeof d.value === "number") ? d.value.toFixed(2) : String(d && d.value);
-        parts.push(`${name}: ${v}`);
+    const vector = this._resolveVector(envelope);
+    const top = this._topDimensions(vector, 3);
+    const narrative = (typeof envelope.narrative === "string" && envelope.narrative.trim())
+      ? envelope.narrative.trim()
+      : "";
+    // 空 state_vector（且无 narrative）→ 返回空串，不报错
+    if (!top.length && !narrative) return "";
+    // 仅 narrative（无维度）→ 直接返回 narrative
+    if (!top.length) return narrative;
+    const dimsText = top.map((d) => `${d.label}(${d.value.toFixed(2)})`).join("、");
+    // narrative + 维度 → 「<narrative>。她此刻最强烈的心绪是：<d1>、<d2>…。」（避免与自带句号的 narrative 重复标点）
+    if (narrative) {
+      const sep = narrative.endsWith("。") ? "她此刻最强烈的心绪是：" : "。她此刻最强烈的心绪是：";
+      return `${narrative}${sep}${dimsText}。`;
+    }
+    // 仅维度（无 narrative）
+    return `她此刻最强烈的心绪是：${dimsText}。`;
+  }
+
+  /**
+   * 解析信封中的维度容器：优先 state_vector（12 维 Record），回退 dimensions / dims（数组）。
+   * @param {object} envelope
+   * @returns {object|null} Record<key, number> 或 null
+   * @private
+   */
+  _resolveVector(envelope) {
+    if (envelope && typeof envelope.state_vector === "object" && envelope.state_vector) {
+      return envelope.state_vector;
+    }
+    if (Array.isArray(envelope.dimensions) && envelope.dimensions.length) {
+      const rec = {};
+      for (const d of envelope.dimensions) {
+        const k = d && (d.key || d.name);
+        const v = d && Number(d.value);
+        if (k != null && Number.isFinite(v)) rec[String(k)] = v;
       }
+      return rec;
     }
-    if (typeof envelope.narrative === "string" && envelope.narrative.trim()) {
-      parts.push(envelope.narrative.trim());
+    if (Array.isArray(envelope.dims) && envelope.dims.length) {
+      const rec = {};
+      for (const d of envelope.dims) {
+        const k = d && (d.key || d.name);
+        const v = d && Number(d.value);
+        if (k != null && Number.isFinite(v)) rec[String(k)] = v;
+      }
+      return rec;
     }
-    return parts.join("\n");
+    return null;
+  }
+
+  /**
+   * 从维度容器取最强（数值最大）的 k 维，附中文标签映射。
+   * @param {object|null} vector Record<key, number>
+   * @param {number} k 最多取几维
+   * @returns {Array<{key:string, label:string, value:number}>}
+   * @private
+   */
+  _topDimensions(vector, k) {
+    if (!vector || typeof vector !== "object") return [];
+    const arr = [];
+    for (const key of Object.keys(vector)) {
+      const v = Number(vector[key]);
+      if (!Number.isFinite(v)) continue;
+      arr.push({ key, label: DIMENSION_LABELS[key] || key, value: v });
+    }
+    arr.sort((a, b) => b.value - a.value);
+    return arr.slice(0, Math.max(1, k | 0));
   }
 
   /**
@@ -268,7 +402,7 @@ export class McpClient {
    * @returns {Promise<object>} 结构化结果（text 为 JSON 则解析，否则返回原始 result）
    * @private
    */
-  async _call(tool, args) {
+  async _call(tool, args, _retry = false) {
     const body = JSON.stringify({
       jsonrpc: "2.0",
       id: this._nextId(),
@@ -288,6 +422,18 @@ export class McpClient {
         body,
         signal: ctrl.signal,
       });
+      // 401：token 失效 → 清 access、用 refresh 换新后重试一次；仍失败则向上抛（调用方静默）
+      if (res.status === 401 && !_retry) {
+        try {
+          this._store.clearAccessToken();
+          await this._refreshToken();
+          const fresh = this._store.getAccessToken();
+          if (fresh) args = Object.assign({}, args, { token: fresh });
+        } catch (e) {
+          throw new Error("MCP HTTP 401（token 失效且续期失败）");
+        }
+        return this._call(tool, args, true);
+      }
       if (!res.ok) throw new Error("MCP HTTP " + res.status);
       const ct = res.headers.get("content-type") || "";
       let data;

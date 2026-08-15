@@ -1162,6 +1162,8 @@ async function herReply(userText, img) {
   while (pendingImgs.length) {
     const im = pendingImgs.shift();
     const r = await handleImage(im);
+    // 心屿 MCP：图片消息补发交互事件（失败静默；event_id 含时间+内容哈希，与文本 send() 的 fire 天然互不重复）
+    if (MCP) MCP.fireUserEvent(im.caption || "[图片]", { intensity: 0.5, tags: ["image", "photo"] }).catch(() => {});
     if (r && r.replies && r.replies.length) {
       const z = applyEmotion("photo", r.delta);
       const expr = (r.expr && r.expr !== "normal") ? r.expr : z.expr;
