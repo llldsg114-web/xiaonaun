@@ -13,18 +13,48 @@
  */
 
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
-import { AUTH_CODE_TTL_SECONDS, LOCAL_SUBJECT, OAUTH_AUTO_CONSENT } from '../config.js';
+import {
+  AUTH_CODE_TTL_SECONDS,
+  LOCAL_SUBJECT,
+  OAUTH_AUTO_CONSENT,
+  SESSION_COOKIE_NAME,
+} from '../config.js';
 import { sendOAuthError } from './errors.js';
 import type { ClientStore } from './clients.js';
 import type { CodeStore } from './store.js';
 import type { PkceUtil } from './pkce.js';
 import type { ConsentPage } from './consent.js';
 import type { AuthorizeParams, OAuthClient } from './types.js';
+import type { SessionStore } from './session.js';
 
 /** 取查询/表单字段为字符串（兼容 string | string[] | undefined）。 */
 function first(v: unknown): string | undefined {
   if (Array.isArray(v)) return typeof v[0] === 'string' ? v[0] : undefined;
   return typeof v === 'string' ? v : undefined;
+}
+
+/**
+ * 解析 HTTP `Cookie` 头（零依赖），返回 key→value 映射。
+ * 仅解析 `xinyu_sid` 等简单 ASCII cookie；值做 URL 解码。
+ */
+function parseCookies(req: Request): Record<string, string> {
+  const header = req.headers.cookie;
+  const out: Record<string, string> = {};
+  if (!header) return out;
+  for (const part of header.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx < 0) continue;
+    const key = part.slice(0, idx).trim();
+    if (!key) continue;
+    let val = part.slice(idx + 1).trim();
+    try {
+      val = decodeURIComponent(val);
+    } catch {
+      // 非法编码保留原值。
+    }
+    out[key] = val;
+  }
+  return out;
 }
 
 export interface AuthorizeOptions {
@@ -33,6 +63,8 @@ export interface AuthorizeOptions {
   pkce: PkceUtil;
   consent: ConsentPage;
   autoConsent?: boolean;
+  /** 登录会话存储（v2 ②）：用于读取 xinyu_sid 绑定的账户。 */
+  sessions: SessionStore;
 }
 
 /**
@@ -43,6 +75,21 @@ export function createAuthorizeHandler(opts: AuthorizeOptions): RequestHandler {
   const autoConsent = opts.autoConsent ?? OAUTH_AUTO_CONSENT;
 
   return (req: Request, res: Response, _next: NextFunction): void => {
+    // 0) 登录闸门（v2 ②）：在 client / redirect / PKCE / scope 校验之前拦截。
+    //    无有效 xinyu_sid 会话 → 302 到 /login?redirect=<原 authorize 完整 URL>。
+    const cookies = parseCookies(req);
+    const sid = cookies[SESSION_COOKIE_NAME];
+    const session = sid ? opts.sessions.get(sid) : null;
+    if (!session) {
+      const originalUrl = req.originalUrl ?? '/authorize';
+      const loginUrl = `/login?redirect=${encodeURIComponent(originalUrl)}`;
+      res.redirect(loginUrl);
+      return;
+    }
+    // 正常路径：subject = 登录会话绑定的真实账户名；
+    // LOCAL_SUBJECT 仅作异常降级兜底（正常路径不再写入授权码）。
+    const subject = session.username || LOCAL_SUBJECT;
+
     // 合并 GET 查询与 POST 表单（表单优先）。
     const q = req.query as Record<string, unknown>;
     const b = (req.body ?? {}) as Record<string, unknown>;
@@ -132,7 +179,7 @@ export function createAuthorizeHandler(opts: AuthorizeOptions): RequestHandler {
       scope: requested,
       code_challenge: p.code_challenge,
       code_challenge_method: 'S256',
-      subject: LOCAL_SUBJECT,
+      subject,
       created_at: now,
       expires_at: now + AUTH_CODE_TTL_SECONDS * 1000,
       used: false,

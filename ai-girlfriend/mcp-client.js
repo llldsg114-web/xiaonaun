@@ -50,6 +50,12 @@ const DIMENSION_LABELS = {
   anger: "生气",
 };
 
+/** 12 维固定顺序键（归一化遍历用；与 src/types/index.ts DimensionKey 严格一一对应）。 */
+const DIMENSION_KEYS = [
+  "possess", "monitor", "crave", "share", "libido", "curiosity",
+  "boredom", "social", "duty", "reflection", "grieve", "anger",
+];
+
 /* ===================== 纯函数（可在 node 下断言） ===================== */
 
 /** CRC32 查表（IEEE 802.3 多项式） */
@@ -77,6 +83,18 @@ export function crc32(str) {
   return (c ^ 0xffffffff) >>> 0;
 }
 
+/**
+ * 把任意数值夹到 [0,1]（v2 ③ MindProfile 各派生信号都走它）。
+ * 非有限数 → 0；<0 → 0；>1 → 1；其余原样。
+ * @param {number} x
+ * @returns {number}
+ */
+export function clamp01(x) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return 0;
+  return n < 0 ? 0 : n > 1 ? 1 : n;
+}
+
 /* ===================== McpClient ===================== */
 
 /**
@@ -102,12 +120,70 @@ export class McpClient {
   }
 
   /**
-   * 设备级身份（v1：subject = session_id = 设备 id，无登录）。
-   * @returns {{subject:string, sessionId:string}}
+   * 身份（v2 ① 真实 SSO 身份接线，设计 §3.1 + §9.1）。
+   * subject 优先级：① 已缓存真实 sub（getSubjectReal，命中直接返回不联网）
+   *   → ② 缺失则拉取 /userinfo（带并发锁，失败降级）→ ③ 稳定设备 id（匿名/未登录）。
+   * sessionId = 'conv-' + deviceId（设计 §9.1：单设备单主对话 → conv-<deviceId>；
+   *   预留多对话各自独立 id，未来多会话可用 conv-<deviceId>-<convId>）。
+   * @returns {Promise<{subject:string, sessionId:string}>}
    */
-  identity() {
+  async identity() {
     const deviceId = this._store.getDeviceId();
-    return { subject: deviceId, sessionId: deviceId };
+    const sessionId = "conv-" + deviceId;
+    // ① 已缓存真实 sub → 直接返回，不联网
+    const cached = this._store.getSubjectReal();
+    if (cached) return { subject: cached, sessionId };
+    // ② 缺失 → 拉取 /userinfo（失败降级，绝不抛）
+    const sub = await this.fetchUserInfo();
+    if (sub) return { subject: sub, sessionId };
+    // ③ 降级：设备 id（匿名/未登录场景）
+    return { subject: deviceId, sessionId };
+  }
+
+  /**
+   * 拉取真实用户身份（SSO 登录后的 sub）。
+   * 若 access_token 有效，向 `${asBase}/userinfo` 发 GET（带 Authorization: Bearer），
+   * 解析 { sub }；成功则写入 store.setSubjectReal(sub) 并返回 sub；
+   * 网络/401/解析失败 → 返回 null（降级，不抛，绝不阻断调用方）。
+   * 并发安全：内部用 _userInfoPending 复用同一 in-flight promise，避免并发重复请求 /userinfo。
+   * @returns {Promise<string|null>}
+   * @private
+   */
+  async fetchUserInfo() {
+    const at = this._store.getAccessToken();
+    if (!at) return null;                 // 无令牌 → 无身份可拉，降级
+    // 复用 in-flight 请求，避免并发重复拉取 /userinfo
+    if (this._userInfoPending) return this._userInfoPending;
+    const run = (async () => {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), RPC_TIMEOUT);
+        let res;
+        try {
+          res = await fetch(this.asBase.replace(/\/+$/, "") + "/userinfo", {
+            method: "GET",
+            headers: { "Authorization": "Bearer " + at },
+            signal: ctrl.signal,
+          });
+        } finally {
+          clearTimeout(timer);
+        }
+        if (!res.ok) return null;          // 401/其它 → 降级（不抛）
+        const data = await res.json();
+        const sub = data && data.sub;
+        if (!sub) return null;
+        this._store.setSubjectReal(sub);   // 缓存真实 sub，下次 identity() 命中直接返回
+        return sub;
+      } catch (_) {
+        return null;                        // 网络异常 → 降级，不抛
+      }
+    })();
+    this._userInfoPending = run;
+    try {
+      return await run;
+    } finally {
+      this._userInfoPending = null;
+    }
   }
 
   /**
@@ -128,6 +204,8 @@ export class McpClient {
           if (window.history && window.history.replaceState) {
             window.history.replaceState({}, document.title, window.location.pathname);
           }
+          // 预热真实身份缓存（不阻塞就绪判定）
+          void this.fetchUserInfo().catch(() => {});
         } catch (e) {
           console.warn("[xinyu-mcp] PKCE 回调交换失败（降级）:", e && e.message);
         }
@@ -135,7 +213,11 @@ export class McpClient {
       }
     }
     // ② 已有有效令牌
-    if (this._store.getAccessToken() && !this._store.isExpired()) return true;
+    if (this._store.getAccessToken() && !this._store.isExpired()) {
+      // 预热真实身份缓存（不阻塞就绪判定）
+      void this.fetchUserInfo().catch(() => {});
+      return true;
+    }
     // ③ 缺失令牌：AS 可达才跳转（不可达则降级，不阻断 App）
     if (await this._asReachable()) {
       this._pkce.begin(); // 跳转 AS，页面将离开；回来后走 ①
@@ -176,7 +258,7 @@ export class McpClient {
     try { await this.ensureValidToken(); } catch (_) {}
     const tok = this._store.getAccessToken();
     if (!tok) return null;
-    const { subject, sessionId } = this.identity();
+    const { subject, sessionId } = await this.identity();
     try {
       // token 不再塞进 arguments，由 _call 经 Authorization: Bearer 头传递
       return await this._call("xinchao_context", {
@@ -197,7 +279,7 @@ export class McpClient {
     try { await this.ensureValidToken(); } catch (_) {}
     const tok = this._store.getAccessToken();
     if (!tok) return;
-    const { subject, sessionId } = this.identity();
+    const { subject, sessionId } = await this.identity();
     const content = evt && evt.content != null ? String(evt.content) : "";
     const intensity = (evt && typeof evt.intensity === "number") ? evt.intensity : 0.5;
     const tags = (evt && Array.isArray(evt.tags)) ? evt.tags : [];
@@ -298,6 +380,51 @@ export class McpClient {
    */
   buildFragment(envelope) {
     return this.summarize(envelope);
+  }
+
+  /**
+   * 把 12 维心智信封归一化为紧凑 MindProfile（v2 ③ 本地引擎消费）。
+   * 纯函数式：只读 envelope.state_vector，不做任何网络/IO；信封无效时返回 null。
+   * 缺失维度按 v2-design §8 默认 BASELINE(0.20) 补齐，保证 12 维齐全。
+   * 形状严格对齐 src/types/index.ts 的 MindProfile（前后端共享真相源）。
+   * @param {object} envelope 含 state_vector 的信封（同 buildFragment 输入）
+   * @returns {object|null} MindProfile（v2-design §8 形状）
+   */
+  normalizeProfile(envelope) {
+    if (!envelope || typeof envelope !== "object") return null;
+    const vec = this._resolveVector(envelope);
+    if (!vec) return null;   // 无可用 12 维容器（既无 state_vector 也无 dimensions/dims 回退）→ 信封无效
+    // 缺失维度补齐到 BASELINE(0.20)；越界值夹到 [0,1]
+    const raw = {};
+    for (const k of DIMENSION_KEYS) {
+      const v = vec[k];
+      raw[k] = (typeof v === "number" && Number.isFinite(v)) ? clamp01(v) : 0.20;
+    }
+    const vals = DIMENSION_KEYS.map((k) => ({ key: k, value: raw[k], label: DIMENSION_LABELS[k] || k }));
+    const sorted = vals.slice().sort((a, b) => b.value - a.value);
+    // 最强 3 维（降序）
+    const top = sorted.slice(0, 3).map((d) => ({ key: d.key, value: d.value, label: d.label }));
+    const dominant = sorted.length ? sorted[0].key : null;
+    const dominantValue = sorted.length ? sorted[0].value : 0;
+    // 派生信号（§8）
+    const possessive = clamp01((raw.possess + raw.monitor + raw.crave) / 3);
+    const libido = raw.libido;
+    const curiosity = raw.curiosity;
+    const social = raw.social;
+    const duty = raw.duty;
+    const reflection = raw.reflection;
+    const negative = clamp01((raw.anger + raw.grieve) / 2);   // 负向强度代理
+    const boredom = raw.boredom;
+    const arousal = clamp01((raw.libido + raw.crave + raw.social) / 3); // 唤醒度代理
+    const maxV = sorted.length ? sorted[0].value : 0;
+    const minV = sorted.length ? sorted[sorted.length - 1].value : 0;
+    const coherence = clamp01(1 - (maxV - minV));             // 集中度（越高越聚焦单一心绪）
+    return {
+      top, dominant, dominantValue,
+      possessive, libido, curiosity, social, duty, reflection,
+      negative, boredom, arousal, coherence,
+      state_vector: envelope.state_vector || undefined,
+    };
   }
 
   /**

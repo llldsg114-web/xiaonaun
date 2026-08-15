@@ -97,14 +97,14 @@ describe("v13 T1 回归锁定（地基不可动）", () => {
    * ★【v22 反向路径 上限右移】engineMax 248437 → 248477（engineNetMax 2700→2740 的派生量，
    *   memory/presence/texture 三模块回让 E=40 予 engine，用于 P0-2 的 H13 覆盖闭合）。
    *   同上：仅标题数字同步，断言体仍走单一真源。 */
-  it("3. V-33：engine.js 字节数 ≤ 248477B（真实硬上限，打印剩余）", () => {
+  it("3. V-33：engine.js 字节数 ≤ 253116B（真实硬上限，打印剩余）", () => {
     const size = fs.statSync(ENGINE).size;
     const CAP = W.SIZE_BUDGET.engineMax, left = CAP - size;
     console.log(`[V-33] engine.js = ${size}B / 上限 ${CAP}B，剩余 ${left}B`);
     assert.ok(size <= CAP, `engine.js 超体积配额：${size} > ${CAP}`);
   });
 
-  it("4. V-90：engine 净增 ≤ 2800B（基线 245737B，打印剩余；T2 须按 44B 排预算）", () => {
+  it("4. V-90：engine 净增 ≤ 7379B（基线 245737B，打印剩余）", () => {
     const s = W.scanSizes();
     const BASE = W.SIZE_BUDGET.engineBase, CAP = W.SIZE_BUDGET.engineNetMax;
     const net = s.engine - BASE, left = CAP - net;

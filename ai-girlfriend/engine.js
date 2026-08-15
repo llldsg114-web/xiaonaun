@@ -2859,6 +2859,11 @@ const Engine = (() => {
   /* ---------- 主回复逻辑 ---------- */
   function reply(text, state) {
     const st = state || {};
+    // v2 ③ 本地引擎消费 mindCtx：从 est.mindProfile 读 12 维画像偏置；mp=null 时全短路（逐字节回退）。
+    const mp = (st && st.mindProfile) || null;
+    const clingyBias = mp ? Number(mp.possessive) : 0;   // 占有欲（possess+monitor+crave 归一）
+    const sootheBias = mp ? Number(mp.negative) : 0;      // 负向强度（anger+grieve 归一）
+    const boredBias = mp ? Number(mp.boredom) : 0;        // 无聊（预留，暂未接入偏向逻辑）
     const det = detectEx(text);
     const intent = toLegacyIntent(text, det);          // 对外 intent 保持 v10 语义（app.js 依赖 "greeting"）
     const intentEx = det && det.intent ? det.intent : intent;  // v11 细粒度意图，新增字段
@@ -2953,12 +2958,25 @@ const Engine = (() => {
 
     // 心情后缀（低概率追加，让回复更有"每日状态感"）
     const persona = safeObj(st.persona);
-    const suffixPool =
+    // v2 ③：占有/黏着/性欲/分享 主导且占有欲偏高 → 偏向黏人后缀（下方 _suffixChance 偏置）
+    const CLINGY_DIMS = { possess: 1, crave: 1, libido: 1, share: 1 };
+    let suffixPool =
       persona.tone === "playful" ? MOODS[2].suffix :
       persona.tone === "clingy"  ? MOODS[3].suffix :
       (mood && mood.suffix) || MOODS[0].suffix;
+    // v2 ③ 后缀概率/轻盈抑制（纯加法；mp=null 时全短路，逐字节回退）
+    let _suffixChance = 0.18;
+    let _suppressLevity = ueSuppressesLevity(ue);
+    if (mp && CLINGY_DIMS[mp.dominant] && clingyBias > 0.5) {
+      suffixPool = MOODS[3].suffix;   // 更黏人
+      _suffixChance = 1;              // 强偏置：此情形下几乎必带黏人后缀
+    }
+    if (mp && sootheBias > 0.5) {
+      // 用户负向偏高 → 与 ueSuppressesLevity 同口径「叠加」压低俏皮后缀概率（不替换）
+      _suppressLevity = true;
+    }
     // 用户正处负面情绪时不追加俏皮后缀（后缀池普遍偏跳脱，会显得没在听）
-    if (chanceWith(0.18, rng) && !ueSuppressesLevity(ue)
+    if (chanceWith(_suffixChance, rng) && !_suppressLevity
         && !["night", "angry_words", "sorry", "time_ask"].includes(intent)) {
       out += " " + pickWith(suffixPool, rng);
     }
@@ -2986,7 +3004,10 @@ const Engine = (() => {
 
     // 负面话语可能让她持续生气一会儿
     let moodOverride = null;
-    if (intent === "angry_words") moodOverride = MOODS[2]; // 变"调皮/傲娇"式生气
+    if (intent === "angry_words") {
+      // v2 ③：用户负向（anger/grieve）偏高时她更温柔（MOODS[0]），否则保留既有傲娇分支（MOODS[2]）
+      moodOverride = (mp && sootheBias > 0.5) ? MOODS[0] : MOODS[2];
+    }
     if (intent === "sorry" && chanceWith(0.5, rng)) moodOverride = MOODS[0];
 
     // 表情推导
@@ -3006,7 +3027,7 @@ const Engine = (() => {
 
     // ⑥ G2 吃醋状态机（最后上线的负面能力，必须经 G1 漏斗）：报告/终止替换普通回复，追问追加一条。
     // 命中护栏走 outGuard→PERSONA_BREAK_RE，绝不破功；报备句不命中 ACCUSE_RE。
-    const jr = jealousTick(st, text, { now: Date.now(), rng, lv });
+    const jr = jealousTick(st, text, { now: Date.now(), rng, lv, mindProfile: mp });
     if (jr) {
       let jt = jr.text;
       if (flagOn(st, "personaStyle")) {
@@ -3027,7 +3048,7 @@ const Engine = (() => {
     if (!jr && flagOn(st, "negGate")) {
       const fam = NEG_TURN_FAMILY[intentEx] || NEG_TURN_FAMILY[intent] || null;
       const gnow = fam ? negState(st, dayKey(new Date())) : null;
-      if (fam && (gnow.streak > 0 || gnow.count > 0) && !negAllow(st, fam, { now: Date.now(), lv })) {
+      if (fam && (gnow.streak > 0 || gnow.count > 0) && !negAllow(st, fam, { now: Date.now(), lv, mindProfile: mp })) {
         replies.push(negRepair(rng));
       }
     }
@@ -3684,15 +3705,25 @@ const Engine = (() => {
   /* 统一入口：任何负面能力必须先过它，返 false 即放弃。四判顺序同 DESIGN §6.1 */
   function negAllow(state, family, ctx) {
     const st = safeObj(state), c = negCtx(ctx), p = negParams(st);
+    // v2 ③：mp.negative 偏高（用户 anger/grieve）→ 略收紧配额/冷却，使「给台阶」更早触发。
+    // 仅负向偏高时生效；mp=null 或偏低 → 逐字节回退；绝不松动任何硬门语义。
+    const mp = (ctx && ctx.mindProfile) || null;
     const fam = (typeof family === "string" && family) ? family : "misc";
     const met = Number(st.firstMeet);
     // ② 冷启动：关系没建立不许闹脾气。firstMeet 缺失按"刚认识"办，从严不从宽
     if (!isFinite(met) || met <= 0 || (c.now - met) < p.coldStartDays * DAY_MS) return false;
+    // 软参数：负向偏高时收紧（更早给台阶）；下限保底为 1，绝不降到 0
+    let dayMax = p.dayMax, coolMs = p.coolMs, streakMax = p.streakMax;
+    if (mp && Number(mp.negative) > 0.5) {
+      dayMax = Math.max(1, Math.floor(dayMax * 0.5 + 1e-6));
+      coolMs = Math.floor(coolMs * 0.5);
+      streakMax = Math.max(1, Math.floor(streakMax * 0.5 + 1e-6));
+    }
     const g = negState(st, c.date);
-    if (g.count >= p.dayMax) return false;                                    // ③ 单日上限
+    if (g.count >= dayMax) return false;                                     // ③ 单日上限
     const last = Number(g.lastByFamily[fam]);
-    if (isFinite(last) && last > 0 && (c.now - last) < p.coolMs) return false; // ④ 同类冷却
-    if (g.streak >= p.streakMax) return false;                                 // ⑤ 连续轮数上限
+    if (isFinite(last) && last > 0 && (c.now - last) < coolMs) return false; // ④ 同类冷却
+    if (g.streak >= streakMax) return false;                                 // ⑤ 连续轮数上限
     return true;
   }
 
@@ -3730,6 +3761,7 @@ const Engine = (() => {
   function negAfterTurn(state, intent, ctx) {
     const st = safeObj(state);
     if (!flagOn(st, "negGate")) return st.negGate;
+    // v2 ③：ctx.mindProfile 经 ctx 透传 negSoothe；「给台阶」早触发由 reply 的 G1 分支经 negAllow(mindProfile) 完成，此处只安抚清零，行为零改变。
     return negSoothe(st, intent, ctx);
   }
 
@@ -3789,7 +3821,12 @@ const Engine = (() => {
     if (!isFinite(met) || met <= 0 || (c.now - met) < 14 * DAY_MS) return false;   // 关系≥14天（冷启动保护，Q1）
     const voice = safeObj(st.voice);
     const last = Number(safeObj(voice.lastMotiveAt).jealous);
-    const freqMs = intensityOf(st) === "restrained" ? 14 * DAY_MS : 7 * DAY_MS;
+    // v2 ③：所有硬门通过后，若用户占有/黏着偏高 → 略收紧 7/14d 频率窗（更敏感）。绝不绕过任何硬门，只调此软参数。
+    const mp = (ctx && ctx.mindProfile) || null;
+    let freqMs = intensityOf(st) === "restrained" ? 14 * DAY_MS : 7 * DAY_MS;
+    if (mp && ((Number(mp.possessive) || 0) + (Number(mp.crave) || 0)) / 2 > 0.6) {
+      freqMs = Math.floor(freqMs * 0.5);
+    }
     if (isFinite(last) && last > 0 && (c.now - last) < freqMs) return false;         // 7/14天频率
     const dismissed = Number(safeObj(voice.dismissed).jealous);
     if (isFinite(dismissed) && dismissed > 0 && (c.now - dismissed) < 30 * DAY_MS) return false; // 30天冷却

@@ -10,6 +10,13 @@
  * 不再从 args.token 取令牌；scope 校验由 requireScope 在 handler 内完成。
  * MindEngine 不再持有 TokenMiddleware，仅用 requestAuth.subject 做审计。
  *
+ * v2 ① 多会话隔离：MindEngine 由单例重构为「会话注册表」。内部持
+ * `SessionRegistry`；每个 (subject, session_id) 解析出一个独立 `SessionBundle`
+ * （独立 StateMachine + MemoryStore + IdempotencyStore），经 JsonlStore 以命名
+ * 空间文件名落盘。向后兼容：EngineDeps 注入的 state/memory/idem 作为「首个被
+ * 解析会话」的默认包（沿用 v1 单例语义，复用固定文件名 memory.jsonl 等），
+ * 之后任何不同键解析出独立、隔离、命名空间落盘的包。
+ *
  * 协议：MIT。100% 自研，不依赖任何第三方「心潮」项目。
  */
 
@@ -30,14 +37,19 @@ import {
   ERROR_CODES,
   HANDOFF_MAX_CHARS,
   HANDOFF_TTL_SECONDS,
+  IDEM_FILE,
+  MEMORY_FILE,
+  HANDOFF_FILE,
   SCOPE_READ,
   SCOPE_WRITE,
   STATE_FILE,
+  STORAGE_DIR,
 } from '../config.js';
 import { StateMachine } from '../state/stateMachine.js';
 import { MemoryStore } from '../storage/memoryStore.js';
 import { IdempotencyStore } from '../storage/idempotency.js';
 import { JsonlStore } from '../storage/jsonlStore.js';
+import { SessionRegistry, type SessionBundle, DEFAULT_SESSION_ID } from './session.js';
 import { Bridge } from './bridge.js';
 import { EnvelopeBuilder } from './envelope.js';
 import { AuditLog } from '../observability/auditLog.js';
@@ -53,18 +65,31 @@ export class EngineError extends Error {
   }
 }
 
-/** 协作者依赖。Route B：engine 不再持有 auth（鉴权在工具层闭包完成）。 */
+/**
+ * 协作者依赖。Route B：engine 不再持有 auth（鉴权在工具层闭包完成）。
+ *
+ * `state`/`memory`/`idem` 作为可选「默认会话包」：三者皆提供时，首个被解析
+ * 的会话沿用其注入 store（复用 v1 固定文件名，向后兼容既有测试）；缺失则按需
+ * 按命名空间新建隔离包。
+ */
 export interface EngineDeps {
-  state: StateMachine;
-  memory: MemoryStore;
-  idem: IdempotencyStore;
+  state?: StateMachine;
+  memory?: MemoryStore;
+  idem?: IdempotencyStore;
   bridge: Bridge;
   builder: EnvelopeBuilder;
   audit: AuditLog;
   /** 信封记忆检索条数，默认 5。 */
   topK?: number;
-  /** 可选：状态向量 JSONL 落盘（state.jsonl），用于重启后恢复。 */
+  /** 命名空间文件落盘用 JsonlStore；缺省回退 STORAGE_DIR。 */
   stateStore?: JsonlStore;
+}
+
+/** 默认会话包（注入的 state/memory/idem 三者）。 */
+interface DefaultSeed {
+  state: StateMachine;
+  memory: MemoryStore;
+  idem: IdempotencyStore;
 }
 
 const nowIso = (): string => new Date().toISOString();
@@ -75,39 +100,78 @@ function codePointLength(s: string): number {
 }
 
 export class MindEngine {
-  private readonly state: StateMachine;
-  private readonly memory: MemoryStore;
-  private readonly idem: IdempotencyStore;
+  private readonly sessions = new SessionRegistry();
   private readonly bridge: Bridge;
   private readonly builder: EnvelopeBuilder;
   private readonly audit: AuditLog;
   private readonly topK: number;
-  private readonly stateStore?: JsonlStore;
+  private readonly stateStore: JsonlStore;
+  private readonly defaultSeed: DefaultSeed | null;
+  /** 默认包仅用于「首个被解析会话」，消费后置位避免后续键误用默认 store。 */
+  private defaultConsumed = false;
 
   constructor(deps: EngineDeps) {
-    this.state = deps.state;
-    this.memory = deps.memory;
-    this.idem = deps.idem;
     this.bridge = deps.bridge;
     this.builder = deps.builder;
     this.audit = deps.audit;
     this.topK = deps.topK ?? 5;
-    this.stateStore = deps.stateStore;
+    // 命名空间落盘目录：优先注入 stateStore；否则复用注入记忆的底层 store；
+    // 再否则回退全局 STORAGE_DIR（仅命名空间会话需要）。
+    this.stateStore = deps.stateStore ?? deps.memory?.jsonlStore ?? new JsonlStore(STORAGE_DIR);
+    this.defaultSeed =
+      deps.state && deps.memory && deps.idem
+        ? { state: deps.state, memory: deps.memory, idem: deps.idem }
+        : null;
   }
 
-  /** 将当前状态向量追加落盘（state.jsonl）。无 stateStore 时跳过。 */
-  private persistState(): void {
-    if (!this.stateStore) return;
-    this.stateStore.append(STATE_FILE, { ...this.state.getState(), kind: 'state' });
+  /**
+   * 取或建单会话包：命中缓存即返回；未命中则按命名空间新建或从 state 文件恢复。
+   * 首个被解析会话（若注入了默认包）沿用注入的 state/memory/idem 与固定文件名，
+   * 之后任何不同键均生成隔离、命名空间落盘的包。
+   */
+  getSession(subject: string, sessionId: string): SessionBundle {
+    const cached = this.sessions.peek(subject, sessionId);
+    if (cached) return cached;
+
+    if (this.defaultSeed && !this.defaultConsumed) {
+      this.defaultConsumed = true;
+      const bundle: SessionBundle = {
+        state: this.defaultSeed.state,
+        memory: this.defaultSeed.memory,
+        idem: this.defaultSeed.idem,
+        files: {
+          state: STATE_FILE,
+          memory: MEMORY_FILE,
+          idem: IDEM_FILE,
+          handoff: HANDOFF_FILE,
+        },
+      };
+      this.restoreSessionState(bundle);
+      this.sessions.register(subject, sessionId, bundle);
+      return bundle;
+    }
+
+    const bundle = this.sessions.resolve(subject, sessionId, {
+      jsonlStore: this.stateStore,
+      audit: this.audit,
+    });
+    this.restoreSessionState(bundle);
+    return bundle;
   }
 
-  /** 从 state.jsonl 恢复最近一次状态（重启后）。无记录时保持默认。 */
-  restoreState(): void {
-    if (!this.stateStore) return;
-    const records = this.stateStore.readAll(STATE_FILE) as Array<{ kind?: string } & StateVector>;
+  /** 将某会话当前状态向量追加落盘到其命名空间 state 文件。 */
+  private persistState(state: StateMachine, stateFile: string): void {
+    this.stateStore.append(stateFile, { ...state.getState(), kind: 'state' });
+  }
+
+  /** 从某会话 state 文件恢复最近一次状态（重启后惰性恢复）。 */
+  private restoreSessionState(bundle: SessionBundle): void {
+    const records = this.stateStore.readAll(bundle.files.state) as Array<
+      { kind?: string } & StateVector
+    >;
     const states = records.filter((r) => r.kind === 'state');
     if (states.length > 0) {
-      this.state.loadState(states[states.length - 1] as StateVector);
+      bundle.state.loadState(states[states.length - 1] as StateVector);
     }
   }
 
@@ -115,8 +179,9 @@ export class MindEngine {
 
   handleXinchaoContext(args: { session_id: string }, requestAuth: RequestAuth): ContextEnvelope {
     const subject = requestAuth.subject;
-    const vector = this.state.getState();
-    const memories = this.memory.retrieve(args.session_id, vector, this.topK) as EmotionalMemory[];
+    const bundle = this.getSession(subject, args.session_id);
+    const vector = bundle.state.getState();
+    const memories = bundle.memory.retrieve(args.session_id, vector, this.topK) as EmotionalMemory[];
     const envelope = this.builder.build(args.session_id, vector, memories);
     const safe = this.bridge.filterForUser(envelope);
 
@@ -143,6 +208,7 @@ export class MindEngine {
     requestAuth: RequestAuth,
   ): EventResult {
     const subject = requestAuth.subject;
+    const bundle = this.getSession(subject, args.session_id);
 
     // 校验 event_id
     if (!args.event_id || args.event_id.trim() === '') {
@@ -184,7 +250,7 @@ export class MindEngine {
     }
 
     // 幂等命中：返回历史结果，不二次改写
-    const existing = this.idem.get(args.event_id);
+    const existing = bundle.idem.get(args.event_id);
     if (existing) {
       this.audit.record({
         ts: nowIso(),
@@ -210,12 +276,12 @@ export class MindEngine {
       timestamp: args.timestamp ?? nowIso(),
     };
 
-    const delta = this.state.applyConversationEvent(event);
-    this.memory.addMemory({
+    const delta = bundle.state.applyConversationEvent(event);
+    bundle.memory.addMemory({
       session_id: args.session_id,
       content: args.payload.content,
       tags: args.payload.tags,
-      linkedVector: this.state.getState() as StateVector,
+      linkedVector: bundle.state.getState() as StateVector,
     });
 
     const result: EventResult = {
@@ -224,8 +290,8 @@ export class MindEngine {
       applied_state_delta: delta,
       envelope_version: ENVELOPE_VERSION,
     };
-    this.idem.mark(args.event_id, result);
-    this.persistState();
+    bundle.idem.mark(args.event_id, result);
+    this.persistState(bundle.state, bundle.files.state);
 
     this.audit.record({
       ts: nowIso(),
@@ -250,6 +316,8 @@ export class MindEngine {
     requestAuth: RequestAuth,
   ): HandoffResult {
     const subject = requestAuth.subject;
+    // 交接便签无会话 id 概念，按 subject 的默认会话落盘（命名空间隔离）。
+    const bundle = this.getSession(subject, DEFAULT_SESSION_ID);
     const chars = codePointLength(args.content ?? '');
 
     if (chars > HANDOFF_MAX_CHARS) {
@@ -281,7 +349,7 @@ export class MindEngine {
       expires_at: expiresAt,
       chars,
     };
-    this.memory.writeHandoff(note);
+    bundle.memory.writeHandoff(note);
 
     this.audit.record({
       ts: nowIso(),

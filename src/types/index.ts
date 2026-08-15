@@ -163,3 +163,60 @@ export interface RequestAuth {
 export type AuthOutcome =
   | { ok: true; subject: string; scopes: string[] }
   | { ok: false; error: string };
+
+/**
+ * 归一化 12 维心智画像（v2 ③ 本地引擎消费）。
+ * 由 mcp-client normalizeProfile 产出，前后端共享形状（v2-design §8）。
+ */
+export interface MindProfile {
+  /** 最强 3 维（降序）。 */
+  top: Array<{ key: DimensionKey; value: number; label: string }>;
+  /** 数值最高维 key（无状态则 null）。 */
+  dominant: DimensionKey | null;
+  /** dominant 对应值。 */
+  dominantValue: number;
+  /** clamp01((possess+monitor+crave)/3) 占有欲。 */
+  possessive: number;
+  /** libido 性欲。 */
+  libido: number;
+  /** curiosity 好奇。 */
+  curiosity: number;
+  /** social 社交欲。 */
+  social: number;
+  /** duty 责任感。 */
+  duty: number;
+  /** reflection 自省。 */
+  reflection: number;
+  /** clamp01((anger+grieve)/2) 负向强度代理。 */
+  negative: number;
+  /** boredom 无聊。 */
+  boredom: number;
+  /** clamp01((libido+crave+social)/3) 唤醒度代理。 */
+  arousal: number;
+  /** 0..1 集中度（越高越聚焦单一心绪）。 */
+  coherence: number;
+  /** 原始 12 维状态向量（可选，便于下游回看）。 */
+  state_vector?: StateVector;
+}
+
+/** 会话身份（subject + 会话 id）。 */
+export interface SessionIdentity {
+  subject: string;
+  sessionId: string;
+}
+
+/** 本地账户记录（scrypt 口令哈希，落盘于 ACCOUNT_STORE_FILE）。 */
+export interface AccountRecord {
+  username: string;
+  pwHash: string;
+  pwSalt: string;
+  createdAt: string;
+}
+
+/** 登录会话记录（内存表 / 可选 JSONL 持久化）。 */
+export interface SessionRecord {
+  sid: string;
+  username: string;
+  createdAt: string;
+  expiresAt: string;
+}

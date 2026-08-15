@@ -14,18 +14,26 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ENVELOPE_VERSION } from './config.js';
 import { OAuthServer } from './oauth/index.js';
+import type { AccountStore } from './oauth/accounts.js';
+import type { SessionStore } from './oauth/session.js';
 import { MindEngine, registerMcpTools } from './mcp/tools.js';
 import { mcpAuthMiddleware } from './mcp/middleware.js';
 import type { TokenMiddleware } from './auth/token.js';
 
 /** 构建心屿心智引擎的 Express 应用。 */
-export function createApp(engine: MindEngine, auth: TokenMiddleware): Express {
+export function createApp(
+  engine: MindEngine,
+  auth: TokenMiddleware,
+  accounts?: AccountStore,
+  sessions?: SessionStore,
+): Express {
   const app = express();
   app.use(express.json());
 
-  // 标准 OAuth 2.1 授权服务器（/authorize /token /introspect /revoke）。
+  // 标准 OAuth 2.1 授权服务器（/login /authorize /token /introspect /revoke /userinfo）。
   // 复用既有 TokenMiddleware 实例，保证 JWT_SECRET / issuer 单一来源。
-  const oauth = new OAuthServer(auth);
+  // accounts / sessions 可空：OAuthServer 内部兜底，向后兼容既有 createApp(engine, auth)。
+  const oauth = new OAuthServer(auth, { accounts, sessions });
   oauth.register(app);
 
   app.get('/health', (_req, res) => {

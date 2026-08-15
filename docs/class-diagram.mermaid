@@ -1,78 +1,161 @@
 classDiagram
     direction LR
 
+    %% ===== v1 Route B 既有（精简保留） =====
     class TokenMiddleware {
-        <<src/auth/token.ts · 改>>
-        -secret: string
-        -issuer: string
+        <<src/auth/token.ts>>
         +issue(subject, scopes): string
         +issueAccessToken(subject, scope): IssuedAccessToken
-        +verify(token, scope): AuthResult
+        +authenticate(token): AuthOutcome
         +introspectToken(token): TokenClaims|null
         +extractBearer(authHeader): string|null
-        +authenticate(token): AuthResult2
     }
-
-    class AuthResult {
-        <<src/types/index.ts · 既有>>
-        +ok: boolean
-        +code: string
-        +subject: string
-        +scopes: string[]
-    }
-
     class RequestAuth {
-        <<src/types/index.ts · 新增 interface>>
+        <<src/types/index.ts>>
         +subject: string
         +scopes: string[]
     }
-
     class McpAuthMiddleware {
-        <<src/mcp/middleware.ts · 新>>
+        <<src/mcp/middleware.ts>>
         +resolveRequestAuth(req): RequestAuth|null
-        +sendUnauthorized(res, id): void
         +mcpAuthMiddleware(req,res,next): void
     }
 
-    class McpAuth {
-        <<src/mcp/auth.ts · 新>>
-        +requireScope(auth, scope): void
-        +getRequiredScope(toolName): string
-    }
-
-    class McpTools {
-        <<src/mcp/tools.ts · 改>>
-        +registerMcpTools(server, engine, requestAuth): void
-    }
-
-    class ToolRegistrar {
-        <<src/mcp/tools/{context,event,handoff}.ts · 新>>
-        +registerContextTool(server, engine, requestAuth)
-        +registerEventTool(server, engine, requestAuth)
-        +registerHandoffNoteTool(server, engine, requestAuth)
-    }
-
+    %% ===== ① 多会话注册表（v2 新增） =====
     class MindEngine {
-        <<src/mcp/tools.ts · 改>>
-        -state / memory / idem / bridge / builder / audit
-        +handleXinchaoContext(args, requestAuth): ContextEnvelope
-        +handleXinchaoEvent(args, requestAuth): EventResult
-        +handleHandoffNote(args, requestAuth): HandoffResult
+        <<src/mcp/tools.ts · v2 注册表>>
+        -sessions: Map~string, SessionBundle~
+        -stateStore: JsonlStore
+        +getSession(subject, sessionId): SessionBundle
+        +handleXinchaoContext(args, requestAuth)
+        +handleXinchaoEvent(args, requestAuth)
+        +handleHandoffNote(args, requestAuth)
+    }
+    class MindEngine_v1 {
+        <<src/mcp/tools.ts · v1 单例（被重构）>>
+        -state / memory / idem
+    }
+    class SessionBundle {
+        <<src/mcp/session.ts · 新>>
+        +state: StateMachine
+        +memory: MemoryStore
+        +idem: IdempotencyStore
+    }
+    class SessionHelpers {
+        <<src/mcp/session.ts · 新>>
+        +sessionKey(subject, sessionId): string
+        +sessionFileName(coll, subject, sessionId): string
+    }
+    class StateMachine {
+        <<src/state/stateMachine.ts>>
+        +getState(): StateVector
+        +applyConversationEvent(e): StateDelta
+        +loadState(v): void
+    }
+    class MemoryStore {
+        <<src/storage/memoryStore.ts · 改>>
+        +files: {memory?, handoff?}
+        +retrieve(sid, v, k): EmotionalMemory[]
+    }
+    class IdempotencyStore {
+        <<src/storage/idempotency.ts · 改>>
+        +file?: string
+        +get(id): EventResult|null
+    }
+    class JsonlStore {
+        <<src/storage/jsonlStore.ts>>
+        +append(rel, rec)
+        +readAll(rel): object[]
     }
 
-    class ExpressRequest {
-        <<express.Request 扩展>>
-        +mcpAuth: RequestAuth|null
+    %% ===== ② 本地账户 SSO（v2 新增） =====
+    class AccountStore {
+        <<src/oauth/accounts.ts · 新>>
+        +create(username, pw): void
+        +verify(username, pw): boolean
+        +exists(u): boolean
+        +list(): string[]
+    }
+    class SessionStore {
+        <<src/oauth/session.ts · 新>>
+        +create(username): sid
+        +get(sid): username|null
+        +destroy(sid): void
+    }
+    class LoginHandler {
+        <<src/oauth/login.ts · 新>>
+        +createLoginHandler(opts)
+    }
+    class AuthorizeHandler {
+        <<src/oauth/authorize.ts · 改>>
+        -sessions: SessionStore
+        +loginGate(): 302 /login
+        +subject = session.username
+    }
+    class UserinfoHandler {
+        <<src/oauth/userinfo.ts · 新>>
+        +createUserinfoHandler(auth)
+    }
+    class ConsentPage {
+        <<src/oauth/consent.ts>>
+        +render(view): string
+    }
+    class OAuthServer {
+        <<src/oauth/index.ts · 改>>
+        +register(app): /login /userinfo
     }
 
-    TokenMiddleware ..> AuthResult : produces
+    %% ===== ③ 本地引擎 mindCtx 桥（v2 新增） =====
+    class McpClient {
+        <<ai-girlfriend/mcp-client.js · 改>>
+        +normalizeProfile(env): MindProfile
+        +identity(): {subject, sessionId}
+    }
+    class AppJs {
+        <<ai-girlfriend/app.js · 改>>
+        +est.mindProfile = normalizeProfile(mindCtx)
+        +callCloud 不变(buildFragment)
+    }
+    class Engine {
+        <<ai-girlfriend/engine.js · 改·4-lock lift>>
+        +reply(text, state): 读 state.mindProfile
+        +negAfterTurn(state, intent, ctx): ctx.mindProfile
+        +jealousTick(st, text, ctx): ctx.mindProfile
+    }
+    class MindProfile {
+        <<src/types/index.ts · 新>>
+        +top: {key,value,label}[]
+        +dominant: DimensionKey|null
+        +possessive / libido / negative / boredom / arousal / coherence: number
+    }
+
+    %% ===== 关系 =====
     TokenMiddleware ..> RequestAuth : produces(authenticate)
     McpAuthMiddleware --> TokenMiddleware : extractBearer + authenticate
-    McpAuthMiddleware ..> ExpressRequest : sets mcpAuth
     McpAuthMiddleware ..> RequestAuth : resolves
-    McpTools --> ToolRegistrar : delegates
-    McpTools ..> RequestAuth : captures(closure)
-    ToolRegistrar ..> RequestAuth : reads in handler
-    ToolRegistrar --> McpAuth : requireScope
-    ToolRegistrar --> MindEngine : calls(handleXinchaoXxx)
-    MindEngine ..> RequestAuth : uses subject for audit
+
+    MindEngine_v1 <|-- MindEngine : 重构为注册表(同名)
+    MindEngine --> SessionBundle : getSession 缓存
+    MindEngine ..> SessionHelpers : sessionKey/sessionFileName
+    MindEngine ..> JsonlStore : 命名空间落盘/恢复
+    SessionBundle --> StateMachine
+    SessionBundle --> MemoryStore
+    SessionBundle --> IdempotencyStore
+    MemoryStore --> JsonlStore
+    IdempotencyStore --> JsonlStore
+
+    OAuthServer --> LoginHandler
+    OAuthServer --> UserinfoHandler
+    OAuthServer --> AuthorizeHandler
+    AuthorizeHandler --> SessionStore : 读 xinyu_sid
+    LoginHandler --> AccountStore : verify
+    LoginHandler --> SessionStore : create
+    AuthorizeHandler --> ConsentPage : autoConsent=false 渲染
+    AuthorizeHandler ..> TokenMiddleware : code.subject=账户id
+    UserinfoHandler --> TokenMiddleware : introspect
+    TokenMiddleware ..> AccountStore : sub=username
+
+    AppJs --> McpClient : getMindContext / normalizeProfile
+    McpClient ..> MindProfile : 产出
+    AppJs ..> Engine : reply(text, est.mindProfile)
+    Engine ..> MindProfile : 偏置 tone/NEG/吃醋

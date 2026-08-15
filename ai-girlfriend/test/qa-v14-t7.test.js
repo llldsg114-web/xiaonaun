@@ -341,8 +341,8 @@ test("V-113 · 体积四锁全绿，over = []；engine 净增锁死 2699", () =>
   const z = W.scanSizes();
   assert.deepStrictEqual(z.over, [], "单文件配额越界：" + JSON.stringify(z.each));
   assert.ok(z.engine <= W.SIZE_BUDGET.engineMax, "V-33 越界：" + z.engine + " > " + W.SIZE_BUDGET.engineMax);
-  assert.strictEqual(z.engineNet, 2699,
-    "2699 = 2087 + v15 NOTE-2 的 13B + Q-V15-1 副词槽的 60B + v16 T1 四轴的 190B（均落 :1307 单行）+ v17 T1/T2 的 266B（13 行行内追加）+ v18 T1 零宽剥离的 42B（:1310 行内追加）+ v22 H13 连接词枚举的 41B（:1307 单行）");
+  assert.strictEqual(z.engineNet, 5331,
+    "D5 后 engineNet 应为 5331（D5 前 v22 落位 2699 + T04 D5 解冻 +2632B，mindCtx 信封落地）");
   assert.ok(z.moduleSum <= W.SIZE_BUDGET.moduleSumMax, "moduleSum " + z.moduleSum + " > " + W.SIZE_BUDGET.moduleSumMax);
   assert.ok(z.total <= W.SIZE_BUDGET.totalMax, "total " + z.total + " > " + W.SIZE_BUDGET.totalMax);
   for (const f of ["memory.js", "presence.js", "texture.js", "contingency.js"]) {

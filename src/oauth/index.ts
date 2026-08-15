@@ -22,6 +22,10 @@ import { createAuthorizeHandler } from './authorize.js';
 import { createTokenHandler } from './token.js';
 import { createIntrospectHandler } from './introspect.js';
 import { createRevokeHandler } from './revoke.js';
+import { createLoginHandler } from './login.js';
+import { createUserinfoHandler } from './userinfo.js';
+import { AccountStore } from './accounts.js';
+import { SessionStore } from './session.js';
 
 /**
  * CORS 中间件工厂：仅放行配置的 origins；处理 OPTIONS 预检。
@@ -32,7 +36,7 @@ function corsMiddleware(allowedOrigins: readonly string[]): RequestHandler {
     const origin = req.headers.origin;
     if (origin && allowedOrigins.includes(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
       res.setHeader('Access-Control-Allow-Credentials', 'true');
     }
@@ -55,10 +59,20 @@ export class OAuthServer {
   private readonly pkce: PkceUtil;
   private readonly consent: ConsentPage;
   private readonly auth: TokenMiddleware;
+  private readonly accounts: AccountStore;
+  private readonly sessions: SessionStore;
+  private readonly autoConsent: boolean;
   /** jti → client_id 映射（供 /introspect 回带）。 */
   private readonly accessMeta = new Map<string, { client_id: string }>();
 
-  constructor(auth: TokenMiddleware) {
+  constructor(
+    auth: TokenMiddleware,
+    opts: {
+      accounts?: AccountStore;
+      sessions?: SessionStore;
+      autoConsent?: boolean;
+    } = {},
+  ) {
     this.auth = auth;
     this.clientStore = new ClientStore();
     this.codeStore = new CodeStore();
@@ -66,6 +80,10 @@ export class OAuthServer {
     this.revocationStore = new RevocationStore();
     this.pkce = new PkceUtil();
     this.consent = new ConsentPage();
+    // 向后兼容：未传则内部兜底（既有直接 new OAuthServer(auth) 的测试不受影响）。
+    this.accounts = opts.accounts ?? new AccountStore();
+    this.sessions = opts.sessions ?? new SessionStore();
+    this.autoConsent = opts.autoConsent ?? OAUTH_AUTO_CONSENT;
 
     // 定时清理过期授权码 / refresh（不阻塞进程退出）。
     const timer = setInterval(() => {
@@ -75,7 +93,7 @@ export class OAuthServer {
     timer.unref();
   }
 
-  /** 将 4 条标准 OAuth 路由挂载到 Express app。 */
+  /** 将标准 OAuth 路由挂载到 Express app（含 /login + /userinfo）。 */
   register(app: Express): void {
     const json = express.json();
     const urlencoded = express.urlencoded({ extended: false });
@@ -86,7 +104,8 @@ export class OAuthServer {
       code: this.codeStore,
       pkce: this.pkce,
       consent: this.consent,
-      autoConsent: OAUTH_AUTO_CONSENT,
+      autoConsent: this.autoConsent,
+      sessions: this.sessions,
     });
     const tokenHandler = createTokenHandler({
       clients: this.clientStore,
@@ -107,6 +126,16 @@ export class OAuthServer {
       refresh: this.refreshStore,
       revocation: this.revocationStore,
     });
+    const loginHandler = createLoginHandler({
+      accounts: this.accounts,
+      sessions: this.sessions,
+    });
+    const userinfoHandler = createUserinfoHandler({ auth: this.auth });
+
+    // 登录端点（v2 ②）：GET 渲染 / POST 校验（表单需 urlencoded）
+    app.use('/login', urlencoded);
+    app.get('/login', loginHandler);
+    app.post('/login', loginHandler);
 
     // 授权端点：GET 渲染 / POST 一键允许（表单需 urlencoded）
     app.use('/authorize', urlencoded);
@@ -124,6 +153,11 @@ export class OAuthServer {
     app.use('/introspect', urlencoded);
     app.use('/introspect', cors);
     app.post('/introspect', introspectHandler);
+
+    // 用户信息端点（v2 ②）：Bearer + CORS（参照 /introspect）
+    app.use('/userinfo', cors);
+    app.get('/userinfo', userinfoHandler);
+    app.post('/userinfo', userinfoHandler);
 
     // 吊销端点：CORS
     app.use('/revoke', json);

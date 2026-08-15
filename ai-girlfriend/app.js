@@ -1088,6 +1088,9 @@ async function herReply(userText, img) {
         mem: S.mem, tex: S.tex, pres: S.pres, firstMeet: S.firstMeet,
         // 心屿 MCP：把当前心智摘要挂到 est（引擎冻结，v1 仅建数据可用性 + 控制台可观测）
         mindCtx: (mindCtx && MCP) ? MCP.buildFragment(mindCtx) : null,
+        // v2 ③ 本地引擎消费 mindCtx：把 12 维信封归一化为 MindProfile 注入本地引擎，
+        // 做回复塑形偏置（黏人/安抚/更早给台阶）。云端分支（callCloud）不变，仍用 buildFragment。
+        mindProfile: (mindCtx && MCP) ? MCP.normalizeProfile(mindCtx) : null,
       };
       const r = Engine.reply(text, est);
       // ★ v13 待决点④ 落盘：engine.js 冻结（T5a 零 diff），afterTurn 的调用点只能落在宿主。

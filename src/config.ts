@@ -135,7 +135,28 @@ export const CORS_ALLOWED_ORIGINS: readonly string[] = (
   .filter(Boolean);
 
 /**
- * 是否自动同意（v1 本地 / 设备身份无需人工点击）。
- * 设为 'false' 时 /authorize 总是渲染极简同意页等待一键允许。
+ * 是否自动同意（v2 起默认 false：per-account 同意页，隐私优先）。
+ * 仅当显式传 'true' 才跳过同意页（生产默认展示同意页）。
  */
-export const OAUTH_AUTO_CONSENT = (process.env.OAUTH_AUTO_CONSENT ?? 'true') !== 'false';
+export const OAUTH_AUTO_CONSENT = (process.env.OAUTH_AUTO_CONSENT ?? 'false') === 'true';
+
+// ===== v2 三特性增强共享基础设施常量（T01，纯新增，不改动既有行为） =====
+
+/** 账户存储文件名（落盘于 STORAGE_DIR）。 */
+export const ACCOUNT_STORE_FILE = process.env.ACCOUNT_STORE_FILE ?? 'accounts.jsonl';
+/** 文档别名（v2-design §8 引用 ACCOUNT_FILE）。 */
+export const ACCOUNT_FILE = ACCOUNT_STORE_FILE;
+
+/** 登录会话 cookie 名称（httpOnly / Path=/ / SameSite=Lax）。 */
+export const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? 'xinyu_sid';
+/** 文档别名（v2-design §8 引用 SESSION_COOKIE）。 */
+export const SESSION_COOKIE = SESSION_COOKIE_NAME;
+
+/** 默认所有者账户名（首跑引导创建）。 */
+export const OWNER_USERNAME = process.env.OWNER_USERNAME ?? 'owner';
+
+/** 所有者口令来源：环境变量（可空）。为空时首跑随机生成并打印横幅。 */
+export const XY_OWNER_PASSWORD: string | undefined = process.env.XY_OWNER_PASSWORD;
+
+/** 登录会话 TTL（秒）：30d。 */
+export const SESSION_TTL_SECONDS = Number(process.env.SESSION_TTL_SECONDS ?? 2592000);

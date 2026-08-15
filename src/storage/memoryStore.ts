@@ -4,6 +4,10 @@
  * - writeMemory：写入长期情感记忆（关联 12 维状态向量）。
  * - writeHandoff：写入交接便签（72h TTL，超期由 gcHandoff 清理）。
  * - retrieve：按 session + 状态向量启发式相关度检索 topK（A7：不引外部 embedding）。
+ *
+ * v2 ① 多会话隔离：构造函数新增可选 `files?: { memory?; handoff? }`（缺省
+ * 回退 `MEMORY_FILE`/`HANDOFF_FILE`），向后兼容 `new MemoryStore(store)`。
+ * 新增只读 `jsonlStore` getter，供会话注册表复用同一落盘目录做命名空间文件。
  */
 
 import { randomUUID } from 'node:crypto';
@@ -29,21 +33,36 @@ export function relevanceScore(m: EmotionalMemory, v: StateVector): number {
   return Math.max(0, Math.min(1, cosine * 0.95 + tagBonus));
 }
 
+/** 命名空间文件选项（v2 ① 多会话隔离）。缺省回退全局常量。 */
+export interface MemoryStoreFiles {
+  memory?: string;
+  handoff?: string;
+}
+
 export class MemoryStore {
   private readonly store: JsonlStore;
+  private readonly memoryFile: string;
+  private readonly handoffFile: string;
 
-  constructor(store: JsonlStore) {
+  constructor(store: JsonlStore, files?: MemoryStoreFiles) {
     this.store = store;
+    this.memoryFile = files?.memory ?? MEMORY_FILE;
+    this.handoffFile = files?.handoff ?? HANDOFF_FILE;
+  }
+
+  /** 内部 JsonlStore（只读访问，供会话注册表命名空间落盘复用）。 */
+  get jsonlStore(): JsonlStore {
+    return this.store;
   }
 
   /** 写入一条长期情感记忆。 */
   writeMemory(m: EmotionalMemory): void {
-    this.store.append(MEMORY_FILE, m);
+    this.store.append(this.memoryFile, m);
   }
 
   /** 写入一条交接便签（TTL 由调用方保证）。 */
   writeHandoff(n: HandoffNote): void {
-    this.store.append(HANDOFF_FILE, n);
+    this.store.append(this.handoffFile, n);
   }
 
   /** 构造并写入一条情感记忆（便捷方法）。 */
@@ -76,7 +95,7 @@ export class MemoryStore {
    * @param topK 返回条数上限。
    */
   retrieve(sessionId: string, vector: StateVector, topK: number): EmotionalMemory[] {
-    const all = this.store.readAll(MEMORY_FILE) as EmotionalMemory[];
+    const all = this.store.readAll(this.memoryFile) as EmotionalMemory[];
     return all
       .filter((m) => m.session_id === sessionId)
       .map((m) => ({ m, score: relevanceScore(m, vector) }))
@@ -87,11 +106,11 @@ export class MemoryStore {
 
   /** 清理过期交接便签。 */
   gcHandoff(now: Date = new Date()): number {
-    return this.store.gcExpired(HANDOFF_FILE, now);
+    return this.store.gcExpired(this.handoffFile, now);
   }
 
   /** 清理过期长期记忆。 */
   gcMemory(now: Date = new Date()): number {
-    return this.store.gcExpired(MEMORY_FILE, now);
+    return this.store.gcExpired(this.memoryFile, now);
   }
 }

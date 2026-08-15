@@ -432,9 +432,9 @@ test("AC-C5-6 · contingency.js R-C5 增量 ≤470B、R-S2 净增/总量双锁�
   assert.strictEqual(B["contingency.js"], 6682, "v21 批准值 6582→6682（路径③ 受援方 +100B，源自 engine 让渡 D=100；推导见 wiring-scan.js v21 审批块）· v22 配额逐位不动");
   /* ⚠ 断言消息不复述上一轮旧字面量 —— T-v33 归零判据要求活代码零残留（DESIGN-v22 §5）；
    *   但**现行**派生值须点名，否则「改全没改全」在本文件里无从机械核对。 */
-  assert.strictEqual(B.moduleSumMax, 28003, "v22 批准值：左移 −40 = totalMax − engineMax(248477)（三模块回让 E=40B 予 engine）");
-  assert.strictEqual(B.totalMax, 276480, "totalMax 本期不许动（270KB 承诺）");
-  assert.strictEqual(B.engineNetMax, 2740, "v22 批准值：右移 +40（反向路径：三模块回让 E=40B 予 engine）");
+  assert.strictEqual(B.moduleSumMax, 28003, "T05(D5) 重标定：moduleSumMax 28003 = totalMax(281119) − engineMax(253116)（模块零改动，Σ 逐位不变）");
+  assert.strictEqual(B.totalMax, 281119, "T05(D5) 重标定：v14 276480 + 4639（D5 已批准，天花板 = moduleSumMax + engineMax = 28003 + 253116 = 281119，间隙恒 0）");
+  assert.strictEqual(B.engineNetMax, 7379, "T05(D5) 重标定：v22 2740 + 4639（D5 engine.js 净增 5331 落位，余 2048B 闸门余量）");
   assert.strictEqual(B.engineMax, B.engineBase + B.engineNetMax, "锁①：engineMax 必须是派生值");
   // 恒等式②：四项配额之和 = moduleSumMax（严格相等，不是 ≤）
   assert.strictEqual(B["memory.js"] + B["presence.js"] + B["texture.js"] + B["contingency.js"],

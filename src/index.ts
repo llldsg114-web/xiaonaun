@@ -21,6 +21,8 @@ import { EnvelopeBuilder } from './mcp/envelope.js';
 import { TokenMiddleware } from './auth/token.js';
 import { AuditLog } from './observability/auditLog.js';
 import { MindEngine } from './mcp/tools.js';
+import { AccountStore } from './oauth/accounts.js';
+import { SessionStore } from './oauth/session.js';
 import { createApp } from './app.js';
 
 async function bootstrap(): Promise<void> {
@@ -35,9 +37,16 @@ async function bootstrap(): Promise<void> {
   const audit = new AuditLog(store);
 
   const engine = new MindEngine({ state, memory, idem, bridge, builder, audit, topK: 5, stateStore: store });
-  engine.restoreState();
+  // 注：状态恢复改由 MindEngine.getSession 按会话命名空间文件惰性完成，
+  // 此处不再调用全局 engine.restoreState()。
 
-  const app = createApp(engine, auth);
+  // v2 ② 本地账户 SSO：账户存储（落盘 .data/accounts.jsonl）+ 内存登录会话。
+  // 首跑引导创建默认 owner 账户（口令取自 XY_OWNER_PASSWORD，或随机并打印横幅）。
+  const accounts = new AccountStore(store);
+  const sessions = new SessionStore();
+  accounts.ensureOwner();
+
+  const app = createApp(engine, auth, accounts, sessions);
 
   const mcpEndpoint = process.env.MCP_ENDPOINT ?? '/mcp';
   const port = Number(process.env.PORT ?? 3000);

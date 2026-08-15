@@ -1,44 +1,85 @@
+%% ===== ① 多会话隔离（getSession 命中/未命中） =====
 sequenceDiagram
     autonumber
-    participant Browser as 浏览器/客户端
-    participant Proxy as server.js 代理(转发 Authorization)
+    participant B as 浏览器/代理
     participant MW as mcpAuthMiddleware
     participant Auth as TokenMiddleware
-    participant App as handleMcpRequest/createApp
-    participant S as McpServer+Transport
-    participant H as Tool Handler(context/event/handoff)
-    participant M as McpAuth.requireScope
+    participant App as handleMcpRequest
+    participant H as Tool Handler
     participant E as MindEngine
+    participant SM as SessionBundle/StateMachine
 
-    Browser->>Proxy: POST /mcp  Authorization: Bearer <jwt>  {method:tools/call, params:{...}}
-    Proxy->>MW: 转发(含 Authorization 头)
-    alt 预检 OPTIONS
-        MW-->>Browser: 204 + Access-Control-Allow-Headers: Authorization
-    else 普通请求
-        MW->>MW: token = extractBearer(req.headers.authorization)
-        alt token 非空
-            MW->>Auth: authenticate(token)
-            Auth-->>MW: {ok,subject,scopes} | {ok:false}
-        end
-        MW->>MW: req.mcpAuth = {subject,scopes} | null
-        alt POST & body.method=tools/call & !req.mcpAuth
-            MW-->>Browser: 401 {jsonrpc,error:-32001,"Unauthorized: missing/invalid Bearer"}
-        else 放行(含 initialize/tools/list/GET/DELETE)
-            MW->>App: next()  → handleMcpRequest 读 req.mcpAuth
-            App->>S: new McpServer + registerMcpTools(server, engine, requestAuth)
-            App->>S: connect + transport.handleRequest
-            S->>H: 调用工具 handler(参数不含 token)
-            H->>M: requireScope(requestAuth, 所需 scope)
-            alt scope 满足(requestAuth 含 requiredScope)
-                M-->>H: 通过
-                H->>E: handleXinchaoXxx(args, requestAuth)
-                E-->>H: 业务结果(用 requestAuth.subject 审计)
-                H-->>S: MCP content(result)
-                S-->>Browser: 200 JSON-RPC result
-            else scope 不足 / requestAuth 为 null(非 tools/call 路径已挡)
-                M-->>H: throw McpError(InvalidParams, "insufficient scope")
-                H-->>S: MCP isError(content)
-                S-->>Browser: 200 JSON-RPC error(业务错误体)
-            end
-        end
+    B->>MW: POST /mcp Bearer<sub=alice> session_id=threadA
+    MW->>Auth: authenticate(token)
+    Auth-->>MW: {subject:"alice", scopes:[...]}
+    MW->>App: req.mcpAuth = requestAuth
+    App->>H: registerMcpTools(server, engine, requestAuth)
+    H->>E: handleXinchaoEvent({session_id:"threadA"}, requestAuth)
+    alt sessions 未含 key("alice\u0000threadA")
+        E->>E: sessionFileName("state","alice","threadA")
+        E->>SM: new StateMachine + restore(读 state-alice-threadA.jsonl)
+        E->>E: sessions.set(key, bundle)
+    else 已缓存
+        E->>E: sessions.get(key)
+    end
+    E->>SM: applyConversationEvent → 写 state-alice-threadA.jsonl
+    E-->>H: EventResult(仅本会话状态)
+    Note over E: 同用户 threadB / 用户 bob 各自独立 bundle + 独立文件
+
+%% ===== ② 本地账户 SSO（登录 → consent → token → userinfo） =====
+sequenceDiagram
+    autonumber
+    participant U as 用户浏览器
+    participant L as /login
+    participant Sess as SessionStore
+    participant A as /authorize
+    participant C as ConsentPage
+    participant T as /token
+    participant Auth as TokenMiddleware
+    participant UI as /userinfo
+    participant FE as mcp-client.js
+
+    U->>L: GET /login
+    L-->>U: 200 登录页
+    U->>L: POST /login {username,password}
+    L->>Sess: create(username) → sid
+    L-->>U: 302 /authorize?... + Set-Cookie xinyu_sid
+    U->>A: GET /authorize(带 cookie, PKCE)
+    A->>Sess: get(sid) → username="alice"
+    Note over A: OAUTH_AUTO_CONSENT=false → 渲染 consent
+    A->>C: render({scope:"read write", clientName})
+    C-->>U: 200 同意页
+    U->>A: POST /authorize decision=allow(带 cookie)
+    A->>Auth: code.save({subject:"alice", ...})  // 替换 LOCAL_SUBJECT
+    A-->>U: 302 redirect_uri?code=...
+    U->>T: POST /token grant_type=authorization_code
+    T->>Auth: issueAccessToken("alice","read write")  // sub=alice
+    Auth-->>T: {access_token(JWT sub=alice), refresh_token}
+    T-->>U: 200 {access_token,...}
+    U->>FE: 存令牌
+    FE->>UI: GET /userinfo Authorization: Bearer<jwt>
+    UI->>Auth: introspect(token)
+    Auth-->>UI: {sub:"alice", scope, iss}
+    UI-->>FE: {sub:"alice"}
+    Note over FE: identity().subject = "alice"（缓存）；sessionId=每线程 id
+
+%% ===== ③ mindCtx → 本地引擎桥 =====
+sequenceDiagram
+    autonumber
+    participant App as app.js herReply
+    participant MCP as McpClient
+    participant Eng as Engine.reply
+    participant Cloud as callCloud(不变)
+
+    App->>MCP: getMindContext() → 信封(mindCtx)
+    alt 本地兜底路径
+        App->>MCP: normalizeProfile(mindCtx) → MindProfile
+        App->>Eng: Engine.reply(text, est{mindProfile})
+        Eng->>Eng: 读 est.mindProfile 偏置 tone/后缀/moodOverride
+        Eng->>Eng: negAfterTurn(state,intent,{mindProfile}) 收紧配额
+        Eng->>Eng: jealousTick(st,text,{mindProfile}) 微调频率(硬门不变)
+        Eng-->>App: replies(已随 12 维塑形)
+    else 云端路径(不变)
+        App->>Cloud: sysBase + "\n\n【当前心智状态】\n" + MCP.buildFragment(mindCtx)
+        Cloud-->>App: replies
     end

@@ -237,8 +237,13 @@ test("AC-G-8 · 体积：over=[] 且 engineNet ≤ engineNetMax", () => {
    *   落位 2699 余 41B。仍是 strictEqual 硬钉，严格度逐位不放松。
    *   ⚠ 这是治理体系建立以来 engine.js 字节数**首次**真正变动（v19–v21 三版 engine 零改动），
    *     本行属 DESIGN-v22 §5 T-v33「实测值族」连带惊动的针位之一。 */
-  assert.strictEqual(s.engineNet, 2699,
-    `v22 T-eng 后 engineNet 应为 2699（v18 落位 + H13 连接词枚举的 41），实为 ${s.engineNet}`);
+  /* ★★【快照翻转 · v2 T05 · D5 解冻 · T04 mindCtx 落地】2699 → 5331（+2632）★★
+   *   T04 在 engine.js 注入了前端 mindCtx 全链路（D5，用户已批「都做」），
+   *   净增 +2632B（git HEAD 248436B → 251068B）。此针位为 T05 体积锁重标定：
+   *   engineNetMax 由 2740 抬至 7379（余 2048B），落位 5331 余 2048B。仍是 strictEqual 硬钉。
+   *   非行为回归——纯体积锁；行为测试由 sso-identity.test.js / engine-mindprofile.test.js 守住。 */
+  assert.strictEqual(s.engineNet, 5331,
+    `v2 T05 D5 后 engineNet 应为 5331（T04 mindCtx 落地的 2632 + 基线 2699），实为 ${s.engineNet}`);
   /* 四锁恒等式 */
   assert.strictEqual(SIZE_BUDGET.engineMax, SIZE_BUDGET.engineBase + SIZE_BUDGET.engineNetMax,
     "锁①：engineMax ≠ engineBase + engineNetMax");

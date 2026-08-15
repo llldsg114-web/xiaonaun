@@ -14,16 +14,24 @@
 
 import { AddressInfo, type Server } from 'node:net';
 import express from 'express';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { TokenMiddleware } from '../auth/token.js';
 import { OAuthServer } from '../oauth/index.js';
 import { PkceUtil } from '../oauth/pkce.js';
+import { AccountStore } from '../oauth/accounts.js';
+import { SessionStore } from '../oauth/session.js';
+import { JsonlStore } from '../storage/jsonlStore.js';
 import { LOCAL_SUBJECT } from '../config.js';
 
 const TEST_SECRET = 'oauth-test-secret';
 const TEST_ISSUER = 'xinyu-mind-engine';
 const CLIENT_ID = 'xinyu-web';
 const REDIRECT_URI = 'http://localhost:3000/';
+const TEST_USER = 'oauth_test_user';
+const TEST_PASS = 'oauth_test_pass';
 
 interface TestServer {
   base: string;
@@ -32,14 +40,23 @@ interface TestServer {
 }
 
 let srv: TestServer;
+/** 已登录会话 cookie（登录闸门通过后随 /authorize 请求携带）。 */
+let authCookie: string;
 
-/** 启动一个隔离的 OAuthServer（绑定随机端口）。 */
+/** 启动一个隔离的 OAuthServer（绑定随机端口，账户落盘临时目录避免污染 .data）。 */
 async function startServer(): Promise<TestServer> {
   const auth = new TokenMiddleware(TEST_SECRET, TEST_ISSUER);
+  const tmp = mkdtempSync(path.join(tmpdir(), 'xinyu-oauth-'));
+  const store = new JsonlStore(tmp);
+  const accounts = new AccountStore(store);
+  const sessions = new SessionStore();
+  // 建一个确定口令的测试账户（避免首跑随机口令不可知）。
+  if (!accounts.exists(TEST_USER)) accounts.create(TEST_USER, TEST_PASS);
+
   const app = express();
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
-  new OAuthServer(auth).register(app);
+  new OAuthServer(auth, { accounts, sessions }).register(app);
 
   const server: Server = await new Promise((resolve) => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s));
@@ -55,10 +72,27 @@ async function startServer(): Promise<TestServer> {
   };
 }
 
-/** 跑完整 PKCE 授权码流程，返回授权码与参数。 */
+/** 用测试账户登录 /login，返回 `xinyu_sid=...` Cookie 字符串。 */
+async function loginAndGetCookie(base: string): Promise<string> {
+  const res = await fetch(`${base}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      username: TEST_USER,
+      password: TEST_PASS,
+      redirect: '/',
+    }).toString(),
+    redirect: 'manual',
+  });
+  const setCookie = res.headers.get('set-cookie');
+  if (!setCookie) throw new Error('登录未返回 Set-Cookie');
+  return setCookie.split(';')[0]; // "xinyu_sid=uuid"
+}
+
+/** 跑完整 PKCE 授权码流程（自动携带已登录 cookie），返回授权码与参数。 */
 async function runPkceFlow(
   base: string,
-  opts: { scope?: string; verifier?: string } = {},
+  opts: { scope?: string; verifier?: string; cookie?: string } = {},
 ): Promise<{ code: string | null; verifier: string; location: string }> {
   const pkce = new PkceUtil();
   const verifier = opts.verifier ?? pkce.generateVerifier();
@@ -71,7 +105,10 @@ async function runPkceFlow(
     `&scope=${encodeURIComponent(scope)}&state=${state}` +
     `&code_challenge=${challenge}&code_challenge_method=S256`;
 
-  const res = await fetch(url, { redirect: 'manual' });
+  const headers: Record<string, string> = {};
+  if (opts.cookie ?? authCookie) headers['Cookie'] = opts.cookie ?? authCookie;
+
+  const res = await fetch(url, { redirect: 'manual', headers });
   const location = res.headers.get('location') ?? '';
   const code = location ? new URL(location, base).searchParams.get('code') : null;
   return { code, verifier, location };
@@ -99,6 +136,7 @@ async function exchangeToken(
 
 beforeAll(async () => {
   srv = await startServer();
+  authCookie = await loginAndGetCookie(srv.base);
 });
 
 afterAll(async () => {
@@ -187,7 +225,9 @@ describe('P0-3 /introspect（RFC7662）', () => {
     const out = await res.json();
     expect(out.active).toBe(true);
     expect(out.scope).toBe('read write');
-    expect(out.sub).toBe(LOCAL_SUBJECT);
+    // v2 ②：sub 为真实登录账户名（非降级兜底 LOCAL_SUBJECT）。
+    expect(out.sub).toBe(TEST_USER);
+    expect(out.sub).not.toBe(LOCAL_SUBJECT);
     expect(out.iss).toBe(TEST_ISSUER);
     expect(out.token_type).toBe('Bearer');
   });
@@ -285,7 +325,7 @@ describe('P0-5/P0-1 安全与注册校验', () => {
       `${srv.base}/authorize?response_type=code&client_id=${CLIENT_ID}` +
         `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
         `&scope=admin&code_challenge=abc&code_challenge_method=S256`,
-      { redirect: 'manual' },
+      { redirect: 'manual', headers: { Cookie: authCookie } },
     );
     expect(res.status).toBe(400);
     const body = await res.json();
@@ -297,7 +337,7 @@ describe('P0-5/P0-1 安全与注册校验', () => {
       `${srv.base}/authorize?response_type=code&client_id=unknown-client` +
         `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
         `&scope=read&code_challenge=abc&code_challenge_method=S256`,
-      { redirect: 'manual' },
+      { redirect: 'manual', headers: { Cookie: authCookie } },
     );
     expect(res.status).toBe(401);
     const body = await res.json();

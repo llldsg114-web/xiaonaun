@@ -16,6 +16,8 @@
 const KEY = "xinyu_oauth_tokens";
 /** 稳定设备身份 key */
 const DEVICE_KEY = "xinyu_device_id";
+/** 真实用户身份（SSO 登录后由 /userinfo 回写的 sub）key */
+const SUBJECT_REAL_KEY = "xinyu_subject_real";
 
 /* ===================== TokenStore ===================== */
 
@@ -39,9 +41,43 @@ export class TokenStore {
     try { localStorage.setItem(KEY, JSON.stringify(t)); } catch (_) {}
   }
 
-  /** 清空令牌 */
+  /** 清空令牌（登出场景：同时清除真实用户身份，避免残留旧 sub） */
   clear() {
-    try { localStorage.removeItem(KEY); } catch (_) {}
+    try {
+      localStorage.removeItem(KEY);
+      localStorage.removeItem(SUBJECT_REAL_KEY);
+    } catch (_) {}
+  }
+
+  /**
+   * 写入真实用户身份（SSO 登录后由 /userinfo 解析出的 sub）。
+   * 与设备 id 隔离：即便用户登出清令牌，也只是本方法被 clear() 一并清掉，
+   * getSubject() 仍回退到稳定设备 id（不丢匿名降级身份）。
+   * @param {string} sub
+   */
+  setSubjectReal(sub) {
+    if (sub == null) return;
+    try { localStorage.setItem(SUBJECT_REAL_KEY, String(sub)); } catch (_) {}
+  }
+
+  /**
+   * 取真实用户身份（SSO 登录后的 sub）；未登录/不可用时返回 null。
+   * @returns {string|null}
+   */
+  getSubjectReal() {
+    try {
+      const v = localStorage.getItem(SUBJECT_REAL_KEY);
+      return v ? String(v) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * 单独清除真实用户身份（保留设备 id 与令牌）。
+   */
+  clearSubjectReal() {
+    try { localStorage.removeItem(SUBJECT_REAL_KEY); } catch (_) {}
   }
 
   /** 快捷写入（与 setTokens 等价） */
