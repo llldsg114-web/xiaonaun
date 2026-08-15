@@ -140,25 +140,31 @@ async function main() {
     eq("ensureValidToken 写回新 access", rstore.getAccessToken(), "new-at");
     ok("ensureValidToken 写回新 refresh", rstore.getRefreshToken() === "rt-x2");
   } finally { globalThis.fetch = realFetch; }
-  // _call 收到 401 → 清 access + refresh 重试一次（重试用新 token）
+  // _call 收到 401 → 清 access + refresh，以刷新后的 Bearer 头重试一次（重试用新 token）
   const fstore = new TokenStore();
   fstore.setTokens({ access_token: "expired-at", refresh_token: "rt-y", expires_at: Date.now() + 999999, token_type: "Bearer" });
   const mcF = new McpClient({ proxyUrl: "/x", asBase: "http://localhost:3100" });
   mcF._store = fstore;
   let callCount = 0;
+  const capturedAuth = [];  // 每次 MCP 请求的 Authorization 头（验证 Bearer 而非 arguments.token）
   globalThis.fetch = async (url, opts) => {
     const u = String(url);
     const headers = { get: () => "application/json" };
     if (u.includes("/token")) return { ok: true, status: 200, headers, json: async () => ({ access_token: "refreshed-at", refresh_token: "rt-y", expires_in: 3600, token_type: "Bearer" }) };
     callCount++;
+    const authHeader = (opts && opts.headers && (opts.headers.Authorization || opts.headers.authorization)) || null;
+    capturedAuth.push(authHeader);
     if (callCount === 1) return { ok: false, status: 401, headers, json: async () => ({}) };
     const body = JSON.parse(opts.body);
-    return { ok: true, status: 200, headers, json: async () => ({ result: { content: [{ type: "text", text: JSON.stringify({ ok: true, token: body.params.arguments.token }) }] } }) };
+    // 重试用刷新后的 Bearer 头；arguments 不再含 token
+    return { ok: true, status: 200, headers, json: async () => ({ result: { content: [{ type: "text", text: JSON.stringify({ ok: true, received: body.params.arguments }) }] } }) };
   };
   try {
-    const out = await mcF._call("xinchao_context", { token: "expired-at", subject: "s", session_id: "s" });
+    const out = await mcF._call("xinchao_context", { subject: "s", session_id: "s" });
     ok("_call 401 后重试成功", out && out.ok === true);
-    eq("_call 401 重试用新 token", out.token, "refreshed-at");
+    ok("_call 401 首次请求携带过期 Bearer 头", capturedAuth[0] === "Bearer expired-at");
+    ok("_call 401 重试用刷新后的 Bearer 头", capturedAuth[1] === "Bearer refreshed-at");
+    ok("_call 401 重试请求不含 arguments.token", !out.received || !("token" in out.received));
     ok("_call 401 仅重试一次（共 2 次调用）", callCount === 2);
   } finally { globalThis.fetch = realFetch; }
 

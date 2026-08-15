@@ -140,10 +140,26 @@ export interface AuditEntry {
   detail?: string;
 }
 
-/** 鉴权结果。 */
+/** 鉴权结果（TokenMiddleware.verify 产出，供 OAuth 端点等他用）。 */
 export interface AuthResult {
   ok: boolean;
   subject?: string;
   scopes?: string[];
   code?: string;
 }
+
+/**
+ * 请求级鉴权上下文（Route B 闭包注入工具 handler）。
+ * 由 HTTP Bearer 中间件解析后挂到 req.mcpAuth，再传入 registerMcpTools。
+ */
+export interface RequestAuth {
+  /** = JWT sub */
+  subject: string;
+  /** 归一化后的 scope 数组（优先取 claims.scopes，回退 claims.scope 拆分）。 */
+  scopes: string[];
+}
+
+/** authenticate 返回结果：仅验令牌（签名+exp+iss），不校验 scope。 */
+export type AuthOutcome =
+  | { ok: true; subject: string; scopes: string[] }
+  | { ok: false; error: string };

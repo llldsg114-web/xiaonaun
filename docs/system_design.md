@@ -1,425 +1,302 @@
-# 心屿「标准 OAuth 2.1 授权服务器」系统架构设计 + 任务分解
+# 心屿 · Route B 鉴权升级 — 系统设计文档
 
-> 架构师：高见远（Gao） ｜ 产品名：**心屿** ｜ 伴侣名：**小暖**（不可改名、不可 renamed）
-> 协议：MIT ｜ 代码 100% 自有，完全从零自研，不依赖/不 fork 任何第三方「心潮（xinchao）」项目，不使用 `ombre-brain`。
-> 配套图：`docs/class-diagram.mermaid`、`docs/sequence-diagram.mermaid`
-
-## 铁律校验（交付前置）
-- ✅ **小暖**之名不在本设计中改动（本服务不触碰伴侣名，仅鉴权）。
-- ✅ **100% 自研 MIT**：新增代码全部落在 `src/oauth/`，不引入任何第三方 OAuth 库；如需加密原语一律用 Node 内置 `node:crypto`。
-- ✅ **不破坏 `/mcp` 与 3 个 MCP 工具**：新签发的 `access_token` 复用同一 `JWT_SECRET`、同一 `issuer=xinyu-mind-engine`、并**同时携带 `scopes` 数组**（兼容现有 `TokenMiddleware.verify`），3 个工具的 `verify(args.token, SCOPE_READ/WRITE)` 调用点 **v1 零改动**。现有 `index.ts` 的非标准 `/token` 被移除以避免双签发。
+> 架构师：高见远（Gao）｜ 产品名：心屿 ｜ 心智体：小暖（不可改名）
+> 铁律：100% 自研 MIT；不使用 ombre-brain / 第三方「心潮」；零新增依赖（仅用既有 `jsonwebtoken` / `node:crypto` / MCP SDK / express）。
+> 不破坏 `/authorize` `/token` `/introspect` `/revoke` `/health`；保留 3 个 MCP 工具的 `read`/`write` scope 语义。
 
 ---
 
-## Part A：系统设计
+## 1. 实现方案（含请求级 auth 传递方案的选定与理由）
 
-### 1. 实现方案 + 框架选型
+### 1.1 技术难点与选型
 
-#### 1.1 核心难点
-1. **PKCE(S256) 强制**：授权码流程必须校验 `code_challenge` + `code_challenge_method=S256`，且 `code_verifier` 在 `/token` 端做 SHA256 比对。
-2. **一次性、短生命 auth code**：绑定 `client / redirect_uri / scope / code_challenge`，TTL≤5min，单次可用（consume 即标记）。
-3. **access_token 与既有验签完全兼容**：这是最难也最关键的一点——既要是标准 OAuth JWT（claim 含 `scope` 字符串），又要能被现有 `TokenMiddleware.verify`（读 `decoded.scopes` **数组**）直接验过。
-4. **refresh_token 可吊销 + 轮换**：服务端存储、可吊销；P1 用即废。
-5. **不破坏既有 MCP 路径**：`/mcp` 路由与 3 个工具的 `args.token` 校验逻辑保持不变。
+| 难点 | 方案 |
+|---|---|
+| 每请求新建 `McpServer`+`transport` 的无状态模型下，如何把"已验证身份"传给工具 handler | **闭包捕获（closure capture）**：HTTP 中间件在 `handleMcpRequest` 之前完成 Bearer 校验，把 `{subject, scopes}` 作为 `requestAuth` 参数传入 `registerMcpTools(server, engine, requestAuth)`，工具 handler 闭包读取 `requestAuth`。 |
+| 鉴权从"工具参数 `args.token`"迁移到"标准 `Authorization: Bearer <jwt>` 请求头" | 在 `src/mcp/middleware.ts` 新增 Express 中间件：从 `req.headers.authorization` 提取 Bearer → `auth.authenticate(token)` → 挂到 `req.mcpAuth`；对 `tools/call` 缺失/非法令牌直接 401。 |
+| 保持 `read`/`write` scope 强制、不破坏既有 OAuth 端点 | 工具 handler 内 `requireScope(requestAuth, SCOPE_READ\|SCOPE_WRITE)` 替代 `verify(args.token, scope)`；`TokenMiddleware.verify` 保留供 `/introspect` 等他用。 |
+| 测试"call 工具"且零新增依赖 | MCP SDK 1.30.0 已内置 `InMemoryTransport.createLinkedPair()`；Node 18 自带 `fetch`。用二者分别做工具层与 HTTP 层验证，**不引入 supertest**。 |
 
-#### 1.2 框架与库选型（仅 MIT / 宽松协议，预期零新增依赖）
-| 用途 | 选型 | 协议 | 说明 |
-|------|------|------|------|
-| HTTP 路由 | `express`（已有） | MIT | 承载 `/authorize` `/token` `/introspect` `/revoke` |
-| JWT 签发/验签 | `jsonwebtoken`（已有） | MIT | HS256，`JWT_SECRET` 同现有；复用 `TokenMiddleware` 实例保证密钥/issuer 一致 |
-| PKCE / SHA256 | Node 内置 `node:crypto` | MIT（运行时自带） | `crypto.randomBytes` + `crypto.createHash('sha256')` + base64url，无需库 |
-| 入参校验 | `zod`（已有） | MIT | `/token` `/introspect` `/revoke` body 校验 |
-| 配置加载 | `dotenv`（已有） | BSD-2-Clause（宽松） | 读 `.env` |
-| 测试 | `vitest`（已有） | MIT | 端点 + PKCE 单测 |
+**架构模式**：无状态每请求 MCP + Express Bearer 中间件（请求级 auth 上下文 → 闭包注入工具 handler）。依旧是「传输层装配」风格，与现有 `index.ts` 一致。
 
-> **结论：无需新增任何第三方依赖**。所有密码学原语均来自 Node 运行时 + 现有 `jsonwebtoken`，完全符合 MIT/宽松铁律。
+### 1.2 请求级 auth 传递方案 —— 选定「闭包捕获」（决策）
 
-#### 1.3 架构模式
-**分层 + 组合根（Composition Root）**：
-- **传输层**：`src/oauth/*.ts` 内的 Express handlers（`authorize/token/introspect/revoke`）。
-- **领域服务层**：`ClientStore`（客户端注册/白名单）、`CodeStore`（auth code 内存存储）、`RefreshStore`（refresh token 内存存储）、`PkceUtil`（无状态工具）、`ConsentPage`（极简 HTML 渲染）。
-- **共享签发层**：复用既有 `src/auth/token.ts` 的 `TokenMiddleware`（同一 secret/issuer）做 access_token 签发与 introspect 验签——**单一密钥来源**，杜绝密钥分叉。
-- **组合根**：`src/oauth/index.ts` 的 `OAuthServer.register(app)`，在 `src/index.ts` 中装配，接收既有的 `TokenMiddleware` 实例。
+**选定**：`registerMcpTools(server, engine, requestAuth)`，工具 handler 闭包捕获 `requestAuth`。
 
-#### 1.4 ⚠️ 关键兼容决策（必读）
-现有 `src/auth/token.ts` 的 `verify` 实现：
-```ts
-const decoded = jwt.verify(token, this.secret, { issuer: this.issuer }) as TokenClaims;
-const scopes: string[] = Array.isArray(decoded.scopes) ? decoded.scopes : [];
-if (!scopes.includes(scope)) return { ok:false, code: ERROR_CODES.E1102 };
+**理由**：
+1. `handleMcpRequest` 每请求新建 `McpServer`+`transport`，`registerMcpTools` 也在该请求作用域内调用，把已验证的 `requestAuth` 作为参数传入即可被各 handler 闭包捕获 —— 最简单、零样板。
+2. **完全版本无关**：不耦合 MCP SDK 内部的 `extra.authInfo` / `authProvider` 机制。SDK 的 `authInfo` 需同时在 `McpServer` 与 `StreamableHTTPServerTransport` 上装配 `OAuthServerProvider` 实现（接口随 1.x 小版本变动），对自研 HS256 JWT 属于过度工程且易碎。
+3. 自定义 JWT 校验（签名+exp+iss）完全自控，与 `TokenMiddleware` 单一来源一致；零新增依赖。
+4. `extra` 仍可在未来需要时作为 SDK 原生通道，但本 v1 不依赖。
+
+**调用链（选定方案）**：
 ```
-它读的是 **`decoded.scopes`（数组）**。PRD 写的新 access_token claim 是 `scope`（字符串）。若只发 `scope` 字符串，`verify` 会得到 `scopes=[]` → 越权失败（3 个 MCP 工具断签）。
-
-**因此 access_token 的 JWT claim 必须同时包含：**
-```jsonc
-{
-  "sub": "xinyu-local",        // 资源所有者（本地自动同意的固定身份）
-  "scope": "read write",       // OAuth RFC 标准：空格分隔字符串（供 /introspect 返回）
-  "scopes": ["read","write"],  // ★ 兼容桥：与 verify 读取的字段一致，3 工具零改动
-  "token_type": "Bearer",
-  "jti": "<uuid>",             // 供 /revoke 级联吊销 access
-  "iss": "xinyu-mind-engine",
-  "exp": 1735689600
-}
+浏览器/代理 POST /mcp (Authorization: Bearer <jwt>, body.method=tools/call)
+  → mcpAuthMiddleware
+      ├─ extractBearer(req.headers.authorization)        // TokenMiddleware
+      ├─ auth.authenticate(token) -> {ok, subject, scopes} // TokenMiddleware（仅验令牌，不验 scope）
+      ├─ req.mcpAuth = {subject, scopes} | null
+      └─ method=tools/call 且 !req.mcpAuth → res 401（JSON-RPC error 体）
+  → handleMcpRequest(req,res)
+      ├─ const requestAuth = req.mcpAuth
+      ├─ new McpServer(...)
+      ├─ registerMcpTools(server, engine, requestAuth)    // 闭包捕获
+      │     └─ handler: requireScope(requestAuth, SCOPE_X) // 工具级 scope 校验
+      │            └─ engine.handleXinchaoXxx(args, requestAuth) // 用 requestAuth.subject 审计
+      └─ transport.handleRequest(...)
 ```
-> 实现方式：在 `TokenMiddleware` 上**新增** `issueAccessToken(subject, scope)` 与 `introspectToken(token)` 两个方法（3 个 MCP 工具不调用它们，故仍属「零改动」）。签发走同一 `secret/issuer`，`exp=86400`。
+
+**备选（未采用）**：`extra.authInfo`。需在 server/transport 装配 `authProvider`、实现 `OAuthServerProvider`（getClient、startAuthorization、completeAuthorization、registerClient 等），并依赖 SDK 具体版本的形状；对自研 JWT 收益为零、风险为正。故弃。
 
 ---
 
-### 2. 文件列表（相对路径）
+## 2. 文件列表及相对路径
 
-新增代码统一在 `src/oauth/` 下；两处既有文件做最小接线改动。
-
-```
-心屿心智引擎/
-├── src/
-│   ├── index.ts                 # 【改动】移除旧 /token(44-50)；挂载 OAuthServer；保留 /mcp + /health
-│   ├── config.ts                # 【改动】新增 OAUTH 常量（TTL/scope/LOCAL_SUBJECT/CORS）
-│   ├── auth/
-│   │   └── token.ts             # 【改动】新增 issueAccessToken() / introspectToken()（3 工具不变）
-│   └── oauth/                   # ★ 全部新增
-│       ├── types.ts             # 共享类型/接口：OAuthClient / AuthCodeRecord / RefreshTokenRecord / OAuthError / TokenResponse / IntrospectResponse
-│       ├── errors.ts            # RFC6749/7662/7009 错误码 + HTTP 状态 + 错误响应构造
-│       ├── pkce.ts              # PkceUtil：S256 challenge / verify / randomToken / jti
-│       ├── store.ts             # CodeStore + RefreshStore + RevocationStore（内存；预留 JSONL 落盘接口）
-│       ├── clients.ts           # ClientStore：xinyu-web 预置 + 多客户端预留 + redirect_uri 白名单
-│       ├── consent.ts           # ConsentPage：渲染极简 HTML 同意页
-│       ├── authorize.ts         # GET /authorize（校验+渲染） + POST /authorize（一键允许→发 code→302）
-│       ├── token.ts             # POST /token：authorization_code + refresh_token；CORS；签发 JWT
-│       ├── introspect.ts        # POST /introspect（RFC7662）
-│       ├── revoke.ts            # POST /revoke（RFC7009）
-│       └── index.ts             # OAuthServer 组合根：register(app) 挂载全部路由
-└── docs/
-    ├── system_design.md
-    ├── class-diagram.mermaid
-    └── sequence-diagram.mermaid
-```
+| 文件 | 变更 | 说明 |
+|---|---|---|
+| `src/auth/token.ts` | 改 | 新增 `authenticate(token)`；`verify` 重构复用 `authenticate`；保留 `issue`/`issueAccessToken`/`introspectToken`/`extractBearer`。 |
+| `src/types/index.ts` | 改 | 新增 `RequestAuth` 接口（与既有 `AuthResult` 共存）。 |
+| `src/mcp/middleware.ts` | 新 | `mcpAuthMiddleware` / `resolveRequestAuth` / `sendUnauthorized`；OPTIONS 预检放行；`tools/call` 无令牌→401。 |
+| `src/mcp/auth.ts` | 新 | `RequestAuth` 再导出 + `requireScope` + `getRequiredScope` + `{context:read, event/handoff:write}` 映射。 |
+| `src/mcp/tools.ts` | 改 | `registerMcpTools(server, engine, requestAuth)` 改为编排器；3 工具 schema 移除 `token`；引擎方法去 `token`、改收 `requestAuth` 用于审计。 |
+| `src/mcp/tools/context.ts` | 新 | `registerContextTool(server, engine, requestAuth)`（read）。 |
+| `src/mcp/tools/event.ts` | 新 | `registerEventTool(server, engine, requestAuth)`（write）。 |
+| `src/mcp/tools/handoff.ts` | 新 | `registerHandoffNoteTool(server, engine, requestAuth)`（write）。 |
+| `src/app.ts` | 新 | 抽出 `createApp(engine, auth)`：装配 OAuth + `/health` + `/mcp`（含中间件接线与路由）。供 `index.ts` 与测试复用。 |
+| `src/index.ts` | 改 | `bootstrap` 改用 `createApp`；保留监听/日志；删除内联 `handleMcpRequest` 的重复装配（迁移到 `createApp`）。 |
+| `src/__tests__/mcp.test.ts` | 改 | 重写为"经工具层 call 工具、不再传 token"；保留 11 用例全绿；新增无 Bearer / scope 不足拒绝用例。 |
+| `src/__tests__/helpers/registerMcpToolsForTest.ts` | 新 | 封装 `registerMcpTools` + `InMemoryTransport`+`ClientSession`，返回可 `callTool` 的客户端。 |
+| `src/__tests__/helpers/mcpTestClient.ts` | 新 | `InMemoryTransport` 链接对 + `ClientSession` 的通用封装（T03 产出，T04 复用）。 |
+| `src/__tests__/fixtures/mcpTokens.ts` | 新 | 用 `auth.issueAccessToken` 铸造：有效/过期/越权（仅 read）/非法 四类 JWT。 |
+| `src/__tests__/mcp.http.test.ts` | 新 | 零依赖（`fetch`）打 `/mcp`：验证 401 门禁 + OPTIONS 预检放行。 |
 
 ---
 
-### 3. 数据结构与接口（Mermaid 类图）
-
-> 完整文件见 `docs/class-diagram.mermaid`。
+## 3. 数据结构与接口（Mermaid 类图）
 
 ```mermaid
 classDiagram
-    direction TB
+    direction LR
 
     class TokenMiddleware {
-        <<existing: src/auth/token.ts>>
+        <<src/auth/token.ts · 改>>
         -secret: string
         -issuer: string
         +issue(subject, scopes): string
+        +issueAccessToken(subject, scope): IssuedAccessToken
         +verify(token, scope): AuthResult
-        +issueAccessToken(subject, scope): TokenResponse  %% 新增（3 工具不调用）
-        +introspectToken(token): TokenClaims|null          %% 新增
+        +introspectToken(token): TokenClaims|null
+        +extractBearer(authHeader): string|null
+        +authenticate(token): AuthResult2
     }
 
-    class OAuthServer {
-        -clientStore: ClientStore
-        -codeStore: CodeStore
-        -refreshStore: RefreshStore
-        -pkce: PkceUtil
-        -consent: ConsentPage
-        -auth: TokenMiddleware
-        +register(app: Express): void
-        -mountAuthorize(app)
-        -mountToken(app)
-        -mountIntrospect(app)
-        -mountRevoke(app)
-    }
-
-    class ClientStore {
-        -clients: Map~string, OAuthClient~
-        +register(client: OAuthClient): void
-        +get(clientId: string): OAuthClient|undefined
-        +isValidRedirectUri(client: OAuthClient, uri: string): boolean
-        +isPublic(clientId: string): boolean
-    }
-
-    class CodeStore {
-        -codes: Map~string, AuthCodeRecord~
-        +save(rec: AuthCodeRecord): void
-        +consume(code: string): AuthCodeRecord|null   %% 原子取+标记 used
-        +revoke(code: string): void
-        +sweep(): void                                 %% TTL 定时清理
-    }
-
-    class RefreshStore {
-        -tokens: Map~string, RefreshTokenRecord~
-        +save(rec: RefreshTokenRecord): void
-        +get(token: string): RefreshTokenRecord|undefined
-        +revoke(token: string): void
-        +revokeByJti(jti: string): void                %% 级联标记关联 access
-        +rotate(old: RefreshTokenRecord): RefreshTokenRecord  %% P1 用即废
-    }
-
-    class RevocationStore {
-        -denylist: Set~string~   %% access jti 黑名单（最佳努力）
-        +add(jti: string): void
-        +isRevoked(jti: string): boolean
-    }
-
-    class PkceUtil {
-        +generateVerifier(): string
-        +challengeS256(verifier: string): string
-        +verify(verifier: string, challenge: string): boolean
-        +randomToken(bytes: number): string
-        +jti(): string
-    }
-
-    class ConsentPage {
-        +render(view: ConsentView): string   %% 返回极简 HTML
-    }
-
-    class OAuthClient {
-        +client_id: string
-        +client_secret: string|null
-        +redirect_uris: string[]
-        +token_endpoint_auth_method: "none"|"client_secret_post"|"client_secret_basic"
-        +name: string
-        +allowed_scopes: string[]
-    }
-
-    class AuthCodeRecord {
+    class AuthResult {
+        <<src/types/index.ts · 既有>>
+        +ok: boolean
         +code: string
-        +client_id: string
-        +redirect_uri: string
-        +scope: string
-        +code_challenge: string
-        +code_challenge_method: "S256"
         +subject: string
-        +created_at: number
-        +expires_at: number
-        +used: boolean
+        +scopes: string[]
     }
 
-    class RefreshTokenRecord {
-        +refresh_token: string
-        +client_id: string
+    class RequestAuth {
+        <<src/types/index.ts · 新增 interface>>
         +subject: string
-        +scope: string
-        +jti: string
-        +created_at: number
-        +expires_at: number
-        +revoked: boolean
+        +scopes: string[]
     }
 
-    OAuthServer --> ClientStore : 依赖
-    OAuthServer --> CodeStore : 依赖
-    OAuthServer --> RefreshStore : 依赖
-    OAuthServer --> PkceUtil : 依赖
-    OAuthServer --> ConsentPage : 依赖
-    OAuthServer --> TokenMiddleware : 复用签发/验签
-    OAuthServer ..> RevocationStore : 复用(吊销)
+    class McpAuthMiddleware {
+        <<src/mcp/middleware.ts · 新>>
+        +resolveRequestAuth(req): RequestAuth|null
+        +sendUnauthorized(res, id): void
+        +mcpAuthMiddleware(req,res,next): void
+    }
 
-    ClientStore "1" *-- "0..*" OAuthClient : 持有
-    CodeStore "1" *-- "0..*" AuthCodeRecord : 存储
-    RefreshStore "1" *-- "0..*" RefreshTokenRecord : 存储
-    RefreshStore ..> RevocationStore : 吊销时联动
+    class McpAuth {
+        <<src/mcp/auth.ts · 新>>
+        +requireScope(auth, scope): void
+        +getRequiredScope(toolName): string
+    }
+
+    class McpTools {
+        <<src/mcp/tools.ts · 改>>
+        +registerMcpTools(server, engine, requestAuth): void
+    }
+
+    class ToolRegistrar {
+        <<src/mcp/tools/{context,event,handoff}.ts · 新>>
+        +registerContextTool(server, engine, requestAuth)
+        +registerEventTool(server, engine, requestAuth)
+        +registerHandoffNoteTool(server, engine, requestAuth)
+    }
+
+    class MindEngine {
+        <<src/mcp/tools.ts · 改>>
+        -state / memory / idem / bridge / builder / audit
+        +handleXinchaoContext(args, requestAuth): ContextEnvelope
+        +handleXinchaoEvent(args, requestAuth): EventResult
+        +handleHandoffNote(args, requestAuth): HandoffResult
+    }
+
+    class ExpressRequest {
+        <<express.Request 扩展>>
+        +mcpAuth: RequestAuth|null
+    }
+
+    TokenMiddleware ..> AuthResult : produces
+    TokenMiddleware ..> RequestAuth : produces(authenticate)
+    McpAuthMiddleware --> TokenMiddleware : extractBearer + authenticate
+    McpAuthMiddleware ..> ExpressRequest : sets mcpAuth
+    McpAuthMiddleware ..> RequestAuth : resolves
+    McpTools --> ToolRegistrar : delegates
+    McpTools ..> RequestAuth : captures(closure)
+    ToolRegistrar ..> RequestAuth : reads in handler
+    ToolRegistrar --> McpAuth : requireScope
+    ToolRegistrar --> MindEngine : calls(handleXinchaoXxx)
+    MindEngine ..> RequestAuth : uses subject for audit
 ```
 
-#### 3.1 关键接口契约（TypeScript 签名摘录）
+**关键类型定义（草案）**
 ```ts
-// src/oauth/types.ts
-export interface OAuthClient {
-  client_id: string;
-  client_secret: string | null;            // public client = null
-  redirect_uris: string[];                  // 严格白名单
-  token_endpoint_auth_method: 'none' | 'client_secret_post' | 'client_secret_basic';
-  name: string;
-  allowed_scopes: string[];                 // 该 client 可申请的 scope 上界
+// src/types/index.ts
+export interface RequestAuth {
+  subject: string;   // = JWT sub
+  scopes: string[];  // 归一化后的 scope 数组（优先取 claims.scopes，回退 claims.scope 拆分）
 }
 
-export interface AuthCodeRecord {
-  code: string; client_id: string; redirect_uri: string; scope: string;
-  code_challenge: string; code_challenge_method: 'S256';
-  subject: string; created_at: number; expires_at: number; used: boolean;
-}
-
-export interface RefreshTokenRecord {
-  refresh_token: string; client_id: string; subject: string; scope: string;
-  jti: string; created_at: number; expires_at: number; revoked: boolean;
-}
-
-export interface TokenResponse {
-  access_token: string; token_type: 'Bearer'; expires_in: number;
-  refresh_token?: string; scope: string;
-}
-export interface IntrospectResponse {
-  active: boolean; scope?: string; sub?: string; exp?: number;
-  iss?: string; client_id?: string;
-}
-export interface OAuthError { error: string; error_description?: string; state?: string; }
-
-// src/auth/token.ts（新增，3 工具不调用）
-// issueAccessToken(subject, scope: string): TokenResponse
-//   -> jwt.sign({ sub, scope, scopes: scope.split(' '), token_type:'Bearer', jti }, secret, { issuer, expiresIn:'24h' })
-// introspectToken(token): TokenClaims | null  -> jwt.verify(token, secret, { issuer }) 或 null
+// src/auth/token.ts
+export type AuthResult2 =
+  | { ok: true; subject: string; scopes: string[] }
+  | { ok: false; error: string };
 ```
 
 ---
 
-### 4. 程序调用流程（Mermaid 时序图）
-
-> 完整文件见 `docs/sequence-diagram.mermaid`（含三条链路：授权码+PKCE、/introspect、/revoke）。
+## 4. 调用流程（Mermaid 时序图）
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Browser as PKCE 客户端（xinyu-web）
-    participant Auth as OAuthServer.authorize
-    participant Consent as ConsentPage
-    participant Clients as ClientStore
-    participant Codes as CodeStore
-    participant Token as OAuthServer.token
-    participant Pkce as PkceUtil
-    participant TM as TokenMiddleware
-    participant Refresh as RefreshStore
+    participant Browser as 浏览器/客户端
+    participant Proxy as server.js 代理(转发 Authorization)
+    participant MW as mcpAuthMiddleware
+    participant Auth as TokenMiddleware
+    participant App as handleMcpRequest/createApp
+    participant S as McpServer+Transport
+    participant H as Tool Handler(context/event/handoff)
+    participant M as McpAuth.requireScope
+    participant E as MindEngine
 
-    Note over Browser,Refresh: 链路一：Authorization Code + PKCE → 签发 JWT
-    Browser->>Browser: 生成 code_verifier + code_challenge=S256(verifier)
-    Browser->>Auth: GET /authorize?response_type=code&client_id=xinyu-web&redirect_uri=R&scope=read write&state=xyz&code_challenge=C&code_challenge_method=S256
-    Auth->>Clients: get(client_id) / isValidRedirectUri(client, R)
-    Clients-->>Auth: client / ok
-    Auth->>Auth: 校验 PKCE 齐全 + method=S256 + scope⊆allowed
-    Auth->>Consent: render({client, scope, state})
-    Consent-->>Browser: 200 极简 HTML 同意页（一键允许）
-    Browser->>Auth: POST /authorize?...&decision=allow（本地自动同意身份 xinyu-local）
-    Auth->>Codes: save(AuthCodeRecord{code, client_id, R, scope, C, S256, subject=xinyu-local, expires_at≤now+300s, used:false})
-    Codes-->>Auth: ok
-    Auth-->>Browser: 302 → R?code=CODE&state=xyz
+    Browser->>Proxy: POST /mcp  Authorization: Bearer <jwt>  {method:tools/call, params:{...}}
+    Proxy->>MW: 转发(含 Authorization 头)
+    alt 预检 OPTIONS
+        MW-->>Browser: 204 + Access-Control-Allow-Headers: Authorization
+    else 普通请求
+        MW->>MW: token = extractBearer(req.headers.authorization)
+        alt token 非空
+            MW->>Auth: authenticate(token)
+            Auth-->>MW: {ok,subject,scopes} | {ok:false}
+        end
+        MW->>MW: req.mcpAuth = {subject,scopes} | null
+        alt POST & body.method=tools/call & !req.mcpAuth
+            MW-->>Browser: 401 {jsonrpc,error:-32001,"Unauthorized: missing/invalid Bearer"}
+        else 放行(含 initialize/tools/list/GET/DELETE)
+            MW->>App: next()  → handleMcpRequest 读 req.mcpAuth
+            App->>S: new McpServer + registerMcpTools(server, engine, requestAuth)
+            App->>S: connect + transport.handleRequest
+            S->>H: 调用工具 handler(参数不含 token)
+            H->>M: requireScope(requestAuth, 所需 scope)
+            alt scope 满足(requestAuth 含 requiredScope)
+                M-->>H: 通过
+                H->>E: handleXinchaoXxx(args, requestAuth)
+                E-->>H: 业务结果(用 requestAuth.subject 审计)
+                H-->>S: MCP content(result)
+                S-->>Browser: 200 JSON-RPC result
+            else scope 不足 / requestAuth 为 null(非 tools/call 路径已挡)
+                M-->>H: throw McpError(InvalidParams, "insufficient scope")
+                H-->>S: MCP isError(content)
+                S-->>Browser: 200 JSON-RPC error(业务错误体)
+            end
+        end
+    end
+```
 
-    Browser->>Token: POST /token grant_type=authorization_code&code=CODE&redirect_uri=R&client_id=xinyu-web&code_verifier=verifier
-    Token->>Codes: consume(CODE)
-    Codes-->>Token: AuthCodeRecord | null（原子取+标记 used）
-    Token->>Token: 校验 client/redirect/未过期/未用过
-    Token->>Pkce: verify(verifier, stored.code_challenge)
-    Pkce-->>Token: true
-    Token->>TM: issueAccessToken(subject, scope)  %% 复用同一 JWT_SECRET / issuer
-    TM-->>Token: {access_token(JWT), token_type, expires_in:86400}
-    Token->>Refresh: save(RefreshTokenRecord{refresh_token, client_id, subject, scope, jti})
-    Refresh-->>Token: ok
-    Token-->>Browser: 200 {access_token, token_type:Bearer, expires_in:86400, refresh_token, scope}
-    Note over Browser,TM: 后续 MCP 调用带 Bearer access_token → TokenMiddleware.verify(token, scope) 直接通过（v1 零改动）
+> 说明：`initialize`/`tools/list`/`resources`/`ping` 及 GET(SSE)/DELETE 不要求令牌，中间件对 `!req.mcpAuth` 一律放行；仅 `tools/call` 三个工具触发 401 门禁与 handler 级 scope 校验。
+
+---
+
+## 5. 任务列表（有序、含依赖、标注 P0）
+
+> 遵循：≤5 任务、每任务 ≥3 文件、T01 为基础设施（P0）。
+
+### T01 · P0 · 鉴权基础设施（authenticate + RequestAuth 类型 + HTTP 中间件模块）
+- **源文件**：`src/auth/token.ts`、`src/types/index.ts`、`src/mcp/middleware.ts`
+- **依赖**：无
+- **内容**：
+  1. `TokenMiddleware.authenticate(token)`：`jwt.verify` 验签名+exp+iss，归一化 `scopes`（优先 `claims.scopes`，回退 `claims.scope` 拆分），返回 `{ok,subject,scopes}`/`{ok:false,error}`。
+  2. `verify(token, scope)` 重构为复用 `authenticate` + scope 包含判断（保持 `AuthResult` 形状，供 `oauth.test.ts` 等他用）。
+  3. `src/types/index.ts` 新增 `RequestAuth`。
+  4. `src/mcp/middleware.ts`：`resolveRequestAuth(req)`（extractBearer→authenticate→`req.mcpAuth`）、`sendUnauthorized(res,id)`（401 + JSON-RPC 错误体）、`mcpAuthMiddleware`（OPTIONS 放行并补 `Access-Control-Allow-Headers: Authorization`；`tools/call` 无令牌→401）。
+
+### T02 · P0 · 工具层闭包改造（移除 token、requestAuth 传递、scope 校验）
+- **源文件**：`src/mcp/auth.ts`、`src/mcp/tools.ts`、`src/mcp/tools/context.ts`、`src/mcp/tools/event.ts`、`src/mcp/tools/handoff.ts`
+- **依赖**：T01
+- **内容**：
+  1. `src/mcp/auth.ts`：`requireScope(auth, scope)`（null→抛 `McpError`；不含→`McpError(InvalidParams)`）、`getRequiredScope(name)`（`context→SCOPE_READ`，`event`/`handoff_note→SCOPE_WRITE`）。
+  2. `src/mcp/tools.ts`：`registerMcpTools(server, engine, requestAuth)` 改为编排器；3 工具 schema 删除 `token` 字段；引擎 3 方法去掉 `token` 参数、改收 `requestAuth` 并以其 `subject` 审计。
+  3. 拆分 3 个 per-tool 模块，handler 闭包读取 `requestAuth` → `requireScope` → `engine.handleXinchaoXxx(args, requestAuth)`。
+
+### T03 · P1 · 入口接线与可测 app 抽出
+- **源文件**：`src/app.ts`、`src/index.ts`、`src/__tests__/helpers/mcpTestClient.ts`
+- **依赖**：T01（中间件已建，此处应用）
+- **内容**：
+  1. `src/app.ts` 新增 `createApp(engine, auth)`：装配 OAuth 端点、`/health`、在 `/mcp`（POST/GET/DELETE）串接 `mcpAuthMiddleware` + `handleMcpRequest`，从 `req.mcpAuth` 取 `requestAuth` 传入 `registerMcpTools`。
+  2. `src/index.ts` 的 `bootstrap` 改用 `createApp`，仅保留存储/引擎构建、监听与日志。
+  3. `mcpTestClient.ts`：封装 `InMemoryTransport.createLinkedPair()` + `ClientSession`，供 T04 零依赖 call 工具。
+
+### T04 · P1 · 测试重构与端到端验证
+- **源文件**：`src/__tests__/mcp.test.ts`、`src/__tests__/helpers/registerMcpToolsForTest.ts`、`src/__tests__/fixtures/mcpTokens.ts`、`src/__tests__/mcp.http.test.ts`
+- **依赖**：T02、T03
+- **内容**：
+  1. `mcp.test.ts` 重写：用 `registerMcpTools(server, engine, {subject, scopes})` + `mcpTestClient` 经工具层 call 工具（不再传 token）；保留 11 用例（信封/软上限/event 校验/幂等/记忆/handoff 长度/unicode + 新增无 Bearer、scope 不足拒绝）全绿。
+  2. `registerMcpToolsForTest.ts`：一行式注册+建客户端 helper。
+  3. `mcpTokens.ts`：铸造有效/过期/越权/非法四类 JWT。
+  4. `mcp.http.test.ts`：零依赖 `fetch` 打 `/mcp`，验证 401 门禁与 OPTIONS 放行；确认 `oauth`/`state`/`bridge` 38 例其余 27 个不被破坏。
+
+---
+
+## 6. 依赖包列表（零新增）
+
+```
+# 本次升级不新增任何依赖。
+# 复用既有：
+#   @modelcontextprotocol/sdk ^1.30.0  -> 提供 InMemoryTransport（测试 call 工具，无需 supertest）
+#   express ^4.19.2                     -> Bearer 中间件与路由
+#   jsonwebtoken ^9.0.2                 -> HS256 验签（authenticate）
+#   zod ^3.23.8                         -> 工具入参 schema（移除 token 字段）
+#   node:crypto / node:fs / node:os     -> 既有
+#   运行时自带 fetch (Node >=18)         -> HTTP 层测试，无需 supertest
 ```
 
 ---
 
-### 5. 任务列表（有序、含依赖、标注 P0/P1）
+## 7. 共享知识（跨任务约束）
 
-> 规则遵循：≤5 任务；每任务 ≥3 文件；T01 为基础设施；任务尽量仅依赖 T01 或浅层聚合（T02/T03 可并行，均只依赖 T01 的接口契约）。
-
-#### T01 ｜ 项目基础设施（类型 + 错误 + PKCE + 存储骨架 + 配置）— P0
-- **Source Files**：`src/oauth/types.ts`、`src/oauth/errors.ts`、`src/oauth/pkce.ts`、`src/oauth/store.ts`、`src/config.ts`（新增 OAUTH 常量块）
-- **Dependencies**：无（基线任务）
-- **Priority**：P0
-- **说明**：冻结所有接口契约（`OAuthClient/AuthCodeRecord/RefreshTokenRecord/TokenResponse/IntrospectResponse/OAuthError`）与 PKCE 工具（S256/verify/randomToken/jti）；实现内存 `CodeStore/RefreshStore/RevocationStore`（预留 `persist()` 接口以便 v2 换 JSONL）；`config.ts` 增加 `AUTH_CODE_TTL_SECONDS=300`、`REFRESH_TOKEN_TTL_SECONDS=2592000`、`LOCAL_SUBJECT='xinyu-local'`、`CORS_ALLOWED_ORIGINS`。
-
-#### T02 ｜ 客户端注册 + 同意页 + 授权端点 — P0
-- **Source Files**：`src/oauth/clients.ts`、`src/oauth/consent.ts`、`src/oauth/authorize.ts`
-- **Dependencies**：T01（依赖 `types.ts` 接口与 `pkce.ts`）
-- **Priority**：P0
-- **说明**：`ClientStore` 预置 `xinyu-web`（public client：`client_id`、`redirect_uris`、`token_endpoint_auth_method=none`），多客户端预留 `register()`；`ConsentPage` 渲染极简 HTML（含「允许」表单，POST 回 `/authorize`）；`authorize.ts` 完成 P0-1（校验 client/redirect 白名单/PKCE 齐全→渲染）与 P0-6（一键允许→`CodeStore.save`→302 `?code=&state=`）。可与 T03 并行。
-
-#### T03 ｜ 令牌签发 + 自检 + 吊销端点 — P0 / P1
-- **Source Files**：`src/oauth/token.ts`、`src/oauth/introspect.ts`、`src/oauth/revoke.ts`
-- **Dependencies**：T01（依赖 `types.ts` / `store.ts` / `pkce.ts` 接口；`ClientStore` 接口由 T01 冻结、T02 提供实现，运行时在 T04 接线）
-- **Priority**：P0（authorization_code + refresh_token + /introspect + /revoke）/ P1（`/token` 启用 CORS、refresh 轮换）
-- **说明**：`token.ts` 实现 P0-2 两 grant（校验 code+verifier PKCE+client → 调 `TokenMiddleware.issueAccessToken` 签 JWT + 存 refresh；refresh grant 换新，P1 用即废 `RefreshStore.rotate`）；内联 CORS 中间件（无新依赖）。`introspect.ts` 实现 P0-3（RFC7662，access 走 `introspectToken`，refresh 走 `RefreshStore.get`）。`revoke.ts` 实现 P0-4（RFC7009，access 入 `RevocationStore`、refresh 调 `RefreshStore.revoke`+`revokeByJti`）。
-
-#### T04 ｜ 路由接线 + 集成 + 安全收尾 — P0 / P1
-- **Source Files**：`src/oauth/index.ts`、`src/index.ts`、`src/auth/token.ts`
-- **Dependencies**：T02、T03
-- **Priority**：P0（接线/保留 /mcp + /health）/ P1（安全收尾）
-- **说明**：`oauth/index.ts` 的 `OAuthServer.register(app)` 组合全部服务并挂载 4 条路由；`src/index.ts` **移除旧非标准 `/token`**、接收既有 `TokenMiddleware` 实例传入 `OAuthServer`、`/mcp` 与 `/health` 保持不变；`src/auth/token.ts` 新增 `issueAccessToken()` / `introspectToken()`（3 个 MCP 工具的 `verify` 调用点零改动）。生产 `JWT_SECRET` 缺失拒启动逻辑已由既有 `TokenMiddleware` 构造函数覆盖，无需重写。
+- **Auth 上下文结构**：`RequestAuth = { subject: string; scopes: string[] }`，经 HTTP 中间件挂到 `req.mcpAuth`（Express Request 扩展），再以闭包注入 `registerMcpTools(server, engine, requestAuth)`。
+- **Scope 校验约定**：工具级 `requireScope(requestAuth, scope)`；判定 `requestAuth?.scopes.includes(scope)`。`null` requestAuth → 拒；映射 `context→read`、`event`/`handoff_note→write`。`SCOPE_READ`/`SCOPE_WRITE` 常量（`src/config.ts`）保留强制。
+- **错误返回形态**：
+  - 无/非法 Bearer 且 `method=tools/call` → **HTTP 401**，体为 JSON-RPC 错误：`{jsonrpc:"2.0", id, error:{code:-32001, message:"Unauthorized: missing or invalid Bearer token"}}`。
+  - 已认证但 scope 不足 → **MCP 层 `McpError`**（`ErrorCode.InvalidParams`，message 含所需 scope），在正常 200 响应内以 JSON-RPC error 返回（不破坏 MCP 契约）。
+  - `initialize`/`tools/list`/GET/DELETE → 无令牌也放行（中间件不挡）。
+- **JWT claim 约定**：HS256；claim 含 `sub`(subject)、`scope`(字符串, 空格分隔) 与 `scopes`(数组, 优先)、`exp`、`iss`。`authenticate` 归一化为 `scopes: string[]`。
+- **测试注册 helper 约定**：`registerMcpToolsForTest(server, engine, {subject, scopes})` 用给定 `requestAuth` 注册；测试**不再传 token**；`mcpTokens` fixture 用 `auth.issueAccessToken(subject, scope)` 铸造有效/过期/越权/非法 JWT；工具层用 `mcpTestClient`（InMemoryTransport）call 工具，HTTP 层用 `fetch` 打 `createApp` 起的临时端口。
+- **CORS/预检**：`mcpAuthMiddleware` 对 `OPTIONS` 直接 `next()` 并补 `Access-Control-Allow-Headers: Authorization`；本 v1 经 `server.js` 代理转发 Authorization，引擎侧非强制但建议保留。
 
 ---
 
-### 6. 依赖包列表（仅 MIT / 宽松；预期零新增）
+## 8. 待明确事项（仅剩无法默认的技术决策）
 
-```
-# 现有依赖（均 MIT / 宽松），本次不新增任何第三方包：
-- express@^4.19.2: HTTP 路由（MIT）
-- jsonwebtoken@^9.0.2: HS256 JWT 签发/验签（MIT）
-- zod@^3.23.8: 端点入参校验（MIT）
-- dotenv@^16.4.5: .env 加载（BSD-2-Clause，宽松）
-- @modelcontextprotocol/sdk@^1.0.0: MCP 传输（MIT，保持不变）
-# 密码学原语（PKCE/S256/随机）：Node 内置 node:crypto，零依赖
-# 结论：新增代码不引入任何 npm 依赖，100% 自研 MIT，符合铁律。
-```
+1. **scope 不足的返回形态（已选定但请最终确认）**：本设计默认 scope 不足返回 **MCP 层 `McpError`**（而非 HTTP 403），以契合 JSON-RPC 契约、且令牌本身有效。若未来存在"直连（非代理）客户端"需以 HTTP 403 显式拒绝，请在 v2 再扩展；本 v1 维持 MCP 错误。
+2. **GET(SSE)/DELETE 是否要求 Bearer**：本设计默认**不要求**（无状态每请求 + 代理场景，`req.mcpAuth=null` 仍可建立 SSE/终止会话）。若安全基线要求所有 `/mcp` 方法均带令牌，请明确，我将把 401 门禁从"仅 tools/call"扩为"全部 POST/GET/DELETE"。
+3. **旧 `args.token` 引擎测试的整体处置**：`mcp.test.ts` 中原"缺少/无效令牌拒绝"的用例将**整体迁移**为 handler 层（无 Bearer / scope 不足）用例；引擎方法不再含 token 参数。如希望保留一份"引擎层无鉴权、纯业务"的隔离测试（不经由 `registerMcpTools`），请确认，我会额外保留一组直调 `engine.handleXinchaoXxx(args, requestAuth)` 的纯单元用例。
 
----
-
-### 7. 共享知识（跨文件约定）
-
-```
-# —— Client 结构（src/oauth/types.ts）——
-OAuthClient = { client_id, client_secret:null(public), redirect_uris:[], token_endpoint_auth_method:'none', name, allowed_scopes:[] }
-v1 预置：xinyu-web（public，redirect_uris 严格白名单，allowed_scopes=['read','write']）
-
-# —— 存储 key ——
-auth code：以 code 字符串为 key，存于 CodeStore（Map）；consume 原子取+标记 used。
-refresh token：以 refresh_token 字符串为 key，存于 RefreshStore；关联 access 的 jti 用于级联吊销。
-access 吊销黑名单：以 jti 为 key，存于 RevocationStore（Set）。仅影响 /introspect，不影响 MCP verify（见待明确）。
-
-# —— JWT claim 字段（access_token，HS256）——
-{ sub: LOCAL_SUBJECT, scope: "read write"(字符串), scopes: ["read","write"](数组★兼容桥),
-  token_type: "Bearer", jti: <uuid>, iss: "xinyu-mind-engine", exp: now+86400 }
-签发统一走 TokenMiddleware.issueAccessToken（同一 JWT_SECRET / issuer）。
-
-# —— scope 常量（沿用 config.ts，禁止改值）——
-SCOPE_READ='read'、SCOPE_WRITE='write'；OAuth scope 用空格分隔字符串，签发时 split 成数组写 scopes。
-
-# —— 时间/TTL ——
-access_token expires_in=86400；auth code TTL≤300s（AUTH_CODE_TTL_SECONDS）；refresh token TTL=2592000（30d，P1 轮换）。
-
-# —— 资源所有者身份（本地自动同意）——
-LOCAL_SUBJECT='xinyu-local'（固定常量；v1 无账号体系，设备/本地单实例自动同意）。
-
-# —— 错误码（RFC6749/7662/7009）——
-invalid_request / unauthorized_client / access_denied / unsupported_response_type /
-invalid_scope / invalid_grant / unsupported_grant_type / invalid_client
-introspect/revoke 错误统一 200 + {active:false} / 200（RFC7009 总是 200）。
-OAuth 端点错误响应格式：{error, error_description?, state?}（application/json），与内部 E11xx 区分。
-
-# —— 安全铁律 ——
-PKCE 强制 S256；public client 无 secret、token_endpoint_auth_method='none'；
-auth code 单次可用 + 短 TTL；生产 JWT_SECRET 缺失由 TokenMiddleware 构造函数抛错拒启动；
-不破坏 /mcp 与 3 个 MCP 工具的 args.token 校验（v1 零改动）。
-```
-
----
-
-### 8. 待明确事项（仅剩无法默认的技术决策）
-
-> 以下为**仍需主理人/安全拍板**的点；其余（身份常量、TTL、CORS 白名单、存储内存）均已按主理人默认决策处理。
-
-1. **【核心·需拍板】已签发 access_token 的吊销生效范围**
-   JWT 无状态，v1 仅靠 `RevocationStore`（jti 黑名单）对 `/introspect` 生效；但 **3 个 MCP 工具的 `TokenMiddleware.verify` 不查黑名单**，因此已签发的 access_token 在 24h 过期前对 MCP 工具仍可用。
-   - 推荐默认（v1 零改动）：**不改动 `verify`**，接受「access 吊销对 MCP 路径最佳努力」，依赖「短 TTL(24h) + refresh 吊销 + 重启即清」即可。
-   - 备选：v1 给 `verify` 增加可选黑名单短路（需轻微改 `token.ts`，3 工具调用点仍不变，但引入存储依赖）。
-   → 建议采用推荐默认；若安全合规要求「吊销即时全域生效」，则需走备选并在 T04 增加一小步。
-
-2. **【已默认·仅供参考】CORS 允许 origins**：`/token` 的 `CORS_ALLOWED_ORIGINS` v1 默认仅 `http://localhost:3000`（xinyu-web dev），生产由 `.env` 配置；如需放开请指明白名单。
-
-3. **【已默认·仅供参考】多客户端管理形态**：v1 仅配置/内存预置（无 RFC7591 动态注册端点）；未来是否开放动态注册列为 P2 预留。
-
----
-
-## Part B：任务依赖图（Mermaid）
-
-```mermaid
-graph TD
-    T01["T01 项目基础设施<br/>types/errors/pkce/store/config"]
-    T02["T02 客户端+同意页+授权端点<br/>clients/consent/authorize"]
-    T03["T03 令牌/自检/吊销端点<br/>token/introspect/revoke"]
-    T04["T04 路由接线+集成+安全<br/>oauth/index·src/index·auth/token"]
-
-    T01 --> T02
-    T01 --> T03
-    T02 --> T04
-    T03 --> T04
-```
-
-> 依赖链扁平：T02 与 T03 均可并行（仅依赖 T01 冻结的接口契约），T04 做最终接线，无长线性链。
+> 以上 3 项均为产品/安全基线层面的确认项；技术实现路径（闭包捕获、authenticate、中间件 401、InMemoryTransport/fetch 零依赖测试）均已确定，可立即开工。

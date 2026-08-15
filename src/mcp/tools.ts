@@ -6,12 +6,15 @@
  * - xinchao_event（写入）：event_id 幂等键；仅接受三类事件类型。
  * - xinchao_handoff_note（写入）：≤1200 字符，72h TTL。
  *
- * MindEngine 持有全部协作者，handler 逻辑与 HTTP 解耦，便于单元测试。
+ * Route B 鉴权：工具 handler 经闭包捕获 requestAuth（来自 HTTP Bearer 中间件），
+ * 不再从 args.token 取令牌；scope 校验由 requireScope 在 handler 内完成。
+ * MindEngine 不再持有 TokenMiddleware，仅用 requestAuth.subject 做审计。
+ *
+ * 协议：MIT。100% 自研，不依赖任何第三方「心潮」项目。
  */
 
 import { randomUUID } from 'node:crypto';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
 import type {
   ContextEnvelope,
   ConversationEvent,
@@ -19,6 +22,7 @@ import type {
   EventResult,
   HandoffResult,
   StateVector,
+  RequestAuth,
 } from '../types/index.js';
 import {
   ALLOWED_EVENT_TYPES,
@@ -36,10 +40,12 @@ import { IdempotencyStore } from '../storage/idempotency.js';
 import { JsonlStore } from '../storage/jsonlStore.js';
 import { Bridge } from './bridge.js';
 import { EnvelopeBuilder } from './envelope.js';
-import { TokenMiddleware } from '../auth/token.js';
 import { AuditLog } from '../observability/auditLog.js';
+import { registerContextTool } from './tools/context.js';
+import { registerEventTool } from './tools/event.js';
+import { registerHandoffNoteTool } from './tools/handoff.js';
 
-/** 引擎错误（用于需抛出的鉴权失败等）。 */
+/** 引擎错误（用于需抛出的业务失败等）。 */
 export class EngineError extends Error {
   constructor(public readonly code: string, message?: string) {
     super(message ?? code);
@@ -47,14 +53,13 @@ export class EngineError extends Error {
   }
 }
 
-/** 协作者依赖。 */
+/** 协作者依赖。Route B：engine 不再持有 auth（鉴权在工具层闭包完成）。 */
 export interface EngineDeps {
   state: StateMachine;
   memory: MemoryStore;
   idem: IdempotencyStore;
   bridge: Bridge;
   builder: EnvelopeBuilder;
-  auth: TokenMiddleware;
   audit: AuditLog;
   /** 信封记忆检索条数，默认 5。 */
   topK?: number;
@@ -75,7 +80,6 @@ export class MindEngine {
   private readonly idem: IdempotencyStore;
   private readonly bridge: Bridge;
   private readonly builder: EnvelopeBuilder;
-  private readonly auth: TokenMiddleware;
   private readonly audit: AuditLog;
   private readonly topK: number;
   private readonly stateStore?: JsonlStore;
@@ -86,7 +90,6 @@ export class MindEngine {
     this.idem = deps.idem;
     this.bridge = deps.bridge;
     this.builder = deps.builder;
-    this.auth = deps.auth;
     this.audit = deps.audit;
     this.topK = deps.topK ?? 5;
     this.stateStore = deps.stateStore;
@@ -110,20 +113,8 @@ export class MindEngine {
 
   // ---- xinchao_context（只读） ----
 
-  handleXinchaoContext(args: { session_id: string; token: string }): ContextEnvelope {
-    const auth = this.auth.verify(args.token, SCOPE_READ);
-    if (!auth.ok) {
-      this.audit.record({
-        ts: nowIso(),
-        action: 'xinchao_context',
-        scope: SCOPE_READ,
-        ok: false,
-        code: auth.code,
-        subject: auth.subject,
-      });
-      throw new EngineError(auth.code ?? ERROR_CODES.E1101, 'unauthorized read');
-    }
-
+  handleXinchaoContext(args: { session_id: string }, requestAuth: RequestAuth): ContextEnvelope {
+    const subject = requestAuth.subject;
     const vector = this.state.getState();
     const memories = this.memory.retrieve(args.session_id, vector, this.topK) as EmotionalMemory[];
     const envelope = this.builder.build(args.session_id, vector, memories);
@@ -134,39 +125,24 @@ export class MindEngine {
       action: 'xinchao_context',
       scope: SCOPE_READ,
       ok: true,
-      subject: auth.subject,
+      subject,
     });
     return safe;
   }
 
   // ---- xinchao_event（写入 + 幂等） ----
 
-  handleXinchaoEvent(args: {
-    event_id: string;
-    session_id: string;
-    type: string;
-    token: string;
-    payload: { content: string; intensity: number; tags: string[] };
-    timestamp?: string;
-  }): EventResult {
-    const auth = this.auth.verify(args.token, SCOPE_WRITE);
-    if (!auth.ok) {
-      this.audit.record({
-        ts: nowIso(),
-        action: 'xinchao_event',
-        scope: SCOPE_WRITE,
-        ok: false,
-        code: auth.code,
-        subject: auth.subject,
-      });
-      return {
-        accepted: false,
-        idempotent: false,
-        applied_state_delta: {},
-        envelope_version: ENVELOPE_VERSION,
-        code: auth.code,
-      };
-    }
+  handleXinchaoEvent(
+    args: {
+      event_id: string;
+      session_id: string;
+      type: string;
+      payload: { content: string; intensity: number; tags: string[] };
+      timestamp?: string;
+    },
+    requestAuth: RequestAuth,
+  ): EventResult {
+    const subject = requestAuth.subject;
 
     // 校验 event_id
     if (!args.event_id || args.event_id.trim() === '') {
@@ -176,7 +152,7 @@ export class MindEngine {
         scope: SCOPE_WRITE,
         ok: false,
         code: ERROR_CODES.E1001,
-        subject: auth.subject,
+        subject,
       });
       return {
         accepted: false,
@@ -195,7 +171,7 @@ export class MindEngine {
         scope: SCOPE_WRITE,
         ok: false,
         code: ERROR_CODES.E1002,
-        subject: auth.subject,
+        subject,
         detail: args.type,
       });
       return {
@@ -215,7 +191,7 @@ export class MindEngine {
         action: 'xinchao_event',
         scope: SCOPE_WRITE,
         ok: true,
-        subject: auth.subject,
+        subject,
         detail: 'idempotent',
       });
       return { ...existing, idempotent: true, applied_state_delta: {} };
@@ -256,41 +232,26 @@ export class MindEngine {
       action: 'xinchao_event',
       scope: SCOPE_WRITE,
       ok: true,
-      subject: auth.subject,
+      subject,
     });
     return result;
   }
 
   // ---- xinchao_handoff_note（写入，≤1200 字符 / 72h TTL） ----
 
-  handleHandoffNote(args: {
-    note_id?: string;
-    content: string;
-    from?: string;
-    to?: string;
-    ttl_seconds?: number;
-    token: string;
-  }): HandoffResult {
-    const auth = this.auth.verify(args.token, SCOPE_WRITE);
-    if (!auth.ok) {
-      this.audit.record({
-        ts: nowIso(),
-        action: 'xinchao_handoff_note',
-        scope: SCOPE_WRITE,
-        ok: false,
-        code: auth.code,
-        subject: auth.subject,
-      });
-      return {
-        stored: false,
-        ttl_seconds: HANDOFF_TTL_SECONDS,
-        expires_at: '',
-        chars: codePointLength(args.content ?? ''),
-        code: auth.code,
-      };
-    }
-
+  handleHandoffNote(
+    args: {
+      note_id?: string;
+      content: string;
+      from?: string;
+      to?: string;
+      ttl_seconds?: number;
+    },
+    requestAuth: RequestAuth,
+  ): HandoffResult {
+    const subject = requestAuth.subject;
     const chars = codePointLength(args.content ?? '');
+
     if (chars > HANDOFF_MAX_CHARS) {
       this.audit.record({
         ts: nowIso(),
@@ -298,7 +259,7 @@ export class MindEngine {
         scope: SCOPE_WRITE,
         ok: false,
         code: ERROR_CODES.E1003,
-        subject: auth.subject,
+        subject,
       });
       return {
         stored: false,
@@ -327,81 +288,22 @@ export class MindEngine {
       action: 'xinchao_handoff_note',
       scope: SCOPE_WRITE,
       ok: true,
-      subject: auth.subject,
+      subject,
     });
     return { stored: true, ttl_seconds: ttl, expires_at: expiresAt, chars };
   }
 }
 
-/** xinchao_context 入参 schema。 */
-const contextSchema = {
-  session_id: z.string().min(1),
-  token: z.string().min(1),
-};
-
-/** xinchao_event 入参 schema。 */
-const eventSchema = {
-  event_id: z.string().min(1),
-  session_id: z.string().min(1),
-  type: z.enum(['user_interaction', 'user_note', 'scheduled_interaction']),
-  token: z.string().min(1),
-  payload: z.object({
-    content: z.string(),
-    intensity: z.number().min(0).max(1),
-    tags: z.array(z.string()),
-  }),
-  timestamp: z.string().optional(),
-};
-
-/** xinchao_handoff_note 入参 schema。 */
-const handoffSchema = {
-  note_id: z.string().optional(),
-  content: z.string(),
-  from: z.string().optional(),
-  to: z.string().optional(),
-  ttl_seconds: z.number().int().positive().optional(),
-  token: z.string().min(1),
-};
-
 /**
- * 将 3 个工具注册到 McpServer。handler 内部捕获 EngineError 并转为 MCP 错误内容。
+ * 将 3 个工具注册到 McpServer（编排器）。
+ * requestAuth 来自 HTTP Bearer 中间件，经闭包注入各 handler。
  */
-export function registerMcpTools(server: McpServer, engine: MindEngine): void {
-  server.tool(
-    'xinchao_context',
-    '读取 12 维态 + 叙事摘要的上下文信封（只读，约 2200 token）。',
-    contextSchema,
-    async (args) => {
-      try {
-        const env = engine.handleXinchaoContext(args);
-        return { content: [{ type: 'text', text: JSON.stringify(env) }] };
-      } catch (e) {
-        const code = e instanceof EngineError ? e.code : 'ERR_INTERNAL';
-        return {
-          content: [{ type: 'text', text: JSON.stringify({ error: code }) }],
-          isError: true,
-        };
-      }
-    },
-  );
-
-  server.tool(
-    'xinchao_event',
-    '写入一次对话事件（event_id 幂等；仅接受 user_interaction / user_note / scheduled_interaction）。',
-    eventSchema,
-    async (args) => {
-      const result = engine.handleXinchaoEvent(args);
-      return { content: [{ type: 'text', text: JSON.stringify(result) }] };
-    },
-  );
-
-  server.tool(
-    'xinchao_handoff_note',
-    '写入交接便签（≤1200 字符，默认 72h TTL，到期自动清理）。',
-    handoffSchema,
-    async (args) => {
-      const result = engine.handleHandoffNote(args);
-      return { content: [{ type: 'text', text: JSON.stringify(result) }] };
-    },
-  );
+export function registerMcpTools(
+  server: McpServer,
+  engine: MindEngine,
+  requestAuth: RequestAuth | null,
+): void {
+  registerContextTool(server, engine, requestAuth);
+  registerEventTool(server, engine, requestAuth);
+  registerHandoffNoteTool(server, engine, requestAuth);
 }

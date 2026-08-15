@@ -9,7 +9,7 @@
  *   - doPkceFlow()       封装 PKCE 全流程（跳转 AS → 回跳拿 code → 换 token → 存 token-store）
  *
  * 传输：JSON-RPC tools/call over Streamable HTTP（经 server.js 同源 /api/mcp 代理）。
- * token 置于 arguments.token（不放 Authorization header）。
+ * 鉴权走标准 Authorization: Bearer <jwt> 头（由 _call 注入；token 不再进入 arguments）。
  * 100% 自研 MIT；仅用浏览器原生 fetch + Web Crypto + localStorage。
  * 无任何第三方依赖 / 无构建工具。
  */
@@ -178,8 +178,9 @@ export class McpClient {
     if (!tok) return null;
     const { subject, sessionId } = this.identity();
     try {
+      // token 不再塞进 arguments，由 _call 经 Authorization: Bearer 头传递
       return await this._call("xinchao_context", {
-        token: tok, subject, session_id: sessionId,
+        subject, session_id: sessionId,
       });
     } catch (e) {
       console.warn("[xinyu-mcp] 拉取心智上下文失败（降级）:", e && e.message);
@@ -204,8 +205,8 @@ export class McpClient {
       ? evt.event_id
       : this._stableEventId(content, sessionId);
     try {
+      // token 不再塞进 arguments，由 _call 经 Authorization: Bearer 头传递
       await this._call("xinchao_event", {
-        token: tok,
         type: "user_interaction",
         payload: { content, intensity, tags },
         subject, session_id: sessionId, event_id: eventId,
@@ -397,42 +398,47 @@ export class McpClient {
   /**
    * JSON-RPC tools/call 传输（经 /api/mcp 代理）。
    * 兼容 application/json 与 text/event-stream(SSE) 两种响应形态。
+   * 鉴权：Bearer 令牌经标准 Authorization 头传递（不进 arguments）。
    * @param {string} tool 工具名（xinchao_context / xinchao_event）
-   * @param {object} args 参数（含 token）
+   * @param {object} args 参数（不含 token；token 由 _bearer 经 Authorization 头传递）
+   * @param {boolean} [_retry=false] 内部重试标志（防止 401 无限重试）
+   * @param {string} [_bearer] 显式 Bearer 令牌；缺省读取 this._store.getAccessToken()
    * @returns {Promise<object>} 结构化结果（text 为 JSON 则解析，否则返回原始 result）
    * @private
    */
-  async _call(tool, args, _retry = false) {
+  async _call(tool, args, _retry = false, _bearer = this._store.getAccessToken()) {
     const body = JSON.stringify({
       jsonrpc: "2.0",
       id: this._nextId(),
       method: "tools/call",
       params: { name: tool, arguments: args },
     });
+    // 组装请求头：Authorization 走标准 Bearer 头；仅有令牌时才携带（无令牌则不发该头）
+    const headers = {
+      "Content-Type": "application/json",
+      // 官方 MCP SDK StreamableHTTP 要求：POST 必须声明可接收 json 与 SSE
+      "Accept": "application/json, text/event-stream",
+    };
+    if (_bearer) headers["Authorization"] = "Bearer " + _bearer;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), RPC_TIMEOUT);
     try {
       const res = await fetch(this.proxyUrl, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          // 官方 MCP SDK StreamableHTTP 要求：POST 必须声明可接收 json 与 SSE
-          "Accept": "application/json, text/event-stream",
-        },
+        headers,
         body,
         signal: ctrl.signal,
       });
-      // 401：token 失效 → 清 access、用 refresh 换新后重试一次；仍失败则向上抛（调用方静默）
+      // 401：Bearer 失效 → 清 access、用 refresh 换新，再以新 Bearer 头重试一次；仍失败则向上抛（调用方静默）
       if (res.status === 401 && !_retry) {
         try {
           this._store.clearAccessToken();
           await this._refreshToken();
-          const fresh = this._store.getAccessToken();
-          if (fresh) args = Object.assign({}, args, { token: fresh });
         } catch (e) {
           throw new Error("MCP HTTP 401（token 失效且续期失败）");
         }
-        return this._call(tool, args, true);
+        // 重试携带刷新后的 Bearer（从 store 读取最新 access_token），arguments 不含 token
+        return this._call(tool, args, true, this._store.getAccessToken());
       }
       if (!res.ok) throw new Error("MCP HTTP " + res.status);
       const ct = res.headers.get("content-type") || "";

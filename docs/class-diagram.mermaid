@@ -1,115 +1,78 @@
 classDiagram
-    direction TB
+    direction LR
 
     class TokenMiddleware {
-        <<existing: src/auth/token.ts>>
+        <<src/auth/token.ts · 改>>
         -secret: string
         -issuer: string
         +issue(subject, scopes): string
+        +issueAccessToken(subject, scope): IssuedAccessToken
         +verify(token, scope): AuthResult
-        +issueAccessToken(subject, scope): TokenResponse  %% 新增（3 工具不调用）
-        +introspectToken(token): TokenClaims|null          %% 新增
+        +introspectToken(token): TokenClaims|null
+        +extractBearer(authHeader): string|null
+        +authenticate(token): AuthResult2
     }
 
-    class OAuthServer {
-        -clientStore: ClientStore
-        -codeStore: CodeStore
-        -refreshStore: RefreshStore
-        -pkce: PkceUtil
-        -consent: ConsentPage
-        -auth: TokenMiddleware
-        +register(app: Express): void
-        -mountAuthorize(app)
-        -mountToken(app)
-        -mountIntrospect(app)
-        -mountRevoke(app)
-    }
-
-    class ClientStore {
-        -clients: Map~string, OAuthClient~
-        +register(client: OAuthClient): void
-        +get(clientId: string): OAuthClient|undefined
-        +isValidRedirectUri(client: OAuthClient, uri: string): boolean
-        +isPublic(clientId: string): boolean
-    }
-
-    class CodeStore {
-        -codes: Map~string, AuthCodeRecord~
-        +save(rec: AuthCodeRecord): void
-        +consume(code: string): AuthCodeRecord|null   %% 原子取+标记 used
-        +revoke(code: string): void
-        +sweep(): void                                 %% TTL 定时清理
-    }
-
-    class RefreshStore {
-        -tokens: Map~string, RefreshTokenRecord~
-        +save(rec: RefreshTokenRecord): void
-        +get(token: string): RefreshTokenRecord|undefined
-        +revoke(token: string): void
-        +revokeByJti(jti: string): void                %% 级联标记关联 access
-        +rotate(old: RefreshTokenRecord): RefreshTokenRecord  %% P1 用即废
-    }
-
-    class RevocationStore {
-        -denylist: Set~string~   %% access jti 黑名单（最佳努力）
-        +add(jti: string): void
-        +isRevoked(jti: string): boolean
-    }
-
-    class PkceUtil {
-        +generateVerifier(): string
-        +challengeS256(verifier: string): string
-        +verify(verifier: string, challenge: string): boolean
-        +randomToken(bytes: number): string
-        +jti(): string
-    }
-
-    class ConsentPage {
-        +render(view: ConsentView): string   %% 返回极简 HTML
-    }
-
-    class OAuthClient {
-        +client_id: string
-        +client_secret: string|null
-        +redirect_uris: string[]
-        +token_endpoint_auth_method: "none"|"client_secret_post"|"client_secret_basic"
-        +name: string
-        +allowed_scopes: string[]
-    }
-
-    class AuthCodeRecord {
+    class AuthResult {
+        <<src/types/index.ts · 既有>>
+        +ok: boolean
         +code: string
-        +client_id: string
-        +redirect_uri: string
-        +scope: string
-        +code_challenge: string
-        +code_challenge_method: "S256"
         +subject: string
-        +created_at: number
-        +expires_at: number
-        +used: boolean
+        +scopes: string[]
     }
 
-    class RefreshTokenRecord {
-        +refresh_token: string
-        +client_id: string
+    class RequestAuth {
+        <<src/types/index.ts · 新增 interface>>
         +subject: string
-        +scope: string
-        +jti: string
-        +created_at: number
-        +expires_at: number
-        +revoked: boolean
+        +scopes: string[]
     }
 
-    OAuthServer --> ClientStore : 依赖
-    OAuthServer --> CodeStore : 依赖
-    OAuthServer --> RefreshStore : 依赖
-    OAuthServer --> PkceUtil : 依赖
-    OAuthServer --> ConsentPage : 依赖
-    OAuthServer --> TokenMiddleware : 复用签发/验签
-    OAuthServer ..> RevocationStore : 复用(吊销)
+    class McpAuthMiddleware {
+        <<src/mcp/middleware.ts · 新>>
+        +resolveRequestAuth(req): RequestAuth|null
+        +sendUnauthorized(res, id): void
+        +mcpAuthMiddleware(req,res,next): void
+    }
 
-    ClientStore "1" *-- "0..*" OAuthClient : 持有
-    CodeStore "1" *-- "0..*" AuthCodeRecord : 存储
-    RefreshStore "1" *-- "0..*" RefreshTokenRecord : 存储
-    RefreshStore ..> RevocationStore : 吊销时联动
+    class McpAuth {
+        <<src/mcp/auth.ts · 新>>
+        +requireScope(auth, scope): void
+        +getRequiredScope(toolName): string
+    }
+
+    class McpTools {
+        <<src/mcp/tools.ts · 改>>
+        +registerMcpTools(server, engine, requestAuth): void
+    }
+
+    class ToolRegistrar {
+        <<src/mcp/tools/{context,event,handoff}.ts · 新>>
+        +registerContextTool(server, engine, requestAuth)
+        +registerEventTool(server, engine, requestAuth)
+        +registerHandoffNoteTool(server, engine, requestAuth)
+    }
+
+    class MindEngine {
+        <<src/mcp/tools.ts · 改>>
+        -state / memory / idem / bridge / builder / audit
+        +handleXinchaoContext(args, requestAuth): ContextEnvelope
+        +handleXinchaoEvent(args, requestAuth): EventResult
+        +handleHandoffNote(args, requestAuth): HandoffResult
+    }
+
+    class ExpressRequest {
+        <<express.Request 扩展>>
+        +mcpAuth: RequestAuth|null
+    }
+
+    TokenMiddleware ..> AuthResult : produces
+    TokenMiddleware ..> RequestAuth : produces(authenticate)
+    McpAuthMiddleware --> TokenMiddleware : extractBearer + authenticate
+    McpAuthMiddleware ..> ExpressRequest : sets mcpAuth
+    McpAuthMiddleware ..> RequestAuth : resolves
+    McpTools --> ToolRegistrar : delegates
+    McpTools ..> RequestAuth : captures(closure)
+    ToolRegistrar ..> RequestAuth : reads in handler
+    ToolRegistrar --> McpAuth : requireScope
+    ToolRegistrar --> MindEngine : calls(handleXinchaoXxx)
+    MindEngine ..> RequestAuth : uses subject for audit

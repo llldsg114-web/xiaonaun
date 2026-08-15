@@ -11,7 +11,7 @@
 import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { ACCESS_TOKEN_TTL_SECONDS, ERROR_CODES, SCOPE_READ, SCOPE_WRITE } from '../config.js';
-import type { AuthResult } from '../types/index.js';
+import type { AuthOutcome, AuthResult } from '../types/index.js';
 
 /** JWT 内载荷。 */
 export interface TokenClaims {
@@ -78,21 +78,44 @@ export class TokenMiddleware {
    * @param token Bearer 令牌（不含 "Bearer " 前缀）。
    * @param scope 所需权限：context→read；event/handoff→write。
    */
+  /**
+   * 验签令牌并校验所需 scope。复用 authenticate 仅做 scope 包含判断，
+   * 保持 AuthResult 形状不变（供 /introspect 等他用，不破坏既有测试）。
+   * @param token Bearer 令牌（不含 "Bearer " 前缀）。
+   * @param scope 所需权限：context→read；event/handoff→write。
+   */
   verify(token: string, scope: typeof SCOPE_READ | typeof SCOPE_WRITE): AuthResult {
-    if (!token || token.length === 0) {
+    const outcome = this.authenticate(token);
+    if (!outcome.ok) {
       return { ok: false, code: ERROR_CODES.E1101 };
+    }
+    if (!outcome.scopes.includes(scope)) {
+      return { ok: false, code: ERROR_CODES.E1102, subject: outcome.subject };
+    }
+    return { ok: true, subject: outcome.subject, scopes: outcome.scopes };
+  }
+
+  /**
+   * 仅验令牌（签名+exp+iss），不校验 scope，并归一化 scopes。
+   * 供 MCP Bearer 中间件在 handler 前解析身份：优先取 claims.scopes（数组），
+   * 回退 claims.scope（空格分隔字符串拆分）。
+   */
+  authenticate(token: string): AuthOutcome {
+    if (!token || token.length === 0) {
+      return { ok: false, error: 'missing token' };
     }
     try {
       const decoded = jwt.verify(token, this.secret, {
         issuer: this.issuer,
       }) as TokenClaims;
-      const scopes: string[] = Array.isArray(decoded.scopes) ? decoded.scopes : [];
-      if (!scopes.includes(scope)) {
-        return { ok: false, code: ERROR_CODES.E1102, subject: decoded.sub };
-      }
+      const scopes: string[] = Array.isArray(decoded.scopes)
+        ? decoded.scopes
+        : typeof decoded.scope === 'string' && decoded.scope.length > 0
+          ? decoded.scope.split(/\s+/).filter(Boolean)
+          : [];
       return { ok: true, subject: decoded.sub, scopes };
     } catch {
-      return { ok: false, code: ERROR_CODES.E1101 };
+      return { ok: false, error: 'invalid token' };
     }
   }
 
