@@ -159,7 +159,7 @@ test("C0-a contingency.js 三处装载一致（engine.files.json / index.html / 
 test("C0-b sw.js CACHE 版本必须领先 v14 收口基线（否则老用户拿不到新模块）", () => {
   const BL = require("./baseline.js");
   const cur = WS.swManifest().version;
-  const m = BL.showAt(BL.BASE, "sw.js").match(/const\s+CACHE\s*=\s*["']xiaonuan-v(\d+)["']/);
+  const m = BL.showAt(BL.V14, "sw.js").match(/const\s+CACHE\s*=\s*["']xiaonuan-v(\d+)["']/);
   const base = m ? parseInt(m[1], 10) : -1;
   assert.strictEqual(base, 19, "v14 收口基线的 sw 版本应为 v19，基线取证失真");
   assert.ok(cur > base, `sw.js CACHE 未升版：基线 v${base} → 当前 v${cur}。被缓存文件变了就必须换缓存键`);

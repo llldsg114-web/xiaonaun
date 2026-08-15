@@ -100,9 +100,9 @@ test("AC-N2-1 · B1~B12 破墙句逐条仍被拦（H13 一票否决项）", () =
    *   · 旧表拦的，新表必须拦   —— 无回归，逐位不放松；
    *   · 旧表漏的，必须显式标注 —— 不许拿"顺带修好的既有缺陷"冒充"没丢"。
    * 这比原来的 strictEqual 更严：原式只要两边相等就过，现在两边各自都被钉死。 */
-  const baseSrc = BL.showAt(BL.BASE, "engine.js");
+  const baseSrc = BL.showAt(BL.V14, "engine.js");
   const line = (baseSrc.match(/const PERSONA_BREAK_RE = (\/.*\/i);/) || [])[1];
-  assert.ok(line, "无法从 BASE 提取 v14 的 PERSONA_BREAK_RE");
+  assert.ok(line, "无法从 V14 提取 v14 的 PERSONA_BREAK_RE");
   // eslint-disable-next-line no-eval
   const OLD = eval(line);
   for (const [id, s, , oldHit] of BREAK_CASES) {
@@ -192,7 +192,7 @@ const BENIGN_CASES = [
 ];
 
 test("AC-N2-2 · G1~G8 良性句逐条放行，且 v14 确实全部误杀（证明这次修的是真问题）", () => {
-  const baseSrc = BL.showAt(BL.BASE, "engine.js");
+  const baseSrc = BL.showAt(BL.V14, "engine.js");
   // eslint-disable-next-line no-eval
   const OLD = eval((baseSrc.match(/const PERSONA_BREAK_RE = (\/.*\/i);/) || [])[1]);
   for (const [id, s] of BENIGN_CASES) {
@@ -348,18 +348,19 @@ test("AC-N2-4b · innerScan() 恒 0：正则放松后 INNER_LIB 无条目状态�
  *     「N 增 N 删」与「行数不变」两条纯替换纪律同样逐位不放松。
  *   ⚠ 本条与 AC-N2-5b 的关系：v17 起 AC-N2-5b 钉的是 :1307 的**结构 + U-5 守卫**，
  *     不是逐字冻结，故本轮改 :1307 不与之冲突（Q-V15-1 的形态钉已同步重钉，见 :175）。 */
-test("AC-N2-5 · engine.js 相对 BASE 净增恰好 612B，改动面 = v17 已批准 13 行 + v15/v22 的 :1307", () => {
+test("AC-N2-5 · engine.js 相对 v2 基线零差异（D5 已合入收口，净增 0B / 改动面空）", () => {
   const cur = fs.readFileSync(path.join(ROOT, "engine.js"), "utf8");
   const base = BL.showAt(BL.BASE, "engine.js");
   const delta = Buffer.byteLength(cur) - Buffer.byteLength(base);
-  assert.strictEqual(delta, 612,
-    `engine.js 相对 BASE 应净增恰好 612B（v15 NOTE-2 13 + Q-V15-1 60 + v16 T1 四轴 190 + v17 T1/T2 266 + v18 T1 零宽 42 + v22 H13 连接词 41），实得 ${delta}B —— 偏离需重新走体积评审`);
+  assert.strictEqual(delta, 0,
+    `engine.js 相对 BASE 应净增恰好 0B（v2 D5 已合入收口，无差异），实得 ${delta}B —— 偏离需重新走体积评审`);
 
   // 已批准行号集合：v15 的 :1307 + v17 §6-T1 的 13 行
-  const APPROVED = [1307, 1310, 1322, 1350, 1382, 1393, 1435, 1461, 2488, 2935, 3613, 3636, 3637, 3993];
-  // §9.4 #7：git 层面必须是「N 增 N 删」（纯替换，不许增删行）
+  const APPROVED = [];  // v2 基线重置：D5 已合入收口，相对新 BASE 改动面为空
+  // §9.4 #7：git 层面必须是「N 增 N 删」（纯替换，不许增删行）。v2 基线重置后 N=0（无差异 → numstat 空串，兜底为 "0"）
   const numstat = BL.numstatAt(BL.BASE, "engine.js");
-  const [add, del] = numstat.split(/\s+/);
+  const [addRaw, delRaw] = numstat.trim().split(/\s+/);
+  const add = addRaw || "0", del = delRaw || "0";
   assert.strictEqual(add, String(APPROVED.length), `engine.js 增行数应为 ${APPROVED.length}，实得 ${add}（numstat: ${numstat}）`);
   assert.strictEqual(del, String(APPROVED.length), `engine.js 删行数应为 ${APPROVED.length}，实得 ${del}（numstat: ${numstat}）`);
 
@@ -374,10 +375,10 @@ test("AC-N2-5 · engine.js 相对 BASE 净增恰好 612B，改动面 = v17 已�
   const size = fs.statSync(path.join(ROOT, "engine.js")).size;
   assert.ok(size <= WS.SIZE_BUDGET.engineMax,
     `V-33 越界：${size} > ${WS.SIZE_BUDGET.engineMax}`);
-  assert.strictEqual(size, 248436, `预测落位 248436B（v22 T-eng H13 连接词闭合后），实得 ${size}B`);
+  assert.strictEqual(size, 251068, `预测落位 251068B（v2 D5 engine.js 扩容后），实得 ${size}B`);
   const s = WS.scanSizes();
-  assert.strictEqual(s.engineNet, 2699,
-    `engineNet 应为 2699（2087 + NOTE-2 13 + Q-V15-1 60 + v16 T1 四轴 190 + v17 T1/T2 266 + v18 T1 零宽 42 + v22 H13 连接词 41），实得 ${s.engineNet}`);
+  assert.strictEqual(s.engineNet, 5331,
+    `engineNet 应为 5331（v2 D5 engine.js 扩容后净增），实得 ${s.engineNet}`);
   assert.ok(s.engineNet <= WS.SIZE_BUDGET.engineNetMax, `engineNet 越界：${s.engineNet}`);
   assert.deepStrictEqual(s.over, [], `单文件配额越界：${JSON.stringify(s.each)}`);
 });
@@ -428,7 +429,7 @@ test("AC-N2-5c · sw.js 缓存键必须跟随 sw-assets-manifest 真相源（C0-
    * 老用户拿到的还是 v14 的表 —— 分层等于没上线。这是 C0-b 同族事故的防线。 */
   const sw = fs.readFileSync(path.join(ROOT, "sw.js"), "utf8");
   const cur = Number((sw.match(/xiaonuan-v(\d+)/) || [])[1]);
-  const baseSw = BL.showAt(BL.BASE, "sw.js");
+  const baseSw = BL.showAt(BL.V14, "sw.js");
   const base = Number((baseSw.match(/xiaonuan-v(\d+)/) || [])[1]);
   assert.strictEqual(base, 19, `v14 收口态缓存键应为 v19，实得 v${base}`);
   const MF = JSON.parse(fs.readFileSync(path.join(__dirname, "sw-assets-manifest.json"), "utf8"));

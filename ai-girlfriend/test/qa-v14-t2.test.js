@@ -66,7 +66,7 @@ function regexAt(commit) {
 /* v13 收线态的旧正则（从 git 取，不硬抄字面量 —— 抄错了就测了个寂寞）。 */
 function headRegex() { return regexAt(BL.PREV); }
 /* v14 收口态的表（v15 差分基准）：V-93b / 零漂移 用它做"新旧比对"的旧侧。 */
-function baseRegex() { return regexAt(BL.BASE); }
+function baseRegex() { return regexAt(BL.V14); }
 
 /* ── v15 §9.3：「模型」放行白名单（机器可验，不是人工目检）────────────────
  * v14 的 V-93b / 零漂移 两条钉的是「lost 必须为 0」——一条都不许少拦。
@@ -407,7 +407,7 @@ test("T2 · 闭环 uname 剔除：用户名含破墙词不连坐", () => {
 test("T2 · 体积：R-P0 相对 v13 净增 12B（≤ DESIGN 预算 16B），且三手段在当前表结构仍在", () => {
   const pick = (s) => (s.match(/const PERSONA_BREAK_RE = .*/) || [""])[0];
   const prevLine = pick(BL.showAt(BL.PREV, "engine.js"));
-  const baseLine = pick(BL.showAt(BL.BASE, "engine.js"));
+  const baseLine = pick(BL.showAt(BL.V14, "engine.js"));
   assert.ok(prevLine && baseLine, "基线取证失败：PREV / BASE 未取到 PERSONA_BREAK_RE 行");
   const delta = Buffer.byteLength(baseLine) - Buffer.byteLength(prevLine);
   assert.strictEqual(delta, 12, `R-P0 净增应为 12B，实际 ${delta}B`);

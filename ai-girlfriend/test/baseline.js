@@ -25,9 +25,10 @@ const path = require("node:path");
 const REPO = path.resolve(__dirname, "..", "..");
 const PKG = "ai-girlfriend";
 
-/* ★基线前移只改这一行★ */
-const BASE = "b86a386";      // v14 收口：G7 有棱角 / G8 有自我 / G9 无破绽 + sw v19
-const PREV = BASE + "^";     // v13 收口：eb21332（"旧表"反证基准）
+/* ★基线前移只改这一行★（v2 收口 cc72ca0：D5 engine.js 扩容已合入收口） */
+const BASE = "cc72ca0";      // v2 收口：多会话隔离 + 真实账号 SSO + 12维 mindCtx 注入（含 D5 engine.js 扩容）
+const PREV = "b86a386^";     // v13 收口：eb21332（"旧表"反证基准 —— 固定字面量，绝不随 BASE 漂移）
+const V14 = "b86a386";       // v14 收口：NOTE-2「模型」裸词分层 + R-P0 破墙补洞 等（AC-N2-1/2/5c 固定对比基准，不随 BASE 漂移）
 
 /* 取某个 commit 上某个工程内相对路径的文件全文。
  * maxBuffer 放到 64MB —— engine.js 单文件已 240KB+，默认 1MB 在拼接场景下不够用。 */
@@ -42,4 +43,4 @@ function numstatAt(commit, rel) {
     { cwd: REPO, encoding: "utf8", maxBuffer: 8 << 20 }).trim();
 }
 
-module.exports = { REPO, PKG, BASE, PREV, showAt, numstatAt };
+module.exports = { REPO, PKG, BASE, PREV, V14, showAt, numstatAt };

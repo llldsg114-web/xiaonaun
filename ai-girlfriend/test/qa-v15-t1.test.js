@@ -406,7 +406,7 @@ test("X-4 · 日配额 CAP=2 未因新增类型放宽：同 state 连打 200 轮
  *   v19 起**不再生效**，仅供审计追溯，禁止据此写新断言。 */
 test("AC-C5-6 · contingency.js R-C5 增量 ≤470B、R-S2 净增/总量双锁均从 SIZE_BUDGET 派生；体积四锁自洽", () => {
   const cur = require("node:fs").statSync(path.join(ROOT, "contingency.js")).size;
-  const base = Buffer.byteLength(BL.showAt(BL.BASE, "contingency.js"));
+  const base = Buffer.byteLength(BL.showAt(BL.V14, "contingency.js"));
   assert.strictEqual(base, 4086, `v14 收口态 contingency.js 应为 4086B，实得 ${base}`);
   // v15 R-C5 那一期的落位（4518）已成为 v17 的起算点，两期增量分开钉
   const V16 = 4518;
@@ -446,7 +446,7 @@ test("AC-C5-6 · contingency.js R-C5 增量 ≤470B、R-S2 净增/总量双锁�
   /* memory/presence/texture 在 v17 是「归一化白名单内改动」，净字节精确钉死 */
   const EXPECT = { "memory.js": -38, "presence.js": 9, "texture.js": 9 };
   for (const f of Object.keys(EXPECT)) {
-    const d = s.each[f] - Buffer.byteLength(BL.showAt(BL.BASE, f));
+    const d = s.each[f] - Buffer.byteLength(BL.showAt(BL.V14, f));
     assert.strictEqual(d, EXPECT[f], `${f} 相对 BASE 净增应为 ${EXPECT[f]}B，实测 ${d}B`);
   }
 });

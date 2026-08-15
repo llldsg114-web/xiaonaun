@@ -195,7 +195,7 @@ test("T3 · 体积：memory.js 相对 T1 收线净减 6B，v17 归一化再净�
   /* v17 T2 归一化收口铁律（替代 v15 的「零改动」口径）：行数不变 + 改动行 ⊆ 白名单 + 净 −38B */
   const WHITELIST = [98, 99, 100, 107, 112, 120];
   const src = fs.readFileSync(path.join(ROOT, "memory.js"), "utf8");
-  const base = BL.showAt(BL.BASE, "memory.js");
+  const base = BL.showAt(BL.V14, "memory.js");
   const cl = src.split("\n"), bl = base.split("\n");
   assert.strictEqual(cl.length, bl.length, "memory.js 行数必须不变（纯定点替换）");
   const moved = [];

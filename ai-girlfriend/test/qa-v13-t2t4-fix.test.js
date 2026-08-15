@@ -174,7 +174,7 @@ test("A1-b scanSizes：over 为空且逐模块不越配额", () => {
  *      若仍用精确相等，T0 阶段（源码尚未动）与 T2 阶段（已动）不可能同时为绿 —— 而 T0 是
  *      gating，必须先绿。拆开后两阶段各自都被更严的断言覆盖，总严格度只增不减。
  * ★ 反向保护（原样保留 + 加严）：:1307 必须仍是 PERSONA_BREAK_RE 常量声明；
- *   :1322 的 A6-a 折叠、:2897 的 R-P2 透传，必须与 BASE **逐位一致**（从"+19B"升级为"零 diff"）。
+ *   :1322 的 A6-a 折叠、:2902 的 R-P2 透传（D5 后绝对行号偏移），必须与 BASE **逐位一致**（从"+19B"升级为"零 diff"）。
  * ★★【白名单扩容 · v17 T1/T2 · 主理人 Qi 批准（DESIGN-v17 §6-T1 逐行预算表）】★★
  *   基线**不 reset**（仍 b86a386，DESIGN-v17 §8 裁定），只在白名单上**逐行追加已批准解冻行**。
  *   v17 获批 13 行（每行都在 §6-T1 表里有独立字节预算，不在表里的一律算越界）：
@@ -213,10 +213,13 @@ test("A1-c engine.js 定点解冻白名单：相对 v14 收口基线仅 v15/v17 
   // 改动内容本身也锁死：:1307 只准是破墙表常量，不准夹带别的东西
   assert.match(cur[1306], /^\s*const PERSONA_BREAK_RE = \/\(.*\)\/i;$/,
     ":1307 必须仍是 PERSONA_BREAK_RE 常量声明（NOTE-2 只改正则，不改结构）");
-  // :2897 R-P2 透传已合入基线，本期未申请解冻 —— 由"+19B"加严为"逐位零 diff"
-  assert.match(cur[2896], /factId: rv\.factId, pacing: rv\.pacing \}$/,
-    ":2897 必须是 rec 对象末尾追加 `pacing: rv.pacing`（R-P2 只透传，不加工）");
-  assert.strictEqual(cur[2896], base[2896], ":2897 必须与 v14 收口基线逐位一致");
+  // :2897 R-P2 透传在 D5 后绝对行号已偏移（D5 于附近插入注释，现位于 :2902）。
+  // 改用内容匹配钉死结构，避免行号漂移误杀；冻结语义不变：R-P2 只透传不加工，且与 v2 收口基线逐位一致。
+  const paceRe = /factId: rv\.factId, pacing: rv\.pacing \}$/;
+  const curPace = cur.find((l) => paceRe.test(l));
+  const basePace = base.find((l) => paceRe.test(l));
+  assert.ok(curPace, ":2902 R-P2 透传必须是 rec 对象末尾追加 `pacing: rv.pacing`（R-P2 只透传，不加工）");
+  assert.strictEqual(curPace, basePace, ":2902 R-P2 透传必须与 v2 收口基线逐位一致（D5 仅插入注释，未改透传结构）");
   /* A6-a 折叠：v17 起由内联字面量收口到 S-1b 单一真源 pnorm（§3.4）。
    * 判据从"字面量逐位一致"翻转为"必须走 pnorm"—— 语义不放松：折叠仍然发生，
    * 只是真源从 3 套字面量降为 1 套；且下方加断"engine.js 内不得再有第 2 套折叠字面量"。 */
