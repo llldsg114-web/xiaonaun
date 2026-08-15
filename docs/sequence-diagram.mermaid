@@ -1,60 +1,87 @@
 sequenceDiagram
     autonumber
-    participant D as 对话层(前端)
-    participant S as McpServer (Streamable HTTP)
-    participant A as TokenMiddleware
-    participant SM as StateMachine
-    participant ID as IdempotencyStore
-    participant MS as MemoryStore
-    participant BR as Bridge
-    participant EB as EnvelopeBuilder
-    participant AL as AuditLog
+    actor Browser as PKCE 客户端（xinyu-web）
+    participant Auth as OAuthServer.authorize
+    participant Consent as ConsentPage
+    participant Clients as ClientStore
+    participant Codes as CodeStore
+    participant Token as OAuthServer.token
+    participant Pkce as PkceUtil
+    participant TM as TokenMiddleware
+    participant Refresh as RefreshStore
 
-    Note over D,AL: 场景一：xinchao_context（只读，≈2200 token 信封）
-    D->>S: xinchao_context {session_id...}
-    S->>A: verify(Bearer, scope="read")
-    A-->>S: AuthResult{ok:true}
-    S->>SM: getState()
-    SM-->>S: StateVector(12维)
-    S->>MS: retrieve(session_id, vector, topK)
-    MS-->>S: EmotionalMemory[]
-    S->>EB: build(session_id, vector, memories)
-    EB->>EB: estimateTokens + trimMemories(保底≤2200)
-    EB-->>S: ContextEnvelope
-    S->>BR: filterForUser(envelope)
-    BR-->>S: 已过滤信封(绝不含量 dreams/longing/autonomous)
-    S->>AL: record(read access)
-    S-->>D: ContextEnvelope(JSON)
+    Note over Browser,Refresh: 链路一：Authorization Code + PKCE → 签发 JWT
+    Browser->>Browser: 生成 code_verifier + code_challenge=S256(verifier)
+    Browser->>Auth: GET /authorize?response_type=code&client_id=xinyu-web&redirect_uri=R&scope=read write&state=xyz&code_challenge=C&code_challenge_method=S256
+    Auth->>Clients: get(client_id) / isValidRedirectUri(client, R)
+    Clients-->>Auth: client / ok
+    Auth->>Auth: 校验 PKCE 齐全 + method=S256 + scope⊆allowed
+    Auth->>Consent: render({client, scope, state})
+    Consent-->>Browser: 200 极简 HTML 同意页（一键允许）
+    Browser->>Auth: POST /authorize?...&decision=allow（本地自动同意身份 xinyu-local）
+    Auth->>Codes: save(AuthCodeRecord{code, client_id, R, scope, C, S256, subject=xinyu-local, expires_at≤now+300s, used:false})
+    Codes-->>Auth: ok
+    Auth-->>Browser: 302 → R?code=CODE&state=xyz
 
-    Note over D,AL: 场景二：xinchao_event（写入 + 幂等）
-    D->>S: xinchao_event {event_id, type, payload, ...}
-    S->>A: verify(Bearer, scope="write")
-    A-->>S: AuthResult{ok:true}
-    S->>S: 校验 type∈三类 & event_id 存在
-    alt 非法（type 非三类 / event_id 缺失）
-        S-->>D: {accepted:false, code:ERR_INVALID_EVENT_TYPE | ERR_MISSING_EVENT_ID}
-    else 合法
-        S->>ID: seen(event_id)?
-        alt 已存在（幂等命中）
-            ID-->>S: 历史结果
-            S-->>D: {accepted:true, idempotent:true, applied_state_delta:{}, envelope_version}
-        else 新事件
-            S->>SM: applyConversationEvent(event)
-            SM-->>S: StateDelta(单事件增量≤上限, 裁剪[0,1])
-            S->>MS: 若为情感片段则 writeMemory()
-            S->>ID: mark(event_id, delta)
-            S->>AL: record(write access)
-            S-->>D: {accepted:true, idempotent:false, applied_state_delta, envelope_version}
-        end
+    Browser->>Token: POST /token grant_type=authorization_code&code=CODE&redirect_uri=R&client_id=xinyu-web&code_verifier=verifier
+    Token->>Codes: consume(CODE)
+    Codes-->>Token: AuthCodeRecord | null（原子取+标记 used）
+    Token->>Token: 校验 client/redirect/未过期/未用过
+    Token->>Pkce: verify(verifier, stored.code_challenge)
+    Pkce-->>Token: true
+    Token->>TM: issueAccessToken(subject, scope)  %% 复用同一 JWT_SECRET / issuer
+    TM-->>Token: {access_token(JWT), token_type, expires_in:86400}
+    Token->>Refresh: save(RefreshTokenRecord{refresh_token, client_id, subject, scope, jti})
+    Refresh-->>Token: ok
+    Token-->>Browser: 200 {access_token, token_type:Bearer, expires_in:86400, refresh_token, scope}
+    Note over Browser,TM: 后续 MCP 调用带 Bearer access_token → TokenMiddleware.verify(token, scope) 直接通过（v1 零改动）
+
+---
+
+sequenceDiagram
+    autonumber
+    actor RS as 资源服务器/客户端
+    participant Introspect as OAuthServer.introspect
+    participant TM as TokenMiddleware
+    participant Refresh as RefreshStore
+    participant Revoke as RevocationStore
+
+    Note over RS,Revoke: 链路二：/introspect（RFC7662）
+    RS->>Introspect: POST /introspect token=TOKEN&token_type_hint=access_token|refresh_token
+    alt token_type_hint=access_token
+        Introspect->>TM: introspectToken(TOKEN)
+        TM-->>Introspect: TokenClaims{sub,scope,exp,iss,jti} | null
+        Introspect->>Revoke: isRevoked(claims.jti)
+        Revoke-->>Introspect: false
+        Introspect-->>RS: 200 {active:true, scope, sub, exp, iss, client_id}
+    else token_type_hint=refresh_token
+        Introspect->>Refresh: get(TOKEN)
+        Refresh-->>Introspect: RefreshTokenRecord | undefined
+        Introspect-->>RS: 200 {active:true, scope, sub, exp, client_id} 或 {active:false}
+    else 无效/过期
+        Introspect-->>RS: 200 {active:false}
     end
 
-    Note over D,AL: 场景三：xinchao_handoff_note（≤1200字符, 72h TTL）
-    D->>S: xinchao_handoff_note {note_id, content, ttl_seconds, from, to}
-    S->>S: 校验 chars≤1200 & ttl=259200
-    alt 超长
-        S-->>D: {stored:false, code:ERR_NOTE_TOO_LONG}
-    else 合法
-        S->>MS: writeHandoff(note)
-        S->>AL: record(write access)
-        S-->>D: {stored:true, ttl_seconds, expires_at, chars}
+---
+
+sequenceDiagram
+    autonumber
+    actor Client as 客户端
+    participant Revoke as OAuthServer.revoke
+    participant TM as TokenMiddleware
+    participant Refresh as RefreshStore
+    participant RevokeStore as RevocationStore
+
+    Note over Client,RevokeStore: 链路三：/revoke（RFC7009，总是 200）
+    Client->>Revoke: POST /revoke token=TOKEN&token_type_hint=access_token|refresh_token
+    alt access_token
+        Revoke->>TM: introspectToken(TOKEN)
+        TM-->>Revoke: TokenClaims{jti}
+        Revoke->>RevokeStore: add(jti)  %% 最佳努力：仅影响 /introspect
+        Note over Revoke: MCP 工具的 verify 不查黑名单，已签发 access 在过期前仍可用（v1 限制，见待明确）
+    else refresh_token
+        Revoke->>Refresh: revoke(TOKEN)
+        Refresh->>Refresh: revokeByJti(jti)  %% 级联标记关联 access 失效
+        Refresh-->>Revoke: ok
     end
+    Revoke-->>Client: 200（RFC7009 成功总是 200）

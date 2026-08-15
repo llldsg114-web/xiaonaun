@@ -1,0 +1,60 @@
+classDiagram
+    class McpProxy {
+        <<server.js 新增>>
+        +MCP_TARGET: string
+        +handleMcp(req, res, url) void
+        -forward(req, res, url) void
+    }
+    class McpClient {
+        <<mcp-client.js · 前端 ES Module>>
+        +proxyUrl: string
+        +getMindContext(args) Promise~Object~
+        +sendInteractionEvent(evt) Promise~void~
+        +summarize(envelope) string
+        -_call(tool, args) Promise~Object~
+        -_nextId() number
+    }
+    class McpAdapter {
+        <<mcp-adapter.js · 前端 ES Module>>
+        +ensureReady() Promise~boolean~
+        +getMindContext() Promise~Object~
+        +fireUserEvent(text, opts) Promise~void~
+        +buildFragment(env) string
+        +identity() Object
+    }
+    class PkceFlow {
+        <<pkce.js · 前端 ES Module>>
+        +AS_AUTHORIZE: string
+        +AS_TOKEN: string
+        +CLIENT_ID: string
+        +REDIRECT_URI: string
+        +SCOPE: string
+        +createChallenge() Promise~Object~
+        +doPkceFlow() Promise~Object~
+        -_randomVerifier() string
+        -_sha256B64url(s) Promise~string~
+        -_exchange(code, verifier) Promise~Object~
+    }
+    class TokenStore {
+        <<token-store.js · 前端 ES Module>>
+        +KEY: string
+        +DEVICE_KEY: string
+        +load() Object
+        +save(t) void
+        +clear() void
+        +getAccessToken() string
+        +isExpired() boolean
+        +getDeviceId() string
+        +getSubject() string
+        +setTokens(t) void
+    }
+
+    McpAdapter ..> McpClient : 调用 getMindContext/sendInteractionEvent
+    McpAdapter ..> TokenStore : 读设备身份/令牌
+    McpAdapter ..> PkceFlow : 缺失令牌时触发 doPkceFlow
+    PkceFlow ..> TokenStore : 写入令牌
+    McpClient ..> TokenStore : 取 token 注入 arguments
+    McpProxy ..> McpClient : 网络服务 /api/mcp
+    note for McpClient "vanilla JS · fetch + Web Crypto"
+    note for PkceFlow "Authorization Code + PKCE(S256)"
+    note for McpProxy "Node 原生 http.request 转发 :3100/mcp"

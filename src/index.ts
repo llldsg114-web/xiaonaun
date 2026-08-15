@@ -12,7 +12,7 @@ import express from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
-import { STORAGE_DIR, ENVELOPE_VERSION, SCOPE_READ, SCOPE_WRITE } from './config.js';
+import { STORAGE_DIR, ENVELOPE_VERSION } from './config.js';
 import { JsonlStore } from './storage/jsonlStore.js';
 import { MemoryStore } from './storage/memoryStore.js';
 import { IdempotencyStore } from './storage/idempotency.js';
@@ -20,6 +20,7 @@ import { StateMachine } from './state/stateMachine.js';
 import { Bridge } from './mcp/bridge.js';
 import { EnvelopeBuilder } from './mcp/envelope.js';
 import { TokenMiddleware } from './auth/token.js';
+import { OAuthServer } from './oauth/index.js';
 import { AuditLog } from './observability/auditLog.js';
 import { MindEngine, registerMcpTools } from './mcp/tools.js';
 
@@ -40,30 +41,68 @@ async function bootstrap(): Promise<void> {
   const app = express();
   app.use(express.json());
 
-  // 开发用令牌签发端点（生产可接标准授权服务器）。
-  app.post('/token', (req, res) => {
-    const body = (req.body ?? {}) as { subject?: string; scopes?: string[] };
-    const subject = body.subject ?? 'user';
-    const scopes = body.scopes ?? [SCOPE_READ, SCOPE_WRITE];
-    const token = auth.issue(subject, scopes);
-    res.json({ access_token: token, token_type: 'Bearer', scopes });
-  });
+  // 标准 OAuth 2.1 授权服务器（/authorize /token /introspect /revoke）。
+  // 复用既有 TokenMiddleware 实例，保证 JWT_SECRET / issuer 单一来源。
+  const oauth = new OAuthServer(auth);
+  oauth.register(app);
+
+  // 注：旧的非标准 dev /token（裸 body 签发）已移除，统一由 OAuthServer 接管，
+  // 避免双签发导致密钥/claim 分叉；3 个 MCP 工具的 verify 调用点保持不变。
 
   app.get('/health', (_req, res) => {
     res.json({ ok: true, engine: 'xinyu-mind-engine', envelope_version: ENVELOPE_VERSION });
   });
 
   // MCP Streamable HTTP 传输（无状态：不生成 sessionId）。
-  const mcpServer = new McpServer({ name: 'xinyu-mind-engine', version: ENVELOPE_VERSION });
-  registerMcpTools(mcpServer, engine);
-
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  await mcpServer.connect(transport);
-
+  //
+  // 关键修复：无状态模式下，SDK 要求【每个请求】都新建一个
+  // StreamableHTTPServerTransport（及对应的 McpServer）并调用 handleRequest。
+  // 旧实现只创建单个 transport/server 实例并对所有请求复用，导致第二次
+  // initialize 抛错并返回 500（引擎无日志）。
+  //
+  // engine 为单例（bootstrap 内唯一实例），多个请求各自的 McpServer 通过
+  // registerMcpTools 共享同一 engine，从而保证状态（状态机/记忆/幂等）连续。
   const mcpEndpoint = process.env.MCP_ENDPOINT ?? '/mcp';
-  app.post(mcpEndpoint, (req, res) => transport.handleRequest(req, res, req.body));
-  app.get(mcpEndpoint, (req, res) => transport.handleRequest(req, res));
-  app.delete(mcpEndpoint, (req, res) => transport.handleRequest(req, res));
+
+  /**
+   * 为每个 /mcp 请求创建「全新」的 McpServer + transport，注册工具（共享 engine
+   * 单例），connect 后处理请求；响应关闭时关闭 transport 与 server 释放资源。
+   */
+  const handleMcpRequest = async (
+    req: express.Request,
+    res: express.Response,
+  ): Promise<void> => {
+    const server = new McpServer({ name: 'xinyu-mind-engine', version: ENVELOPE_VERSION });
+    registerMcpTools(server, engine);
+
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    await server.connect(transport);
+
+    // 响应关闭时释放本请求独占的 transport 与 server（无状态：不保留会话）。
+    const cleanup = (): void => {
+      transport.close().catch(() => undefined);
+      server.close().catch(() => undefined);
+    };
+    res.on('close', cleanup);
+    res.on('finish', cleanup);
+
+    // POST 携带 JSON-RPC body；GET/DELETE 无 body。
+    if (req.method === 'POST') {
+      await transport.handleRequest(req, res, req.body);
+    } else {
+      await transport.handleRequest(req, res);
+    }
+  };
+
+  app.post(mcpEndpoint, (req, res) => {
+    void handleMcpRequest(req, res);
+  });
+  app.get(mcpEndpoint, (req, res) => {
+    void handleMcpRequest(req, res);
+  });
+  app.delete(mcpEndpoint, (req, res) => {
+    void handleMcpRequest(req, res);
+  });
 
   const port = Number(process.env.PORT ?? 3000);
   app.listen(port, () => {

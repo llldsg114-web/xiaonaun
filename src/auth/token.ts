@@ -8,17 +8,36 @@
  * 依赖：jsonwebtoken(MIT) + Node crypto。后续可替换为标准授权服务器。
  */
 
+import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
-import { ERROR_CODES, SCOPE_READ, SCOPE_WRITE } from '../config.js';
+import { ACCESS_TOKEN_TTL_SECONDS, ERROR_CODES, SCOPE_READ, SCOPE_WRITE } from '../config.js';
 import type { AuthResult } from '../types/index.js';
 
 /** JWT 内载荷。 */
 export interface TokenClaims {
   sub: string;
+  /** 兼容桥：数组形式，供既有 verify 读取（3 个 MCP 工具 v1 零改动）。 */
   scopes: string[];
   iss: string;
   iat?: number;
   exp?: number;
+  /** OAuth 标准 scope（空格分隔字符串，供 /introspect 回带）。 */
+  scope?: string;
+  /** JWT 唯一标识，供 /revoke 级联吊销 access。 */
+  jti?: string;
+  /** 令牌类型（Bearer）。 */
+  token_type?: string;
+  /** 签发客户端（可选，便于 /introspect 回带）。 */
+  client_id?: string;
+}
+
+/** issueAccessToken 返回的 access_token 签发结果。 */
+export interface IssuedAccessToken {
+  access_token: string;
+  token_type: 'Bearer';
+  expires_in: number;
+  scope: string;
+  jti: string;
 }
 
 export class TokenMiddleware {
@@ -82,5 +101,54 @@ export class TokenMiddleware {
     if (!authHeader) return null;
     const matched = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
     return matched ? matched[1] : null;
+  }
+
+  /**
+   * 签发标准 OAuth 2.1 access_token（HS256 JWT）。
+   *
+   * ★ 关键兼容桥：claim 同时携带 `scope`（字符串，OAuth 标准）与
+   * `scopes`（数组，既有 verify 读取字段），保证 3 个 MCP 工具 v1 零改动。
+   *
+   * @param subject 资源所有者（本地固定身份 xinyu-local）
+   * @param scope   空格分隔的 scope 字符串（如 "read write"）
+   * @returns 含 access_token(JWT) / token_type / expires_in / scope / jti
+   */
+  issueAccessToken(subject: string, scope: string): IssuedAccessToken {
+    const scopes = scope.split(/\s+/).filter(Boolean);
+    const jti = randomUUID();
+    const access_token = jwt.sign(
+      {
+        sub: subject,
+        scope,
+        scopes,
+        token_type: 'Bearer',
+        jti,
+      },
+      this.secret,
+      {
+        issuer: this.issuer,
+        expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+      },
+    );
+    return {
+      access_token,
+      token_type: 'Bearer',
+      expires_in: ACCESS_TOKEN_TTL_SECONDS,
+      scope,
+      jti,
+    };
+  }
+
+  /**
+   * 验签 access_token 并返回载荷（失效 / 签名不符返回 null）。
+   * 供 /introspect 与 /revoke 复用同一 secret / issuer，杜绝密钥分叉。
+   */
+  introspectToken(token: string): TokenClaims | null {
+    if (!token) return null;
+    try {
+      return jwt.verify(token, this.secret, { issuer: this.issuer }) as TokenClaims;
+    } catch {
+      return null;
+    }
   }
 }

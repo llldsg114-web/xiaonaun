@@ -1,502 +1,425 @@
-# 心屿自研心智引擎（路线④）— 系统架构设计 + 任务分解
+# 心屿「标准 OAuth 2.1 授权服务器」系统架构设计 + 任务分解
 
-> 架构师：高见远（Gao） ｜ 产品名：心屿 ｜ 伴侣名：**小暖**（不可改名）
-> 协议：MIT ｜ 代码 100% 自有，完全从零自研实现，不依赖/不 fork 任何第三方「心潮（xinchao）」项目，不使用 `ombre-brain`。
+> 架构师：高见远（Gao） ｜ 产品名：**心屿** ｜ 伴侣名：**小暖**（不可改名、不可 renamed）
+> 协议：MIT ｜ 代码 100% 自有，完全从零自研，不依赖/不 fork 任何第三方「心潮（xinchao）」项目，不使用 `ombre-brain`。
 > 配套图：`docs/class-diagram.mermaid`、`docs/sequence-diagram.mermaid`
+
+## 铁律校验（交付前置）
+- ✅ **小暖**之名不在本设计中改动（本服务不触碰伴侣名，仅鉴权）。
+- ✅ **100% 自研 MIT**：新增代码全部落在 `src/oauth/`，不引入任何第三方 OAuth 库；如需加密原语一律用 Node 内置 `node:crypto`。
+- ✅ **不破坏 `/mcp` 与 3 个 MCP 工具**：新签发的 `access_token` 复用同一 `JWT_SECRET`、同一 `issuer=xinyu-mind-engine`、并**同时携带 `scopes` 数组**（兼容现有 `TokenMiddleware.verify`），3 个工具的 `verify(args.token, SCOPE_READ/WRITE)` 调用点 **v1 零改动**。现有 `index.ts` 的非标准 `/token` 被移除以避免双签发。
 
 ---
 
 ## Part A：系统设计
 
-### 1. 实现方案 + 框架选型（含架构假设）
+### 1. 实现方案 + 框架选型
 
 #### 1.1 核心难点
-1. **12 维心理驱动的动态演化**：衰减—饱和曲线需在数值稳定性与"情绪自然起伏"之间取得平衡，且必须幂等。
-2. **Bridge 安全边界**：`dreams / longing / autonomous` 三类**任何代码路径都不得自动注入用户窗口**，需有单元测试覆盖。
-3. **2200 token 信封软上限**：`memory_snippets` 需按相关度截断并保底不超包。
-4. **幂等写入**：`event_id` 作为幂等键，JSONL 存储下需保证"已处理即返回历史结果"。
-5. **OAuth 2.1 最小权限**：`context` 只读、`event / handoff` 写入，Bearer 鉴权。
+1. **PKCE(S256) 强制**：授权码流程必须校验 `code_challenge` + `code_challenge_method=S256`，且 `code_verifier` 在 `/token` 端做 SHA256 比对。
+2. **一次性、短生命 auth code**：绑定 `client / redirect_uri / scope / code_challenge`，TTL≤5min，单次可用（consume 即标记）。
+3. **access_token 与既有验签完全兼容**：这是最难也最关键的一点——既要是标准 OAuth JWT（claim 含 `scope` 字符串），又要能被现有 `TokenMiddleware.verify`（读 `decoded.scopes` **数组**）直接验过。
+4. **refresh_token 可吊销 + 轮换**：服务端存储、可吊销；P1 用即废。
+5. **不破坏既有 MCP 路径**：`/mcp` 路由与 3 个工具的 `args.token` 校验逻辑保持不变。
 
-#### 1.2 框架与库选型（仅 MIT / 宽松协议）
+#### 1.2 框架与库选型（仅 MIT / 宽松协议，预期零新增依赖）
 | 用途 | 选型 | 协议 | 说明 |
 |------|------|------|------|
-| MCP 传输 | `@modelcontextprotocol/sdk`（StreamableHTTPServerTransport） | MIT | 官方 TS SDK，原生支持 Streamable HTTP |
-| HTTP 路由 | `express` | MIT | 承载 MCP 端点与 OAuth 端点 |
-| 入参校验 | `zod` | MIT | MCP 工具输入契约校验 |
-| 鉴权令牌 | `jsonwebtoken` + Node `crypto` | MIT | 轻量 Bearer 自签发/验签 |
-| 配置加载 | `dotenv` | BSD-2-Clause | 读取 `.env` |
-| 存储 | **自研 JSONL**（零依赖，Node `fs`） | MIT（自有） | v1 落地；预留 `better-sqlite3`(MIT)+向量升级位 |
-| 测试 | `vitest` | MIT | 单元/集成测试 |
-| 语言/运行时 | TypeScript + Node.js ≥ 18 | Apache-2.0 / MIT | 原生 `stream`/`fetch` |
+| HTTP 路由 | `express`（已有） | MIT | 承载 `/authorize` `/token` `/introspect` `/revoke` |
+| JWT 签发/验签 | `jsonwebtoken`（已有） | MIT | HS256，`JWT_SECRET` 同现有；复用 `TokenMiddleware` 实例保证密钥/issuer 一致 |
+| PKCE / SHA256 | Node 内置 `node:crypto` | MIT（运行时自带） | `crypto.randomBytes` + `crypto.createHash('sha256')` + base64url，无需库 |
+| 入参校验 | `zod`（已有） | MIT | `/token` `/introspect` `/revoke` body 校验 |
+| 配置加载 | `dotenv`（已有） | BSD-2-Clause（宽松） | 读 `.env` |
+| 测试 | `vitest`（已有） | MIT | 端点 + PKCE 单测 |
+
+> **结论：无需新增任何第三方依赖**。所有密码学原语均来自 Node 运行时 + 现有 `jsonwebtoken`，完全符合 MIT/宽松铁律。
 
 #### 1.3 架构模式
-**分层架构（传输 / 应用 / 领域 / 基础设施）**：
-- 传输层：`McpServer`（Streamable HTTP）+ `TokenMiddleware`
-- 应用层：`tools.ts`（3 个 MCP 工具 handler）
-- 领域层：`StateMachine`（结算逻辑）、`Bridge`（安全边界）、`EnvelopeBuilder`（信封）
-- 基础设施层：`JsonlStore` / `MemoryStore` / `IdempotencyStore` / `AuditLog`
+**分层 + 组合根（Composition Root）**：
+- **传输层**：`src/oauth/*.ts` 内的 Express handlers（`authorize/token/introspect/revoke`）。
+- **领域服务层**：`ClientStore`（客户端注册/白名单）、`CodeStore`（auth code 内存存储）、`RefreshStore`（refresh token 内存存储）、`PkceUtil`（无状态工具）、`ConsentPage`（极简 HTML 渲染）。
+- **共享签发层**：复用既有 `src/auth/token.ts` 的 `TokenMiddleware`（同一 secret/issuer）做 access_token 签发与 introspect 验签——**单一密钥来源**，杜绝密钥分叉。
+- **组合根**：`src/oauth/index.ts` 的 `OAuthServer.register(app)`，在 `src/index.ts` 中装配，接收既有的 `TokenMiddleware` 实例。
 
-#### 1.4 架构假设（对 PRD 待确认问题的默认决策）
-- **A1 技术栈**：Node.js + TypeScript + 官方 MCP TS SDK（Streamable HTTP）。
-- **A2 存储**：v1 用本地 JSONL（零依赖、MIT 友好），预留 SQLite+轻量向量升级位（接口已抽象）。
-- **A3 衰减模型**：`SATURATE_FLOOR=0.65` 为饱和舒适带下限；未受刺激时每轮向基线（默认 `BASELINE=0.20`，可配置）衰减，半衰期 `HALF_LIFE_ROUNDS`（默认 8 轮，可配置）。
-- **A4 用户模型**：v1 单用户单会话；`session_id` 由对话层传入，`StateMachine` 预留多会话聚合接口。
-- **A5 OAuth 2.1**：内置轻量 Bearer 中间件，读写权限分离（`read` / `write`），后续可接 SSO。
-- **A6 信封体积**：2200 token 为软上限，`memory_snippets` 按相关度截断保底不超包；`narrative` 由**状态驱动的确定性模板**生成（**不调用外部 LLM**，保障完全自托管、零外部依赖）。
-- **A7 记忆检索**：v1 用启发式相关度（状态向量余弦近似 + tag 命中），不引入外部 embedding 模型；向量升级为 P2。
+#### 1.4 ⚠️ 关键兼容决策（必读）
+现有 `src/auth/token.ts` 的 `verify` 实现：
+```ts
+const decoded = jwt.verify(token, this.secret, { issuer: this.issuer }) as TokenClaims;
+const scopes: string[] = Array.isArray(decoded.scopes) ? decoded.scopes : [];
+if (!scopes.includes(scope)) return { ok:false, code: ERROR_CODES.E1102 };
+```
+它读的是 **`decoded.scopes`（数组）**。PRD 写的新 access_token claim 是 `scope`（字符串）。若只发 `scope` 字符串，`verify` 会得到 `scopes=[]` → 越权失败（3 个 MCP 工具断签）。
+
+**因此 access_token 的 JWT claim 必须同时包含：**
+```jsonc
+{
+  "sub": "xinyu-local",        // 资源所有者（本地自动同意的固定身份）
+  "scope": "read write",       // OAuth RFC 标准：空格分隔字符串（供 /introspect 返回）
+  "scopes": ["read","write"],  // ★ 兼容桥：与 verify 读取的字段一致，3 工具零改动
+  "token_type": "Bearer",
+  "jti": "<uuid>",             // 供 /revoke 级联吊销 access
+  "iss": "xinyu-mind-engine",
+  "exp": 1735689600
+}
+```
+> 实现方式：在 `TokenMiddleware` 上**新增** `issueAccessToken(subject, scope)` 与 `introspectToken(token)` 两个方法（3 个 MCP 工具不调用它们，故仍属「零改动」）。签发走同一 `secret/issuer`，`exp=86400`。
 
 ---
 
-### 2. 文件列表（相对路径，建议 `src/` 下模块化）
+### 2. 文件列表（相对路径）
+
+新增代码统一在 `src/oauth/` 下；两处既有文件做最小接线改动。
 
 ```
 心屿心智引擎/
-├── package.json
-├── tsconfig.json
-├── .env.example
-├── README.md
-├── docs/
-│   ├── system_design.md
-│   ├── class-diagram.mermaid
-│   └── sequence-diagram.mermaid
-└── src/
-    ├── index.ts                     # MCP Streamable HTTP 服务入口（传输层装配）
-    ├── config.ts                    # Config：所有常量/维度键/安全通道集中定义
-    ├── types/
-    │   └── index.ts                 # 共享类型：StateVector / ConversationEvent / ContextEnvelope / SafetyFlag / 错误码
-    ├── auth/
-    │   └── token.ts                 # TokenMiddleware：OAuth 2.1 Bearer 签发/验签、读写 scope
-    ├── state/
-    │   ├── dimensions.ts            # DIMENSION_KEYS（12 维，顺序固定）+ 维度→中文语义映射
-    │   ├── decay.ts                 # DecayCurve：衰减步进 + 饱和裁剪
-    │   └── stateMachine.ts          # StateMachine：settleState / applyConversationEvent
-    ├── storage/
-    │   ├── jsonlStore.ts            # JsonlStore：零依赖 JSONL 读写（基础设施）
-    │   ├── memoryStore.ts           # MemoryStore：长期情感记忆 + handoff 便签（含相关度检索）
-    │   └── idempotency.ts           # IdempotencyStore：event_id 幂等
-    ├── mcp/
-    │   ├── tools.ts                 # McpServer 注册 3 个工具 + handler 编排
-    │   ├── bridge.ts                # Bridge：安全边界过滤（dreams/longing/autonomous 永不注入）
-    │   └── envelope.ts              # EnvelopeBuilder：~2200 token 信封构建与截断
-    ├── observability/
-    │   └── auditLog.ts              # AuditLog：可观测与审计日志（JSONL）
-    └── __tests__/
-        ├── bridge.test.ts           # P0-5 Bridge 不越界单测
-        ├── state.test.ts            # P0-1/P0-2 状态机与幂等单测
-        └── mcp.test.ts              # P0-3/P0-4 MCP 工具契约单测
+├── src/
+│   ├── index.ts                 # 【改动】移除旧 /token(44-50)；挂载 OAuthServer；保留 /mcp + /health
+│   ├── config.ts                # 【改动】新增 OAUTH 常量（TTL/scope/LOCAL_SUBJECT/CORS）
+│   ├── auth/
+│   │   └── token.ts             # 【改动】新增 issueAccessToken() / introspectToken()（3 工具不变）
+│   └── oauth/                   # ★ 全部新增
+│       ├── types.ts             # 共享类型/接口：OAuthClient / AuthCodeRecord / RefreshTokenRecord / OAuthError / TokenResponse / IntrospectResponse
+│       ├── errors.ts            # RFC6749/7662/7009 错误码 + HTTP 状态 + 错误响应构造
+│       ├── pkce.ts              # PkceUtil：S256 challenge / verify / randomToken / jti
+│       ├── store.ts             # CodeStore + RefreshStore + RevocationStore（内存；预留 JSONL 落盘接口）
+│       ├── clients.ts           # ClientStore：xinyu-web 预置 + 多客户端预留 + redirect_uri 白名单
+│       ├── consent.ts           # ConsentPage：渲染极简 HTML 同意页
+│       ├── authorize.ts         # GET /authorize（校验+渲染） + POST /authorize（一键允许→发 code→302）
+│       ├── token.ts             # POST /token：authorization_code + refresh_token；CORS；签发 JWT
+│       ├── introspect.ts        # POST /introspect（RFC7662）
+│       ├── revoke.ts            # POST /revoke（RFC7009）
+│       └── index.ts             # OAuthServer 组合根：register(app) 挂载全部路由
+└── docs/
+    ├── system_design.md
+    ├── class-diagram.mermaid
+    └── sequence-diagram.mermaid
 ```
 
 ---
 
 ### 3. 数据结构与接口（Mermaid 类图）
 
-> 完整文件见 `docs/class-diagram.mermaid`。核心要点：
-> - `Config` 集中所有常量（维度键、饱和带、基线、TTL、阻断通道）。
-> - `StateMachine` 持有 `StateVector`，使用 `DecayCurve`，消费 `ConversationEvent`。
-> - `McpServer` 编排 `StateMachine / MemoryStore / IdempotencyStore / Bridge / EnvelopeBuilder / TokenMiddleware / AuditLog`，对外只暴露 3 个工具。
-> - `Bridge` 对 `ContextEnvelope` 做最终过滤，保证封锁通道内容绝不外泄。
+> 完整文件见 `docs/class-diagram.mermaid`。
 
 ```mermaid
 classDiagram
     direction TB
 
-    class Config {
-        +DIMENSION_KEYS: string[12]
-        +SATURATE_CEIL: number
-        +SATURATE_FLOOR: number
-        +BASELINE: number
-        +HALF_LIFE_ROUNDS: number
-        +MAX_DELTA_PER_EVENT: number
-        +ENVELOPE_SOFT_TOKEN_CAP: number
-        +HANDOFF_MAX_CHARS: number
-        +HANDOFF_TTL_SECONDS: number
-        +ALLOWED_EVENT_TYPES: string[3]
-        +BRIDGE_BLOCKED_CHANNELS: string[3]
-        +ENVELOPE_VERSION: string
-    }
-
-    class StateVector {
-        +possess: number
-        +monitor: number
-        +crave: number
-        +share: number
-        +libido: number
-        +curiosity: number
-        +boredom: number
-        +social: number
-        +duty: number
-        +reflection: number
-        +grieve: number
-        +anger: number
-        +updatedAt: string
-        +round: number
-    }
-
-    class DecayCurve {
-        +decayStep(current: number, baseline: number, halfLife: number): number
-        +saturate(target: number): number
-    }
-
-    class StateMachine {
-        -vector: StateVector
-        -decay: DecayCurve
-        +getState(): StateVector
-        +settleState(): StateVector
-        +applyConversationEvent(event: ConversationEvent): StateDelta
-        -clamp(v: number): number
-    }
-
-    class ConversationEvent {
-        +event_id: string
-        +session_id: string
-        +type: EventType
-        +payload: EventPayload
-        +timestamp: string
-    }
-
-    class EventPayload {
-        +content: string
-        +intensity: number
-        +tags: string[]
-    }
-
-    class JsonlStore {
-        +append(path: string, record: object): void
-        +readAll(path: string): object[]
-        +readWhere(path: string, pred): object[]
-        +gcExpired(path: string, now): void
-    }
-
-    class MemoryStore {
-        -store: JsonlStore
-        +writeMemory(m: EmotionalMemory): void
-        +writeHandoff(n: HandoffNote): void
-        +retrieve(sessionId: string, vector: StateVector, topK: number): EmotionalMemory[]
-        -relevanceScore(m: EmotionalMemory, v: StateVector): number
-    }
-
-    class EmotionalMemory {
-        +id: string
-        +session_id: string
-        +content: string
-        +tags: string[]
-        +linkedVector: StateVector
-        +createdAt: string
-        +expiresAt: string
-    }
-
-    class HandoffNote {
-        +note_id: string
-        +content: string
-        +from: string
-        +to: string
-        +ttl_seconds: number
-        +expires_at: string
-        +chars: number
-    }
-
-    class IdempotencyStore {
-        -store: JsonlStore
-        +seen(event_id: string): boolean
-        +mark(event_id: string, result: object): void
-        +get(event_id: string): object|null
-    }
-
-    class Bridge {
-        -BLOCKED: string[3]
-        +filterForUser(envelope: ContextEnvelope): ContextEnvelope
-        +isAllowedChannel(type: string): boolean
-        +redact(vector: StateVector): StateVector
-    }
-
-    class EnvelopeBuilder {
-        +build(sessionId: string, vector: StateVector, memories: EmotionalMemory[]): ContextEnvelope
-        +estimateTokens(env: ContextEnvelope): number
-        -trimMemories(env: ContextEnvelope): void
-        -renderNarrative(v: StateVector): string
-    }
-
-    class ContextEnvelope {
-        +envelope_version: string
-        +session_id: string
-        +generated_at: string
-        +state_vector: StateVector
-        +narrative: string
-        +memory_snippets: object[]
-        +safety_flag: SafetyFlag
-        +token_estimate: number
-    }
-
-    class SafetyFlag {
-        +bridge_mode: string
-        +blocked_channels: string[3]
-    }
-
-    class McpServer {
-        -state: StateMachine
-        -memory: MemoryStore
-        -idem: IdempotencyStore
-        -bridge: Bridge
-        -builder: EnvelopeBuilder
-        -auth: TokenMiddleware
-        -audit: AuditLog
-        +registerTools(): void
-        +handleXinchaoContext(req): ContextEnvelope
-        +handleXinchaoEvent(req): EventResult
-        +handleHandoffNote(req): HandoffResult
-    }
-
     class TokenMiddleware {
-        +verify(token: string, scope: "read"|"write"): AuthResult
-        +issue(subject: string, scopes: string[]): string
+        <<existing: src/auth/token.ts>>
+        -secret: string
+        -issuer: string
+        +issue(subject, scopes): string
+        +verify(token, scope): AuthResult
+        +issueAccessToken(subject, scope): TokenResponse  %% 新增（3 工具不调用）
+        +introspectToken(token): TokenClaims|null          %% 新增
     }
 
-    class AuditLog {
-        -store: JsonlStore
-        +record(entry: AuditEntry): void
+    class OAuthServer {
+        -clientStore: ClientStore
+        -codeStore: CodeStore
+        -refreshStore: RefreshStore
+        -pkce: PkceUtil
+        -consent: ConsentPage
+        -auth: TokenMiddleware
+        +register(app: Express): void
+        -mountAuthorize(app)
+        -mountToken(app)
+        -mountIntrospect(app)
+        -mountRevoke(app)
     }
 
-    StateMachine --> StateVector : holds
-    StateMachine --> DecayCurve : uses
-    StateMachine ..> ConversationEvent : consumes
-    StateMachine ..> EventPayload : consumes
-    MemoryStore --> JsonlStore : uses
-    MemoryStore ..> EmotionalMemory : manages
-    MemoryStore ..> HandoffNote : manages
-    IdempotencyStore --> JsonlStore : uses
-    Bridge ..> ContextEnvelope : filters
-    EnvelopeBuilder ..> ContextEnvelope : builds
-    EnvelopeBuilder ..> EmotionalMemory : includes
-    McpServer --> StateMachine : uses
-    McpServer --> MemoryStore : uses
-    McpServer --> IdempotencyStore : uses
-    McpServer --> Bridge : uses
-    McpServer --> EnvelopeBuilder : uses
-    McpServer --> TokenMiddleware : protects
-    McpServer --> AuditLog : logs
-    McpServer ..> ContextEnvelope : returns
-    Config <.. StateMachine : reads constants
-    Config <.. Bridge : reads BLOCKED
-    Config <.. EnvelopeBuilder : reads cap
+    class ClientStore {
+        -clients: Map~string, OAuthClient~
+        +register(client: OAuthClient): void
+        +get(clientId: string): OAuthClient|undefined
+        +isValidRedirectUri(client: OAuthClient, uri: string): boolean
+        +isPublic(clientId: string): boolean
+    }
+
+    class CodeStore {
+        -codes: Map~string, AuthCodeRecord~
+        +save(rec: AuthCodeRecord): void
+        +consume(code: string): AuthCodeRecord|null   %% 原子取+标记 used
+        +revoke(code: string): void
+        +sweep(): void                                 %% TTL 定时清理
+    }
+
+    class RefreshStore {
+        -tokens: Map~string, RefreshTokenRecord~
+        +save(rec: RefreshTokenRecord): void
+        +get(token: string): RefreshTokenRecord|undefined
+        +revoke(token: string): void
+        +revokeByJti(jti: string): void                %% 级联标记关联 access
+        +rotate(old: RefreshTokenRecord): RefreshTokenRecord  %% P1 用即废
+    }
+
+    class RevocationStore {
+        -denylist: Set~string~   %% access jti 黑名单（最佳努力）
+        +add(jti: string): void
+        +isRevoked(jti: string): boolean
+    }
+
+    class PkceUtil {
+        +generateVerifier(): string
+        +challengeS256(verifier: string): string
+        +verify(verifier: string, challenge: string): boolean
+        +randomToken(bytes: number): string
+        +jti(): string
+    }
+
+    class ConsentPage {
+        +render(view: ConsentView): string   %% 返回极简 HTML
+    }
+
+    class OAuthClient {
+        +client_id: string
+        +client_secret: string|null
+        +redirect_uris: string[]
+        +token_endpoint_auth_method: "none"|"client_secret_post"|"client_secret_basic"
+        +name: string
+        +allowed_scopes: string[]
+    }
+
+    class AuthCodeRecord {
+        +code: string
+        +client_id: string
+        +redirect_uri: string
+        +scope: string
+        +code_challenge: string
+        +code_challenge_method: "S256"
+        +subject: string
+        +created_at: number
+        +expires_at: number
+        +used: boolean
+    }
+
+    class RefreshTokenRecord {
+        +refresh_token: string
+        +client_id: string
+        +subject: string
+        +scope: string
+        +jti: string
+        +created_at: number
+        +expires_at: number
+        +revoked: boolean
+    }
+
+    OAuthServer --> ClientStore : 依赖
+    OAuthServer --> CodeStore : 依赖
+    OAuthServer --> RefreshStore : 依赖
+    OAuthServer --> PkceUtil : 依赖
+    OAuthServer --> ConsentPage : 依赖
+    OAuthServer --> TokenMiddleware : 复用签发/验签
+    OAuthServer ..> RevocationStore : 复用(吊销)
+
+    ClientStore "1" *-- "0..*" OAuthClient : 持有
+    CodeStore "1" *-- "0..*" AuthCodeRecord : 存储
+    RefreshStore "1" *-- "0..*" RefreshTokenRecord : 存储
+    RefreshStore ..> RevocationStore : 吊销时联动
 ```
 
 #### 3.1 关键接口契约（TypeScript 签名摘录）
-
 ```ts
-// src/types/index.ts
-export type DimensionKey =
-  | 'possess' | 'monitor' | 'crave' | 'share' | 'libido' | 'curiosity'
-  | 'boredom' | 'social' | 'duty' | 'reflection' | 'grieve' | 'anger';
-
-export type StateVector = Record<DimensionKey, number> & {
-  updatedAt: string; round: number;
-};
-
-export type EventType = 'user_interaction' | 'user_note' | 'scheduled_interaction';
-
-export interface ConversationEvent {
-  event_id: string; session_id: string; type: EventType;
-  payload: { content: string; intensity: number; tags: string[] };
-  timestamp: string;
+// src/oauth/types.ts
+export interface OAuthClient {
+  client_id: string;
+  client_secret: string | null;            // public client = null
+  redirect_uris: string[];                  // 严格白名单
+  token_endpoint_auth_method: 'none' | 'client_secret_post' | 'client_secret_basic';
+  name: string;
+  allowed_scopes: string[];                 // 该 client 可申请的 scope 上界
 }
 
-export interface ContextEnvelope {
-  envelope_version: string; session_id: string; generated_at: string;
-  state_vector: StateVector;
-  narrative: string;
-  memory_snippets: Array<{ id: string; content: string; tags: string[]; score: number }>;
-  safety_flag: { bridge_mode: 'enforced'; blocked_channels: string[] };
-  token_estimate: number;
+export interface AuthCodeRecord {
+  code: string; client_id: string; redirect_uri: string; scope: string;
+  code_challenge: string; code_challenge_method: 'S256';
+  subject: string; created_at: number; expires_at: number; used: boolean;
 }
 
-// 结算逻辑核心
-export interface StateDelta { changed: DimensionKey[]; before: StateVector; after: StateVector; }
+export interface RefreshTokenRecord {
+  refresh_token: string; client_id: string; subject: string; scope: string;
+  jti: string; created_at: number; expires_at: number; revoked: boolean;
+}
 
-// 工具返回
-export interface EventResult { accepted: boolean; idempotent: boolean; applied_state_delta: StateDelta | {}; envelope_version: string; code?: string; }
-export interface HandoffResult { stored: boolean; ttl_seconds: number; expires_at: string; chars: number; code?: string; }
+export interface TokenResponse {
+  access_token: string; token_type: 'Bearer'; expires_in: number;
+  refresh_token?: string; scope: string;
+}
+export interface IntrospectResponse {
+  active: boolean; scope?: string; sub?: string; exp?: number;
+  iss?: string; client_id?: string;
+}
+export interface OAuthError { error: string; error_description?: string; state?: string; }
+
+// src/auth/token.ts（新增，3 工具不调用）
+// issueAccessToken(subject, scope: string): TokenResponse
+//   -> jwt.sign({ sub, scope, scopes: scope.split(' '), token_type:'Bearer', jti }, secret, { issuer, expiresIn:'24h' })
+// introspectToken(token): TokenClaims | null  -> jwt.verify(token, secret, { issuer }) 或 null
 ```
 
 ---
 
 ### 4. 程序调用流程（Mermaid 时序图）
 
-> 完整文件见 `docs/sequence-diagram.mermaid`。覆盖三条主链路：
-> 1. **xinchao_context**（只读 → 拼信封 → Bridge 过滤 → 返回）
-> 2. **xinchao_event**（写入 + 幂等 → 结算 → 记忆/幂等落盘）
-> 3. **xinchao_handoff_note**（≤1200 字符、72h TTL，超长即拒）
+> 完整文件见 `docs/sequence-diagram.mermaid`（含三条链路：授权码+PKCE、/introspect、/revoke）。
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant D as 对话层(前端)
-    participant S as McpServer (Streamable HTTP)
-    participant A as TokenMiddleware
-    participant SM as StateMachine
-    participant ID as IdempotencyStore
-    participant MS as MemoryStore
-    participant BR as Bridge
-    participant EB as EnvelopeBuilder
-    participant AL as AuditLog
+    actor Browser as PKCE 客户端（xinyu-web）
+    participant Auth as OAuthServer.authorize
+    participant Consent as ConsentPage
+    participant Clients as ClientStore
+    participant Codes as CodeStore
+    participant Token as OAuthServer.token
+    participant Pkce as PkceUtil
+    participant TM as TokenMiddleware
+    participant Refresh as RefreshStore
 
-    Note over D,AL: 场景一：xinchao_context（只读，≈2200 token 信封）
-    D->>S: xinchao_context {session_id, scope?}
-    S->>A: verify(Bearer, scope="read")
-    A-->>S: AuthResult{ok:true}
-    S->>SM: getState()
-    SM-->>S: StateVector(12维)
-    S->>MS: retrieve(session_id, vector, topK)
-    MS-->>S: EmotionalMemory[]
-    S->>EB: build(session_id, vector, memories)
-    EB->>EB: estimateTokens + trimMemories(保底≤2200)
-    EB-->>S: ContextEnvelope
-    S->>BR: filterForUser(envelope)
-    BR-->>S: 已过滤信封(绝不含量 dreams/longing/autonomous)
-    S->>AL: record(read access)
-    S-->>D: ContextEnvelope(JSON)
+    Note over Browser,Refresh: 链路一：Authorization Code + PKCE → 签发 JWT
+    Browser->>Browser: 生成 code_verifier + code_challenge=S256(verifier)
+    Browser->>Auth: GET /authorize?response_type=code&client_id=xinyu-web&redirect_uri=R&scope=read write&state=xyz&code_challenge=C&code_challenge_method=S256
+    Auth->>Clients: get(client_id) / isValidRedirectUri(client, R)
+    Clients-->>Auth: client / ok
+    Auth->>Auth: 校验 PKCE 齐全 + method=S256 + scope⊆allowed
+    Auth->>Consent: render({client, scope, state})
+    Consent-->>Browser: 200 极简 HTML 同意页（一键允许）
+    Browser->>Auth: POST /authorize?...&decision=allow（本地自动同意身份 xinyu-local）
+    Auth->>Codes: save(AuthCodeRecord{code, client_id, R, scope, C, S256, subject=xinyu-local, expires_at≤now+300s, used:false})
+    Codes-->>Auth: ok
+    Auth-->>Browser: 302 → R?code=CODE&state=xyz
 
-    Note over D,AL: 场景二：xinchao_event（写入 + 幂等）
-    D->>S: xinchao_event {event_id, type, payload, ...}
-    S->>A: verify(Bearer, scope="write")
-    A-->>S: AuthResult{ok:true}
-    S->>S: 校验 type∈三类 & event_id 存在
-    alt 非法（type 非三类 / event_id 缺失）
-        S-->>D: {accepted:false, code:ERR_INVALID_EVENT_TYPE | ERR_MISSING_EVENT_ID}
-    else 合法
-        S->>ID: seen(event_id)?
-        alt 已存在（幂等命中）
-            ID-->>S: 历史结果
-            S-->>D: {accepted:true, idempotent:true, applied_state_delta:{}, envelope_version}
-        else 新事件
-            S->>SM: applyConversationEvent(event)
-            SM-->>S: StateDelta(单事件增量≤上限, 裁剪[0,1])
-            S->>MS: 若为情感片段则 writeMemory()
-            S->>ID: mark(event_id, delta)
-            S->>AL: record(write access)
-            S-->>D: {accepted:true, idempotent:false, applied_state_delta, envelope_version}
-        end
-    end
-
-    Note over D,AL: 场景三：xinchao_handoff_note（≤1200字符, 72h TTL）
-    D->>S: xinchao_handoff_note {note_id, content, ttl_seconds, from, to}
-    S->>S: 校验 chars≤1200 & ttl=259200
-    alt 超长
-        S-->>D: {stored:false, code:ERR_NOTE_TOO_LONG}
-    else 合法
-        S->>MS: writeHandoff(note)
-        S->>AL: record(write access)
-        S-->>D: {stored:true, ttl_seconds, expires_at, chars}
-    end
-```
-
-#### 4.1 结算逻辑（衰减—饱和）要点
-- **applyConversationEvent**：按 `payload.intensity` 与 `tags` 将相关维度推向目标值；增量 `delta = min(MAX_DELTA_PER_EVENT, saturate(target) - current)`，裁剪到 `[0,1]`；同一 `event_id` 重复提交不二次改写（幂等由 `IdempotencyStore` 保障）。
-- **settleState**（每轮/定时触发）：未受刺激的维度向 `BASELINE` 衰减：`next = current + (BASELINE - current) * (1 - 2^(-1/HALF_LIFE))`；已饱和维度（`current >= SATURATE_FLOOR`）在舒适带内缓降，`value = current - (current - SATURATE_FLOOR) * (1 - 2^(-1/HALF_LIFE))`，恰好等于下限时亦稳于带内、不向基线突跌。`saturate()` 仅负责封顶（见下），不参与 settleState 缓降。
-- **saturate(target)**：`min(target, SATURATE_CEIL)` —— **仅封顶，不做下限钳制**：高强度刺激封顶 0.80；弱刺激落 `BASELINE~SATURATE_FLOOR` 之间自然过渡，`target = baseline + stim`（stim 已含 `intensity`）直接驱动正向幅度，使强度真正生效。原 `SATURATE_FLOOR=0.65` 下限仅用于 `settleState` 已饱和维缓降分支，不用于正向推动。
-
----
-
-### 5. 待明确事项（仅剩无法默认的技术决策）
-
-以下问题已用「架构假设 A1–A7」给出默认决策；以下为**仍建议产品/主理人拍板**的事项（不影响 v1 启动）：
-
-1. **session_id 权责**：由对话层生成并传入，还是引擎统一分配？（当前默认：对话层传入，引擎校验存在性。）
-2. **narrative 是否允许调用 LLM**：当前 A6 默认"状态驱动确定性模板、零外部调用"以严守自托管承诺；若未来允许本地小模型生成，需重新评估部署形态。
-3. **向量升级的真实 embedding**：P2 的"轻量向量检索优化"是否引入本地 ONNX 模型，还是保持启发式？影响 P2 工作量与依赖。
-4. **OAuth 2.1 对接形态**：v1 内置自签发 Bearer；生产是否需标准授权服务器 + 重定向回调（影响反向代理与端口规划）。
-
----
-
-## Part B：任务分解
-
-### 6. 依赖包列表（仅 MIT / 宽松协议）
-
-```
-- @modelcontextprotocol/sdk@^1.0.0: 官方 MCP TS SDK，提供 StreamableHTTPServerTransport（MIT）
-- express@^4.19.2: HTTP 路由与 MCP 端点承载（MIT）
-- zod@^3.23.8: MCP 工具入参契约校验（MIT）
-- jsonwebtoken@^9.0.2: OAuth 2.1 Bearer 令牌签发/验签（MIT）
-- dotenv@^16.4.5: 读取 .env 配置（BSD-2-Clause，宽松）
-- typescript@^5.5.0: 语言编译（Apache-2.0，宽松）
-- vitest@^2.0.0: 单元测试/集成测试（MIT）
-- @types/node@^20.0.0: Node 类型（MIT）
-- @types/express@^4.17.21: Express 类型（MIT）
-- 预留（P2）: better-sqlite3@^11.0.0（MIT）+ 自研轻量向量（不引入 ombre-brain）
+    Browser->>Token: POST /token grant_type=authorization_code&code=CODE&redirect_uri=R&client_id=xinyu-web&code_verifier=verifier
+    Token->>Codes: consume(CODE)
+    Codes-->>Token: AuthCodeRecord | null（原子取+标记 used）
+    Token->>Token: 校验 client/redirect/未过期/未用过
+    Token->>Pkce: verify(verifier, stored.code_challenge)
+    Pkce-->>Token: true
+    Token->>TM: issueAccessToken(subject, scope)  %% 复用同一 JWT_SECRET / issuer
+    TM-->>Token: {access_token(JWT), token_type, expires_in:86400}
+    Token->>Refresh: save(RefreshTokenRecord{refresh_token, client_id, subject, scope, jti})
+    Refresh-->>Token: ok
+    Token-->>Browser: 200 {access_token, token_type:Bearer, expires_in:86400, refresh_token, scope}
+    Note over Browser,TM: 后续 MCP 调用带 Bearer access_token → TokenMiddleware.verify(token, scope) 直接通过（v1 零改动）
 ```
 
 ---
 
-### 7. 任务列表（有序、含依赖、标注优先级）
+### 5. 任务列表（有序、含依赖、标注 P0/P1）
 
-> 规则遵循：≤5 任务；每任务 ≥3 文件；T01 为项目基础设施（配置+类型+入口+鉴权）；任务尽量仅依赖 T01 或浅层聚合。
+> 规则遵循：≤5 任务；每任务 ≥3 文件；T01 为基础设施；任务尽量仅依赖 T01 或浅层聚合（T02/T03 可并行，均只依赖 T01 的接口契约）。
 
-#### T01 ｜ 项目基础设施（配置 + 类型 + 入口 + 鉴权脚手架）— P0
-- **Source Files**：`package.json`、`tsconfig.json`、`.env.example`、`src/index.ts`、`src/config.ts`、`src/types/index.ts`、`src/auth/token.ts`
+#### T01 ｜ 项目基础设施（类型 + 错误 + PKCE + 存储骨架 + 配置）— P0
+- **Source Files**：`src/oauth/types.ts`、`src/oauth/errors.ts`、`src/oauth/pkce.ts`、`src/oauth/store.ts`、`src/config.ts`（新增 OAUTH 常量块）
 - **Dependencies**：无（基线任务）
 - **Priority**：P0
-- **说明**：搭建可运行骨架；`config.ts` 集中全部常量；`types/index.ts` 定义共享类型与错误码；`index.ts` 装配 Streamable HTTP 服务与 OAuth 端点；`token.ts` 提供 Bearer 签发/验签与 `read/write` scope 雏形。
+- **说明**：冻结所有接口契约（`OAuthClient/AuthCodeRecord/RefreshTokenRecord/TokenResponse/IntrospectResponse/OAuthError`）与 PKCE 工具（S256/verify/randomToken/jti）；实现内存 `CodeStore/RefreshStore/RevocationStore`（预留 `persist()` 接口以便 v2 换 JSONL）；`config.ts` 增加 `AUTH_CODE_TTL_SECONDS=300`、`REFRESH_TOKEN_TTL_SECONDS=2592000`、`LOCAL_SUBJECT='xinyu-local'`、`CORS_ALLOWED_ORIGINS`。
 
-#### T02 ｜ 12 维状态机与结算逻辑 — P0
-- **Source Files**：`src/state/dimensions.ts`、`src/state/decay.ts`、`src/state/stateMachine.ts`
-- **Dependencies**：T01（`types/index.ts`、`config.ts`）
+#### T02 ｜ 客户端注册 + 同意页 + 授权端点 — P0
+- **Source Files**：`src/oauth/clients.ts`、`src/oauth/consent.ts`、`src/oauth/authorize.ts`
+- **Dependencies**：T01（依赖 `types.ts` 接口与 `pkce.ts`）
 - **Priority**：P0
-- **说明**：实现 P0-1（12 维定义）与 P0-2（`settleState` / `applyConversationEvent` 衰减—饱和、裁剪 [0,1]、单事件增量上限、幂等接口预留）。
+- **说明**：`ClientStore` 预置 `xinyu-web`（public client：`client_id`、`redirect_uris`、`token_endpoint_auth_method=none`），多客户端预留 `register()`；`ConsentPage` 渲染极简 HTML（含「允许」表单，POST 回 `/authorize`）；`authorize.ts` 完成 P0-1（校验 client/redirect 白名单/PKCE 齐全→渲染）与 P0-6（一键允许→`CodeStore.save`→302 `?code=&state=`）。可与 T03 并行。
 
-#### T03 ｜ 自研 MIT 存储层（JSONL + 记忆 + 幂等）— P0
-- **Source Files**：`src/storage/jsonlStore.ts`、`src/storage/memoryStore.ts`、`src/storage/idempotency.ts`
-- **Dependencies**：T01（`types/index.ts`、`config.ts`）
-- **Priority**：P0
-- **说明**：实现 P0-6（自研 JSONL 长期情感记忆 + 相关度检索 + 与 12 维关联）、`handoff` 便签写入/TTL 清理、以及 `event_id` 幂等落盘；接口抽象预留 SQLite+向量升级位。
+#### T03 ｜ 令牌签发 + 自检 + 吊销端点 — P0 / P1
+- **Source Files**：`src/oauth/token.ts`、`src/oauth/introspect.ts`、`src/oauth/revoke.ts`
+- **Dependencies**：T01（依赖 `types.ts` / `store.ts` / `pkce.ts` 接口；`ClientStore` 接口由 T01 冻结、T02 提供实现，运行时在 T04 接线）
+- **Priority**：P0（authorization_code + refresh_token + /introspect + /revoke）/ P1（`/token` 启用 CORS、refresh 轮换）
+- **说明**：`token.ts` 实现 P0-2 两 grant（校验 code+verifier PKCE+client → 调 `TokenMiddleware.issueAccessToken` 签 JWT + 存 refresh；refresh grant 换新，P1 用即废 `RefreshStore.rotate`）；内联 CORS 中间件（无新依赖）。`introspect.ts` 实现 P0-3（RFC7662，access 走 `introspectToken`，refresh 走 `RefreshStore.get`）。`revoke.ts` 实现 P0-4（RFC7009，access 入 `RevocationStore`、refresh 调 `RefreshStore.revoke`+`revokeByJti`）。
 
-#### T04 ｜ MCP 工具与安全边界（Bridge + 信封）— P0
-- **Source Files**：`src/mcp/tools.ts`、`src/mcp/bridge.ts`、`src/mcp/envelope.ts`
-- **Dependencies**：T01、T02、T03
-- **Priority**：P0
-- **说明**：注册 3 个 MCP 工具（P0-3 `xinchao_context` 只读≈2200 token 信封；P0-4 `xinchao_event` 写入+幂等；P1 `xinchao_handoff_note`）；`bridge.ts` 落实 P0-5 安全边界（dreams/longing/autonomous 永不注入，含单元可测接口）；`envelope.ts` 构建与截断信封。
-
-#### T05 ｜ 可观测/审计 + 单元测试（P0-5 覆盖）— P0/P1
-- **Source Files**：`src/observability/auditLog.ts`、`src/__tests__/bridge.test.ts`、`src/__tests__/state.test.ts`、`src/__tests__/mcp.test.ts`
-- **Dependencies**：T01、T02、T03、T04
-- **Priority**：P0（Bridge 单测）/ P1（审计与全量测试）
-- **说明**：`auditLog.ts` 实现 P1 审计日志；`bridge.test.ts` 强制覆盖"封锁通道绝不外泄"；`state.test.ts` 覆盖状态机与幂等；`mcp.test.ts` 覆盖工具契约（拒绝非法 type/缺失 event_id/超长便签）。
+#### T04 ｜ 路由接线 + 集成 + 安全收尾 — P0 / P1
+- **Source Files**：`src/oauth/index.ts`、`src/index.ts`、`src/auth/token.ts`
+- **Dependencies**：T02、T03
+- **Priority**：P0（接线/保留 /mcp + /health）/ P1（安全收尾）
+- **说明**：`oauth/index.ts` 的 `OAuthServer.register(app)` 组合全部服务并挂载 4 条路由；`src/index.ts` **移除旧非标准 `/token`**、接收既有 `TokenMiddleware` 实例传入 `OAuthServer`、`/mcp` 与 `/health` 保持不变；`src/auth/token.ts` 新增 `issueAccessToken()` / `introspectToken()`（3 个 MCP 工具的 `verify` 调用点零改动）。生产 `JWT_SECRET` 缺失拒启动逻辑已由既有 `TokenMiddleware` 构造函数覆盖，无需重写。
 
 ---
 
-### 8. 共享知识（跨文件约定）
+### 6. 依赖包列表（仅 MIT / 宽松；预期零新增）
 
 ```
-- 维度键名顺序固定：DIMENSION_KEYS = [possess, monitor, crave, share, libido, curiosity,
-  boredom, social, duty, reflection, grieve, anger]，序列化/反序列化必须一致。
-- StateVector 所有 12 维字段 ∈ [0,1]，缺失维度默认 BASELINE（0.20）。
-- 时间戳统一 ISO 8601 UTC 字符串；session_id 由对话层传入，引擎仅校验存在性。
-- 常量全部集中 src/config.ts，严禁散落魔法数字（饱和带/基线/半衰期/上限/TTL/阻断通道）。
-- 信封版本 ENVELOPE_VERSION 随契约变更递增；所有 MCP 响应（含 event 返回）携带 envelope_version。
-- 错误码约定：E10xx 输入/业务（E1001 缺 event_id、E1002 非法事件类型、E1003 便签超长）、
-  E11xx 鉴权（E1101 未授权、E1102 越权 scope）。
-- 安全契约：Bridge 输出信封仅含 user_interaction/user_note/scheduled_interaction 三类信号；
-  blocked_channels = ["dreams","longing","autonomous"]，任何路径不得自动注入。
-- 令牌 scope：context→read；event/handoff→write；验签失败统一返回 E1101。
-- 存储文件：state.jsonl / memory.jsonl / idempotency.jsonl / handoff.jsonl / audit.jsonl（均本地 JSONL）。
+# 现有依赖（均 MIT / 宽松），本次不新增任何第三方包：
+- express@^4.19.2: HTTP 路由（MIT）
+- jsonwebtoken@^9.0.2: HS256 JWT 签发/验签（MIT）
+- zod@^3.23.8: 端点入参校验（MIT）
+- dotenv@^16.4.5: .env 加载（BSD-2-Clause，宽松）
+- @modelcontextprotocol/sdk@^1.0.0: MCP 传输（MIT，保持不变）
+# 密码学原语（PKCE/S256/随机）：Node 内置 node:crypto，零依赖
+# 结论：新增代码不引入任何 npm 依赖，100% 自研 MIT，符合铁律。
 ```
 
 ---
 
-### 9. 任务依赖图（Mermaid）
+### 7. 共享知识（跨文件约定）
+
+```
+# —— Client 结构（src/oauth/types.ts）——
+OAuthClient = { client_id, client_secret:null(public), redirect_uris:[], token_endpoint_auth_method:'none', name, allowed_scopes:[] }
+v1 预置：xinyu-web（public，redirect_uris 严格白名单，allowed_scopes=['read','write']）
+
+# —— 存储 key ——
+auth code：以 code 字符串为 key，存于 CodeStore（Map）；consume 原子取+标记 used。
+refresh token：以 refresh_token 字符串为 key，存于 RefreshStore；关联 access 的 jti 用于级联吊销。
+access 吊销黑名单：以 jti 为 key，存于 RevocationStore（Set）。仅影响 /introspect，不影响 MCP verify（见待明确）。
+
+# —— JWT claim 字段（access_token，HS256）——
+{ sub: LOCAL_SUBJECT, scope: "read write"(字符串), scopes: ["read","write"](数组★兼容桥),
+  token_type: "Bearer", jti: <uuid>, iss: "xinyu-mind-engine", exp: now+86400 }
+签发统一走 TokenMiddleware.issueAccessToken（同一 JWT_SECRET / issuer）。
+
+# —— scope 常量（沿用 config.ts，禁止改值）——
+SCOPE_READ='read'、SCOPE_WRITE='write'；OAuth scope 用空格分隔字符串，签发时 split 成数组写 scopes。
+
+# —— 时间/TTL ——
+access_token expires_in=86400；auth code TTL≤300s（AUTH_CODE_TTL_SECONDS）；refresh token TTL=2592000（30d，P1 轮换）。
+
+# —— 资源所有者身份（本地自动同意）——
+LOCAL_SUBJECT='xinyu-local'（固定常量；v1 无账号体系，设备/本地单实例自动同意）。
+
+# —— 错误码（RFC6749/7662/7009）——
+invalid_request / unauthorized_client / access_denied / unsupported_response_type /
+invalid_scope / invalid_grant / unsupported_grant_type / invalid_client
+introspect/revoke 错误统一 200 + {active:false} / 200（RFC7009 总是 200）。
+OAuth 端点错误响应格式：{error, error_description?, state?}（application/json），与内部 E11xx 区分。
+
+# —— 安全铁律 ——
+PKCE 强制 S256；public client 无 secret、token_endpoint_auth_method='none'；
+auth code 单次可用 + 短 TTL；生产 JWT_SECRET 缺失由 TokenMiddleware 构造函数抛错拒启动；
+不破坏 /mcp 与 3 个 MCP 工具的 args.token 校验（v1 零改动）。
+```
+
+---
+
+### 8. 待明确事项（仅剩无法默认的技术决策）
+
+> 以下为**仍需主理人/安全拍板**的点；其余（身份常量、TTL、CORS 白名单、存储内存）均已按主理人默认决策处理。
+
+1. **【核心·需拍板】已签发 access_token 的吊销生效范围**
+   JWT 无状态，v1 仅靠 `RevocationStore`（jti 黑名单）对 `/introspect` 生效；但 **3 个 MCP 工具的 `TokenMiddleware.verify` 不查黑名单**，因此已签发的 access_token 在 24h 过期前对 MCP 工具仍可用。
+   - 推荐默认（v1 零改动）：**不改动 `verify`**，接受「access 吊销对 MCP 路径最佳努力」，依赖「短 TTL(24h) + refresh 吊销 + 重启即清」即可。
+   - 备选：v1 给 `verify` 增加可选黑名单短路（需轻微改 `token.ts`，3 工具调用点仍不变，但引入存储依赖）。
+   → 建议采用推荐默认；若安全合规要求「吊销即时全域生效」，则需走备选并在 T04 增加一小步。
+
+2. **【已默认·仅供参考】CORS 允许 origins**：`/token` 的 `CORS_ALLOWED_ORIGINS` v1 默认仅 `http://localhost:3000`（xinyu-web dev），生产由 `.env` 配置；如需放开请指明白名单。
+
+3. **【已默认·仅供参考】多客户端管理形态**：v1 仅配置/内存预置（无 RFC7591 动态注册端点）；未来是否开放动态注册列为 P2 预留。
+
+---
+
+## Part B：任务依赖图（Mermaid）
 
 ```mermaid
 graph TD
-    T01["T01 项目基础设施<br/>配置+类型+入口+鉴权"]
-    T02["T02 12维状态机与结算"]
-    T03["T03 自研存储层"]
-    T04["T04 MCP工具+安全边界"]
-    T05["T05 可观测/审计+测试"]
+    T01["T01 项目基础设施<br/>types/errors/pkce/store/config"]
+    T02["T02 客户端+同意页+授权端点<br/>clients/consent/authorize"]
+    T03["T03 令牌/自检/吊销端点<br/>token/introspect/revoke"]
+    T04["T04 路由接线+集成+安全<br/>oauth/index·src/index·auth/token"]
 
     T01 --> T02
     T01 --> T03
-    T01 --> T05
     T02 --> T04
     T03 --> T04
-    T02 --> T05
-    T03 --> T05
-    T04 --> T05
 ```
+
+> 依赖链扁平：T02 与 T03 均可并行（仅依赖 T01 冻结的接口契约），T04 做最终接线，无长线性链。

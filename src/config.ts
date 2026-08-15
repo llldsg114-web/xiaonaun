@@ -107,3 +107,35 @@ export const ERROR_CODES = {
 /** 令牌 scope 与工具映射。 */
 export const SCOPE_READ = 'read';
 export const SCOPE_WRITE = 'write';
+
+// ===== 心屿标准 OAuth 2.1 授权服务器常量 =====
+// 以下常量仅供 src/oauth/* 使用，不改动既有 MCP / Bridge 行为。
+
+/** access_token 有效期（秒）：24h。 */
+export const ACCESS_TOKEN_TTL_SECONDS = 86400;
+
+/** 一次性授权码 TTL（秒）：≤300s（5min）。 */
+export const AUTH_CODE_TTL_SECONDS = Number(process.env.AUTH_CODE_TTL_SECONDS ?? 300);
+
+/** refresh_token 有效期（秒）：30d（P1 轮换）。 */
+export const REFRESH_TOKEN_TTL_SECONDS = Number(process.env.REFRESH_TOKEN_TTL_SECONDS ?? 2592000);
+
+/** 资源所有者身份（本地单实例 / 设备自动同意的固定身份）。 */
+export const LOCAL_SUBJECT = process.env.LOCAL_SUBJECT ?? 'xinyu-local';
+
+/** OAuth 默认 scope（空格分隔字符串）。 */
+export const OAUTH_DEFAULT_SCOPE = 'read write';
+
+/** /token / /introspect / /revoke 允许的 CORS 来源（v1 默认仅前端 dev 来源）。 */
+export const CORS_ALLOWED_ORIGINS: readonly string[] = (
+  process.env.CORS_ALLOWED_ORIGINS ?? 'http://localhost:3000'
+)
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+/**
+ * 是否自动同意（v1 本地 / 设备身份无需人工点击）。
+ * 设为 'false' 时 /authorize 总是渲染极简同意页等待一键允许。
+ */
+export const OAUTH_AUTO_CONSENT = (process.env.OAUTH_AUTO_CONSENT ?? 'true') !== 'false';

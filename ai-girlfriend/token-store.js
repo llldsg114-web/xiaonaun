@@ -1,0 +1,91 @@
+/**
+ * token-store.js · 心屿前端零依赖 设备身份 + OAuth 令牌存储
+ *
+ * 职责：
+ *   - 稳定设备身份（首次随机 UUID 落地 localStorage，用作 subject / session_id）
+ *   - OAuth 令牌存取（独立 JSON key，与业务存档隔离）
+ *   - 过期判断 / 续期写入
+ *
+ * 100% 自研 MIT；仅用浏览器原生 localStorage + crypto.randomUUID。
+ * 无任何第三方依赖 / 无构建工具。
+ */
+
+/* ===================== 常量 ===================== */
+
+/** OAuth 令牌存储 key（与业务存档 SAVE_KEY 完全隔离） */
+const KEY = "xinyu_oauth_tokens";
+/** 稳定设备身份 key */
+const DEVICE_KEY = "xinyu_device_id";
+
+/* ===================== TokenStore ===================== */
+
+/**
+ * 设备身份 + 令牌的 localStorage 存取器。
+ * 所有方法都对隐私模式 / 不可用时做静默降级（返回空值，不抛错）。
+ */
+export class TokenStore {
+  /** @returns {object|null} 已存令牌对象 */
+  load() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /** @param {object} t 令牌对象 */
+  save(t) {
+    try { localStorage.setItem(KEY, JSON.stringify(t)); } catch (_) {}
+  }
+
+  /** 清空令牌 */
+  clear() {
+    try { localStorage.removeItem(KEY); } catch (_) {}
+  }
+
+  /** 快捷写入（与 setTokens 等价） */
+  setTokens(t) { this.save(t); }
+
+  /** @returns {string} access_token（无则空串） */
+  getAccessToken() {
+    const t = this.load();
+    return t && t.access_token ? t.access_token : "";
+  }
+
+  /**
+   * 是否已过期（提前 30s 视为过期，给续期留余量）。
+   * 无令牌 → true；无 expires_at → 视为有效（false）。
+   * @returns {boolean}
+   */
+  isExpired() {
+    const t = this.load();
+    if (!t) return true;
+    if (!t.expires_at) return false;
+    return Date.now() >= (t.expires_at - 30000);
+  }
+
+  /**
+   * 取稳定设备 id（首次生成并落地）。
+   * @returns {string}
+   */
+  getDeviceId() {
+    let id = null;
+    try { id = localStorage.getItem(DEVICE_KEY); } catch (_) {}
+    if (!id) {
+      id = (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : "dev-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+      try { localStorage.setItem(DEVICE_KEY, id); } catch (_) {}
+    }
+    return id;
+  }
+
+  /**
+   * 取 subject（v1 设备级身份，= 设备 id）。
+   * @returns {string}
+   */
+  getSubject() {
+    return this.getDeviceId();
+  }
+}

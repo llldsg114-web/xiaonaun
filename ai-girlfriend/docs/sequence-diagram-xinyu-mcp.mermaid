@@ -1,0 +1,69 @@
+%% ④-① send() → xinchao_event → 代理 → 引擎（失败静默）
+sequenceDiagram
+    participant U as 用户
+    participant A as app.js(send)
+    participant Ad as McpAdapter
+    participant C as McpClient
+    participant P as server.js(/api/mcp)
+    participant E as 心智引擎(:3100)
+    U->>A: 输入文本并发送
+    A->>A: pushMessage("me", text)  (app.js:2576)
+    A->>A: 落 UI（事件不 await，异步 fire）
+    A->>Ad: fireUserEvent(text, {intensity:0.5, tags:[]})
+    Ad->>Ad: identity() + 稳定 event_id
+    Ad->>C: sendInteractionEvent({type:user_interaction, payload, subject, session_id, event_id})
+    C->>C: _call("xinchao_event", {token, ...payload, subject, session_id, event_id})
+    C->>P: POST /api/mcp (JSON-RPC tools/call)
+    P->>E: 转发 POST :3100/mcp
+    E-->>P: 200 JSON-RPC result
+    P-->>C: 透传响应
+    C-->>Ad: resolve
+    Ad-->>A: 完成（异常被 catch 静默丢弃）
+
+%% ④-② herReply → xinchao_context → 代理 → 引擎 → 注入 systemPrompt
+sequenceDiagram
+    participant A as app.js(herReply)
+    participant Ad as McpAdapter
+    participant C as McpClient
+    participant P as server.js(/api/mcp)
+    participant E as 心智引擎(:3100)
+    participant CC as callCloud
+    A->>A: 队列处理 / 仪式感 / 语义召回 (app.js:1004-1051)
+    A->>Ad: getMindContext()
+    Ad->>C: getMindContext({subject, session_id})
+    C->>C: _call("xinchao_context", {token, subject, session_id})
+    C->>P: POST /api/mcp
+    P->>E: 转发 :3100/mcp
+    E-->>P: 信封(12 维 + narrative)
+    P-->>C: 透传
+    C-->>Ad: envelope
+    Ad-->>A: mindCtx = envelope（失败/超时→null，静默降级）
+    A->>A: mindCtx 缓存于 module 变量（本次回复生命周期）
+    alt 云端分支 (app.js:1054 → callCloud:1429)
+        A->>CC: callCloud(text)
+        CC->>CC: sysBase = Engine.systemPrompt({...})
+        CC->>CC: sysContent = sysBase + "\n【当前心智状态】\n" + summarize(mindCtx)
+        CC->>CC: messages[0].content = sysContent
+    else 本地分支 (app.js:1064 → Engine.reply)
+        A->>A: est.mindCtx = summarize(mindCtx)  // 挂字段，引擎冻结 v1 仅数据可用
+        A->>A: Engine.reply(text, est)
+    end
+
+%% ④-③ PKCE 全流程（浏览器 ↔ OAuth AS）
+sequenceDiagram
+    participant B as 浏览器(app)
+    participant Pk as PkceFlow
+    participant TS as TokenStore
+    participant AS as OAuth AS
+    B->>Pk: doPkceFlow()
+    Pk->>Pk: createChallenge() → {verifier, challenge}
+    Pk->>Pk: 生成 state 存 sessionStorage
+    Pk->>B: location = AS_AUTHORIZE?response_type=code&client_id=xinyu-web&redirect_uri&scope=read+write&state&code_challenge&code_challenge_method=S256
+    B->>AS: 用户登录并授权
+    AS-->>B: 302 redirect_uri?code=C&state=S
+    B->>Pk: 回跳 app，解析 code/state
+    Pk->>Pk: 校验 state（防 CSRF）
+    Pk->>AS: POST /token grant_type=authorization_code&code=C&code_verifier=verifier&client_id=xinyu-web&redirect_uri
+    AS-->>Pk: {access_token, refresh_token, expires_in}
+    Pk->>TS: save(tokens)
+    Pk-->>B: 令牌就绪，心智引擎可用

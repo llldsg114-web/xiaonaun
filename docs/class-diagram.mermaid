@@ -1,181 +1,115 @@
 classDiagram
     direction TB
 
-    class Config {
-        +DIMENSION_KEYS: string[12]
-        +SATURATE_CEIL: number
-        +SATURATE_FLOOR: number
-        +BASELINE: number
-        +HALF_LIFE_ROUNDS: number
-        +MAX_DELTA_PER_EVENT: number
-        +ENVELOPE_SOFT_TOKEN_CAP: number
-        +HANDOFF_MAX_CHARS: number
-        +HANDOFF_TTL_SECONDS: number
-        +ALLOWED_EVENT_TYPES: string[3]
-        +BRIDGE_BLOCKED_CHANNELS: string[3]
-        +ENVELOPE_VERSION: string
-    }
-
-    class StateVector {
-        +possess: number
-        +monitor: number
-        +crave: number
-        +share: number
-        +libido: number
-        +curiosity: number
-        +boredom: number
-        +social: number
-        +duty: number
-        +reflection: number
-        +grieve: number
-        +anger: number
-        +updatedAt: string
-        +round: number
-    }
-
-    class DecayCurve {
-        +decayStep(current: number, baseline: number, halfLife: number): number
-        +saturate(target: number): number
-    }
-
-    class StateMachine {
-        -vector: StateVector
-        -decay: DecayCurve
-        +getState(): StateVector
-        +settleState(): StateVector
-        +applyConversationEvent(event: ConversationEvent): StateDelta
-        -clamp(v: number): number
-    }
-
-    class ConversationEvent {
-        +event_id: string
-        +session_id: string
-        +type: EventType
-        +payload: EventPayload
-        +timestamp: string
-    }
-
-    class EventPayload {
-        +content: string
-        +intensity: number
-        +tags: string[]
-    }
-
-    class JsonlStore {
-        +append(path: string, record: object): void
-        +readAll(path: string): object[]
-        +readWhere(path: string, pred): object[]
-        +gcExpired(path: string, now): void
-    }
-
-    class MemoryStore {
-        -store: JsonlStore
-        +writeMemory(m: EmotionalMemory): void
-        +writeHandoff(n: HandoffNote): void
-        +retrieve(sessionId: string, vector: StateVector, topK: number): EmotionalMemory[]
-        -relevanceScore(m: EmotionalMemory, v: StateVector): number
-    }
-
-    class EmotionalMemory {
-        +id: string
-        +session_id: string
-        +content: string
-        +tags: string[]
-        +linkedVector: StateVector
-        +createdAt: string
-        +expiresAt: string
-    }
-
-    class HandoffNote {
-        +note_id: string
-        +content: string
-        +from: string
-        +to: string
-        +ttl_seconds: number
-        +expires_at: string
-        +chars: number
-    }
-
-    class IdempotencyStore {
-        -store: JsonlStore
-        +seen(event_id: string): boolean
-        +mark(event_id: string, result: object): void
-        +get(event_id: string): object|null
-    }
-
-    class Bridge {
-        -BLOCKED: string[3]
-        +filterForUser(envelope: ContextEnvelope): ContextEnvelope
-        +isAllowedChannel(type: string): boolean
-        +redact(vector: StateVector): StateVector
-    }
-
-    class EnvelopeBuilder {
-        +build(sessionId: string, vector: StateVector, memories: EmotionalMemory[]): ContextEnvelope
-        +estimateTokens(env: ContextEnvelope): number
-        -trimMemories(env: ContextEnvelope): void
-        -renderNarrative(v: StateVector): string
-    }
-
-    class ContextEnvelope {
-        +envelope_version: string
-        +session_id: string
-        +generated_at: string
-        +state_vector: StateVector
-        +narrative: string
-        +memory_snippets: object[]
-        +safety_flag: SafetyFlag
-        +token_estimate: number
-    }
-
-    class SafetyFlag {
-        +bridge_mode: string
-        +blocked_channels: string[3]
-    }
-
-    class McpServer {
-        -state: StateMachine
-        -memory: MemoryStore
-        -idem: IdempotencyStore
-        -bridge: Bridge
-        -builder: EnvelopeBuilder
-        -auth: TokenMiddleware
-        -audit: AuditLog
-        +registerTools(): void
-        +handleXinchaoContext(req): ContextEnvelope
-        +handleXinchaoEvent(req): EventResult
-        +handleHandoffNote(req): HandoffResult
-    }
-
     class TokenMiddleware {
-        +verify(token: string, scope: "read"|"write"): AuthResult
-        +issue(subject: string, scopes: string[]): string
+        <<existing: src/auth/token.ts>>
+        -secret: string
+        -issuer: string
+        +issue(subject, scopes): string
+        +verify(token, scope): AuthResult
+        +issueAccessToken(subject, scope): TokenResponse  %% 新增（3 工具不调用）
+        +introspectToken(token): TokenClaims|null          %% 新增
     }
 
-    class AuditLog {
-        -store: JsonlStore
-        +record(entry: AuditEntry): void
+    class OAuthServer {
+        -clientStore: ClientStore
+        -codeStore: CodeStore
+        -refreshStore: RefreshStore
+        -pkce: PkceUtil
+        -consent: ConsentPage
+        -auth: TokenMiddleware
+        +register(app: Express): void
+        -mountAuthorize(app)
+        -mountToken(app)
+        -mountIntrospect(app)
+        -mountRevoke(app)
     }
 
-    StateMachine --> StateVector : holds
-    StateMachine --> DecayCurve : uses
-    StateMachine ..> ConversationEvent : consumes
-    StateMachine ..> EventPayload : consumes
-    MemoryStore --> JsonlStore : uses
-    MemoryStore ..> EmotionalMemory : manages
-    MemoryStore ..> HandoffNote : manages
-    IdempotencyStore --> JsonlStore : uses
-    Bridge ..> ContextEnvelope : filters
-    EnvelopeBuilder ..> ContextEnvelope : builds
-    EnvelopeBuilder ..> EmotionalMemory : includes
-    McpServer --> StateMachine : uses
-    McpServer --> MemoryStore : uses
-    McpServer --> IdempotencyStore : uses
-    McpServer --> Bridge : uses
-    McpServer --> EnvelopeBuilder : uses
-    McpServer --> TokenMiddleware : protects
-    McpServer --> AuditLog : logs
-    McpServer ..> ContextEnvelope : returns
-    Config <.. StateMachine : reads constants
-    Config <.. Bridge : reads BLOCKED
-    Config <.. EnvelopeBuilder : reads cap
+    class ClientStore {
+        -clients: Map~string, OAuthClient~
+        +register(client: OAuthClient): void
+        +get(clientId: string): OAuthClient|undefined
+        +isValidRedirectUri(client: OAuthClient, uri: string): boolean
+        +isPublic(clientId: string): boolean
+    }
+
+    class CodeStore {
+        -codes: Map~string, AuthCodeRecord~
+        +save(rec: AuthCodeRecord): void
+        +consume(code: string): AuthCodeRecord|null   %% 原子取+标记 used
+        +revoke(code: string): void
+        +sweep(): void                                 %% TTL 定时清理
+    }
+
+    class RefreshStore {
+        -tokens: Map~string, RefreshTokenRecord~
+        +save(rec: RefreshTokenRecord): void
+        +get(token: string): RefreshTokenRecord|undefined
+        +revoke(token: string): void
+        +revokeByJti(jti: string): void                %% 级联标记关联 access
+        +rotate(old: RefreshTokenRecord): RefreshTokenRecord  %% P1 用即废
+    }
+
+    class RevocationStore {
+        -denylist: Set~string~   %% access jti 黑名单（最佳努力）
+        +add(jti: string): void
+        +isRevoked(jti: string): boolean
+    }
+
+    class PkceUtil {
+        +generateVerifier(): string
+        +challengeS256(verifier: string): string
+        +verify(verifier: string, challenge: string): boolean
+        +randomToken(bytes: number): string
+        +jti(): string
+    }
+
+    class ConsentPage {
+        +render(view: ConsentView): string   %% 返回极简 HTML
+    }
+
+    class OAuthClient {
+        +client_id: string
+        +client_secret: string|null
+        +redirect_uris: string[]
+        +token_endpoint_auth_method: "none"|"client_secret_post"|"client_secret_basic"
+        +name: string
+        +allowed_scopes: string[]
+    }
+
+    class AuthCodeRecord {
+        +code: string
+        +client_id: string
+        +redirect_uri: string
+        +scope: string
+        +code_challenge: string
+        +code_challenge_method: "S256"
+        +subject: string
+        +created_at: number
+        +expires_at: number
+        +used: boolean
+    }
+
+    class RefreshTokenRecord {
+        +refresh_token: string
+        +client_id: string
+        +subject: string
+        +scope: string
+        +jti: string
+        +created_at: number
+        +expires_at: number
+        +revoked: boolean
+    }
+
+    OAuthServer --> ClientStore : 依赖
+    OAuthServer --> CodeStore : 依赖
+    OAuthServer --> RefreshStore : 依赖
+    OAuthServer --> PkceUtil : 依赖
+    OAuthServer --> ConsentPage : 依赖
+    OAuthServer --> TokenMiddleware : 复用签发/验签
+    OAuthServer ..> RevocationStore : 复用(吊销)
+
+    ClientStore "1" *-- "0..*" OAuthClient : 持有
+    CodeStore "1" *-- "0..*" AuthCodeRecord : 存储
+    RefreshStore "1" *-- "0..*" RefreshTokenRecord : 存储
+    RefreshStore ..> RevocationStore : 吊销时联动

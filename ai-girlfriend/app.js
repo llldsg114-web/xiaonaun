@@ -7,6 +7,10 @@
 /* ================= 状态与持久化 ================= */
 const SAVE_KEY = "xiaonuan_save_v1";
 
+/* 心屿 MCP：模块级心智上下文缓存（per-reply 生命周期）与 MCP 客户端实例（动态 import 引导） */
+let mindCtx = null;
+let MCP = null;
+
 /* 主题色预设 —— 切换时同步 CSS 变量，立绘衣服/UI 一起换色 */
 const THEMES = {
   sakura: { pink: "#ff7b9c", deep: "#f25c82", me1: "#ff8fab", me2: "#ff6b95", soft: "#ffd6e2" },
@@ -1050,6 +1054,14 @@ async function herReply(userText, img) {
       continue;
     }
 
+    // 心屿 MCP：拉取当前心智上下文（失败静默降级，绝不阻塞回复）
+    // 每次 herReply（每条用户消息）拉取一次，结果缓存于 mindCtx 至本次回复结束。
+    try {
+      mindCtx = MCP ? await MCP.getMindContext() : null;
+    } catch (e) {
+      mindCtx = null;
+    }
+
     // 优先云端大模型（有配置时作为主引擎）
     if (S.cloud.enabled && S.cloud.base && S.cloud.key) {
       result = await callCloud(text);
@@ -1074,6 +1086,8 @@ async function herReply(userText, img) {
         // ★ v13 待决点④：三模块的记忆/在场/微行为状态必须**入参**，否则 texture 的日配额与
         // presence 的不可用累计每轮从零开始 —— 门禁写得再严，计数器天天清零就等于没门禁。
         mem: S.mem, tex: S.tex, pres: S.pres, firstMeet: S.firstMeet,
+        // 心屿 MCP：把当前心智摘要挂到 est（引擎冻结，v1 仅建数据可用性 + 控制台可观测）
+        mindCtx: (mindCtx && MCP) ? MCP.buildFragment(mindCtx) : null,
       };
       const r = Engine.reply(text, est);
       // ★ v13 待决点④ 落盘：engine.js 冻结（T5a 零 diff），afterTurn 的调用点只能落在宿主。
@@ -1436,12 +1450,15 @@ async function callCloud(userText) {
     const history = S.messages.slice(-12).map(m => ({
       role: m.from === "me" ? "user" : "assistant", content: m.text,
     }));
+    // 心屿 MCP：先取系统提示基线，再（若有心智上下文）追加摘要片段（字符串拼接，绝不改 engine.js）
+    const sysBase = Engine.systemPrompt({ affection: S.affection, nick: S.nick, mood, firstMeet: S.firstMeet, dating: S.dating, memory: S.memory, persona: S.persona, caredTopics: S.caredTopics, recall: await retrieveMemoriesCloud(userText), emotion: S.emotion, lastVisit: S.lastVisit, dailyNotes: S.dailyNotes });
+    const sysContent = (mindCtx && MCP) ? sysBase + "\n\n【当前心智状态】\n" + MCP.buildFragment(mindCtx) : sysBase;
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${S.cloud.key}` },
       body: JSON.stringify({
         model: S.cloud.model || "deepseek-chat",
-        messages: [{ role: "system", content: Engine.systemPrompt({ affection: S.affection, nick: S.nick, mood, firstMeet: S.firstMeet, dating: S.dating, memory: S.memory, persona: S.persona, caredTopics: S.caredTopics, recall: await retrieveMemoriesCloud(userText), emotion: S.emotion, lastVisit: S.lastVisit, dailyNotes: S.dailyNotes }) }, ...history],
+        messages: [{ role: "system", content: sysContent }, ...history],
         temperature: 0.9, max_tokens: 200,
         frequency_penalty: 0.6, presence_penalty: 0.4,
       }),
@@ -2574,6 +2591,9 @@ function bindInput() {
       if (isNew) pushStory("memory", "👤", `你告诉${currentChar().name}，你叫 ${mem.userName}`);
     }
     pushMessage("me", text);
+
+    // 心屿 MCP：异步 fire 交互事件（失败静默，绝不阻断 UI；不 await）
+    if (MCP) MCP.fireUserEvent(text, { intensity: 0.5, tags: [] }).catch(() => {});
 
     // 回复生成后再把喜好/事件写进记忆（避免自我召回）
     const flushMem = () => {
@@ -4052,6 +4072,19 @@ function init() {
     if (!S.genderChosen) showGenderPicker();
     checkProactive();
   }, 1400);
+
+  // 心屿 MCP：异步引导加载前端模块（动态 import，不改 index.html），并自动完成 PKCE。
+  // 失败静默降级：引擎不可用 / 用户未授权 → MCP=null 或令牌缺失，对话照常进行。
+  (async () => {
+    try {
+      const mod = await import("./mcp-client.js");
+      MCP = new mod.McpClient({ proxyUrl: "/api/mcp" });
+      await MCP.ensureReady(); // 含 PKCE 自动流程（AS 不可达则降级，不阻断 App）
+    } catch (e) {
+      console.warn("[xinyu-mcp] 心智引擎模块不可用，已降级:", e && e.message);
+      MCP = null;
+    }
+  })();
 }
 
 /* ================= PWA 自动更新 =================
