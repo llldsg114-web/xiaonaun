@@ -171,6 +171,9 @@ async function main() {
   // 候选 A · 长期记忆 端到端烟雾测试（自包含段，复用 ok() 并入总 tally）
   await ltmSmokeTest();
 
+  // 候选 B · 语音 端到端烟雾测试（自包含段，复用 ok() 并入总 tally）
+  await voiceSmokeTest();
+
   console.log(`\n结果：通过 ${pass} / 失败 ${fail}`);
   process.exit(fail === 0 ? 0 : 1);
 }
@@ -234,6 +237,103 @@ async function ltmSmokeTest() {
   await LTM.clearSubject(SUBJECT);
   const after = await LTM.list(SUBJECT);
   ok("clearSubject 后该分组记忆已清空", Array.isArray(after) && after.length === 0);
+}
+
+/* ============== 候选 B · 语音（Voice）端到端烟雾测试 ==============
+ * 自包含段：在 Node 下为 Voice 补齐浏览器全局（speechSynthesis /
+ * SpeechSynthesisUtterance / SpeechRecognition 最小桩；写法参考 EB1 的
+ * test/voice.test.js shim），引入 voice.js 挂 window.Voice，断言：
+ *   ① speak 触发 utterance 且 lang=zh-CN
+ *   ② startListen 未同意时拒绝（不采集）
+ *   ③ 零上报（speak/startListen 期间外发 = 0）
+ *   ④ isSupported 有桩时 tts/asr 为真
+ * 复用既有 ok() 断言，结果并入总 pass/fail，不破坏上方任何断言。 */
+async function voiceSmokeTest() {
+  console.log("\n[voice] 语音 端到端烟雾测试");
+
+  // --- Node 最小 shim（与 LTM 段一致：window 指向 globalThis）---
+  globalThis.window = globalThis.window || globalThis;
+  // 清空语音相关 localStorage 键，保证默认态（tts 开 / asr 关 / 无同意）
+  try {
+    globalThis.localStorage.removeItem("xinyu_voice_pref");
+    globalThis.localStorage.removeItem("xinyu_voice_asr_consent");
+    globalThis.localStorage.removeItem("xinyu_voice_asr_enabled");
+    globalThis.localStorage.removeItem("xinyu_voice_tts_enabled");
+  } catch (e) {}
+
+  // SpeechSynthesisUtterance 桩：记录 text/lang
+  let lastUtterance = null;
+  let speakCalls = 0;
+  globalThis.SpeechSynthesisUtterance = class SpeechSynthesisUtterance {
+    constructor(text) {
+      this.text = text; this.lang = ""; this.rate = 1; this.pitch = 1; this.volume = 1; this.voice = null;
+      lastUtterance = this;
+    }
+  };
+
+  // speechSynthesis 桩：记录 speak 调用并模拟 onstart
+  globalThis.window.speechSynthesis = {
+    speak(u) { speakCalls++; if (typeof u.onstart === "function") u.onstart(); },
+    cancel() {},
+    getVoices() { return []; },
+  };
+
+  // SpeechRecognition 桩：可手动触发 onresult/onend；统计构造次数（验证是否采集）
+  let srConstructed = 0;
+  globalThis.window.SpeechRecognition = class SpeechRecognition {
+    constructor() {
+      this.lang = ""; this.continuous = false; this.interimResults = false;
+      this.onresult = null; this.onerror = null; this.onend = null;
+      srConstructed++;
+    }
+    start() { /* 不自动触发，由测试手动 emit */ }
+    stop() { if (this.onend) this.onend(); }
+    abort() { if (this.onend) this.onend(); }
+  };
+
+  // 引入语音门面（IIFE 副作用挂 window.Voice）
+  await import("../voice.js");
+  const Voice = globalThis.window.Voice;
+  ok("window.Voice 应已挂载", !!Voice);
+  if (!Voice) return;
+
+  // ④ 能力探测：有桩时 tts/asr 为真
+  const sup = Voice.isSupported();
+  ok("isSupported 有桩时 tts=true", sup.tts === true);
+  ok("isSupported 有桩时 asr=true", sup.asr === true);
+
+  // ① TTS：speak('你好小暖') 触发 utterance 且 lang=zh-CN
+  speakCalls = 0; lastUtterance = null;
+  const spoke = Voice.speak("你好小暖");
+  ok("Voice.speak('你好小暖') 返回 true", spoke === true);
+  ok("Voice.speak 触发 speechSynthesis.speak（utterance 数=1）", speakCalls === 1);
+  ok("utterance.text = '你好小暖'", !!(lastUtterance && lastUtterance.text === "你好小暖"));
+  ok("utterance.lang = 'zh-CN'", !!(lastUtterance && lastUtterance.lang === "zh-CN"));
+
+  // ② ASR 未同意时拒绝（绝不采集）：不构造识别器、不回调文本
+  Voice.setEnabled("asr", true);   // 启用但无同意 → 内部应拒绝并触发 consent_required
+  Voice.setConsent(false);
+  srConstructed = 0;
+  let collected = false;
+  const asrOk = Voice.startListen(() => { collected = true; });
+  ok("Voice.startListen 未同意时返回 false", asrOk === false);
+  ok("未同意时不构造识别器（绝不采集）", srConstructed === 0);
+  ok("未同意时未回调任何文本", collected === false);
+
+  // ③ 零上报：speak/startListen 期间外发 = 0
+  let outbound = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = function () { outbound++; return Promise.resolve({ ok: true, json: async () => ({}) }); };
+  try {
+    Voice.speak("本地朗读不应外发");
+    Voice.setConsent(true);
+    Voice.setEnabled("asr", true);
+    Voice.startListen(() => {});
+    ok("语音路径零外发（speak/startListen 期间 fetch 调用=0）", outbound === 0);
+    ok("Voice.__zeroReportProbe().outbound === 0", Voice.__zeroReportProbe().outbound === 0);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 }
 
 main().catch((e) => { console.error("自测异常：", e); process.exit(1); });

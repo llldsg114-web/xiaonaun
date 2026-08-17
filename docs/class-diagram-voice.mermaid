@@ -1,0 +1,63 @@
+classDiagram
+    direction LR
+
+    class Voice {
+        <<ai-girlfriend/voice.js · IIFE → window.Voice>>
+        -boolean ttsEnabled
+        -boolean asrEnabled
+        -VoicePref pref
+        -VoiceState state
+        -function[] listeners
+        +speak(text, opts) boolean
+        +startListen(cb) boolean
+        +stopListen() void
+        +cancelSpeak() void
+        +isSupported() VoiceSupport
+        +getPref() VoicePref
+        +setPref(patch) VoicePref
+        +setEnabled(kind, bool) boolean
+        +requestAsrConsent() Promise~boolean~
+        +onState(fn) function
+        -_emit(type, payload) void
+        -_persist() void
+    }
+
+    class VoicePref {
+        <<localStorage: xinyu_voice_pref>>
+        +number rate
+        +number pitch
+        +number volume
+        +string voiceURI
+        +string lang
+    }
+
+    class VoiceState {
+        <<enumeration>>
+        idle
+        speaking
+        listening
+        paused
+        unsupported
+    }
+
+    class VoiceSupport {
+        +boolean tts
+        +boolean asr
+    }
+
+    class ConsentState {
+        <<localStorage: xinyu_voice_asr_consent>>
+        +'granted' | 'denied' | undefined
+    }
+
+    class LTM {
+        <<window.LTM · 既有门面>>
+        +update(id, content) void
+        +recall(query) any
+    }
+
+    Voice "1" *-- "1" VoicePref : holds
+    Voice ..> VoiceState : emits
+    Voice ..> VoiceSupport : reports
+    Voice ..> ConsentState : read/write
+    Voice ..> LTM : setPref → preference

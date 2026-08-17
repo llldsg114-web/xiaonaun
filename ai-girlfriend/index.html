@@ -66,6 +66,15 @@
       <button class="ci-btn send" id="btn-send" title="发送">➤</button>
       <input type="file" id="chat-file" accept="image/*" class="hidden">
     </footer>
+    <!-- 候选 B · 语音控件条：朗读状态 + 波形动画 + 暂停/静音（小暖回复双轨叠加层） -->
+    <div class="voice-bar" id="voice-bar">
+      <div class="voice-status" id="voice-status">待命</div>
+      <div class="voice-wave" id="voice-wave">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <button class="voice-ctl" id="voice-pause" type="button" title="暂停朗读">⏸</button>
+      <button class="voice-ctl" id="voice-mute" type="button" title="静音小暖">🔇</button>
+    </div>
     <div class="emoji-panel hidden" id="emoji-panel"></div>
     <!-- 全文聊天搜索面板 -->
     <div class="search-panel hidden" id="search-panel">
@@ -319,6 +328,35 @@
               <button class="chip" data-voice="cute">软萌</button>
               <button class="chip" data-voice="boy">少年</button>
             </div>
+          </div>
+
+          <!-- 候选 B · 语音输入（麦克风） -->
+          <div class="me-card">
+            <div class="me-title">🎙 语音输入（麦克风）</div>
+            <div class="me-tip">点聊天页 🎤 直接对小暖说话，她会实时听写并发送。语音识别<b>可能经由你浏览器的语音服务处理音频</b>，仅本地发送，<b>绝不留存、绝不外发</b>。默认关闭，需你单独同意。</div>
+            <label class="me-switch">
+              <input type="checkbox" id="asr-enabled">
+              <span>允许用麦克风和我说话（需同意）</span>
+            </label>
+          </div>
+
+          <!-- 候选 B · 语音与隐私 -->
+          <div class="me-card">
+            <div class="me-title">🛡 语音与隐私</div>
+            <div class="me-tip">小暖的朗读（TTS）完全在你的设备本地合成，<b>零上报、不上传</b>。语音输入（ASR）在你同意后才会启用，且<b>绝不把音频或转写留存、外发</b>。可在此调整音色与语速，或清除本地语音偏好。</div>
+            <div class="me-sub">语速</div>
+            <input type="range" id="voice-rate" class="voice-slider" min="0.5" max="2" step="0.05" value="1">
+            <div class="me-sub">音高</div>
+            <input type="range" id="voice-pitch" class="voice-slider" min="0" max="2" step="0.05" value="1">
+            <div class="me-sub">音量</div>
+            <input type="range" id="voice-volume" class="voice-slider" min="0" max="1" step="0.05" value="1">
+            <div class="me-status" id="voice-pref-status"></div>
+            <div class="me-row" style="margin-top:8px"><span>麦克风同意状态</span><b id="asr-consent-status">未同意</b></div>
+            <div class="persona-io" style="margin-top:8px; gap:8px; display:flex">
+              <button class="me-save" id="asr-consent-revoke">撤回麦克风同意</button>
+              <button class="me-save danger" id="voice-pref-clear">清除本地语音偏好</button>
+            </div>
+            <div class="me-tip" style="margin-top:8px">🔒 零上报声明：本应用不会将任何语音 / 音频 / 转写内容发送到心屿服务器或第三方。</div>
           </div>
         </div>
       </div>
@@ -599,6 +637,21 @@
   <!-- ======= 对话唤起：右下角「⌐ 记忆」角标（由 ltm-ui.js 控制显隐/数字） ======= -->
   <div id="ltm-corner" class="hidden">⌐ 记忆</div>
 
+  <!-- ======= 候选 B · ASR 独立同意弹窗（隐私优先：须用户单独勾选同意） ======= -->
+  <div class="modal-mask hidden" id="asr-consent-modal">
+    <div class="modal-panel">
+      <div class="modal-title">🎤 开启语音输入</div>
+      <p class="modal-text">开启后，小暖会用麦克风听你说话，并实时转成文字发送。<br>
+        <b>请注意：语音识别可能经由你浏览器的语音服务处理音频。</b><br>
+        转录内容仅用于本地发送，<b>绝不留存、绝不外发</b>。需要先同意才能使用。</p>
+      <label class="me-switch"><input type="checkbox" id="asr-consent-check"> 我已了解并同意上述说明</label>
+      <div class="modal-actions">
+        <button class="me-save" id="asr-consent-ok">同意并开启</button>
+        <button class="me-save danger" id="asr-consent-cancel">暂不开启</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ======= 底部 Tab 栏 ======= -->
   <nav class="tabbar">
     <button class="tab active" data-page="chat"><span class="tab-ico">💬</span>聊天<span class="tab-dot hidden" id="chat-dot"></span></button>
@@ -623,6 +676,8 @@
      二者均在 app.js 之前加载，确保 app.js 集成时可消费 window.LTM。 -->
 <script src="longterm-memory.js"></script>
 <script src="ltm-ui.js"></script>
+<!-- 候选 B · 语音底座（挂 window.Voice，IIFE 零依赖）须在 app.js 之前就绪 -->
+<script src="voice.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

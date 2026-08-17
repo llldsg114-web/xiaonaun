@@ -1212,4 +1212,77 @@ body::after { width: 55vw; height: 55vw; right: -12vw; bottom: -8vh;
   font-size: 13px; line-height: 1.4; padding: 9px 16px; border-radius: var(--r-pill);
   opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s var(--ease);
 }
+
+/* ================= 候选 B · 语音控件 / 波形 / 状态 / 设置 / 同意弹窗 ================= */
+/* 对话页朗读条（状态 + 波形 + 暂停/静音），叠加在小暖文字对话之上，不破坏既有布局 */
+.voice-bar {
+  display: flex; align-items: center; gap: var(--gap-sm);
+  padding: 8px 14px;
+  border-top: 1px solid var(--hairline);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .6), var(--pink-bg));
+}
+.voice-status {
+  font-size: 12px; font-weight: 600; color: var(--pink-deep);
+  min-width: 56px; white-space: nowrap;
+}
+.voice-wave {
+  display: flex; align-items: flex-end; gap: 3px; height: 18px; flex: 1;
+}
+.voice-wave span {
+  width: 3px; height: 20%; border-radius: 3px;
+  background: var(--pink-soft); transition: height .2s ease;
+}
+.voice-wave.active span {
+  background: var(--pink);
+  animation: voiceWave 0.9s ease-in-out infinite;
+}
+.voice-wave.active span:nth-child(2) { animation-delay: .15s; }
+.voice-wave.active span:nth-child(3) { animation-delay: .30s; }
+.voice-wave.active span:nth-child(4) { animation-delay: .45s; }
+.voice-wave.active span:nth-child(5) { animation-delay: .60s; }
+@keyframes voiceWave {
+  0%, 100% { height: 20%; }
+  50% { height: 100%; }
+}
+.voice-ctl {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 1px solid var(--hairline); background: #fff;
+  color: var(--pink-deep); font-size: 15px; cursor: pointer; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform .12s ease, background .12s ease;
+}
+.voice-ctl:active { transform: scale(.9); background: var(--pink-soft); }
+
+/* 设置页语音滑块（复用既有 token） */
+.voice-slider {
+  width: 100%; accent-color: var(--pink); margin: 4px 0 10px;
+}
+
+/* ASR 独立同意弹窗（复用既有视觉 token） */
+.modal-mask {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(40, 20, 30, .45);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.modal-mask.hidden { display: none; }
+.modal-panel {
+  width: 100%; max-width: 360px;
+  background: #fff; border-radius: var(--r-card);
+  padding: 20px; box-shadow: 0 12px 40px rgba(255, 123, 156, .25);
+  border: 1px solid var(--hairline);
+}
+.modal-title { font-size: 17px; font-weight: 800; color: var(--pink-deep); margin-bottom: 10px; }
+.modal-text { font-size: 13px; line-height: 1.7; color: var(--text-light); margin: 0 0 12px; }
+.modal-text b { color: var(--pink-deep); }
+.modal-actions { display: flex; gap: var(--gap-sm); margin-top: 14px; }
+.modal-actions .me-save { flex: 1; margin: 0; }
+
+/* 同意勾选未勾时的抖动提示 */
+.shake { animation: shakeX .4s; }
+@keyframes shakeX {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
 .ltm-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }

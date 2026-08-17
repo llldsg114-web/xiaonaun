@@ -1,0 +1,75 @@
+%% ===== ① 小暖回复 → TTS 朗读 =====
+sequenceDiagram
+    autonumber
+    participant App as app.js (XiaonuanApp)
+    participant Voice as window.Voice
+    participant SS as SpeechSynthesis
+    participant User as 用户/小暖
+
+    App->>Voice: speak(replyText, {lang:'zh-CN'})
+    Voice->>Voice: isSupported().tts?
+    alt TTS 支持
+        Voice->>SS: utterance = new SpeechSynthesisUtterance(text)
+        Voice->>SS: utterance.lang='zh-CN'; rate/pitch/volume = pref
+        Voice->>SS: speechSynthesis.speak(utterance)
+        Voice-->>App: onState('speaking')
+        SS-->>Voice: onend
+        Voice-->>App: onState('idle')
+    else 不支持 → 降级
+        Voice-->>App: onState('unsupported', {tts:false})
+        Note over App: 纯文字展示，不阻塞对话
+    end
+
+%% ===== ② 用户麦克风 → ASR → 文本 → 发送流 =====
+sequenceDiagram
+    autonumber
+    participant User as 用户
+    participant UI as 麦克风按钮(index.html)
+    participant App as app.js
+    participant Voice as window.Voice
+    participant SR as SpeechRecognition
+    participant LTM as window.LTM
+
+    User->>UI: 单击/长按 麦克风
+    UI->>Voice: startListen(onFinal)
+    Voice->>Voice: isSupported().asr && asrEnabled && consent?
+    alt 已同意且支持
+        Voice->>SR: recognition.lang='zh-CN'; continuous=false; interimResults=true
+        Voice->>SR: recognition.start()
+        Voice-->>App: onState('listening')
+        SR-->>Voice: onresult (interim / final)
+        Voice->>Voice: 取 final 结果
+        Voice-->>App: onFinal(transcript)
+        App->>App: sendMessage(transcript)  // 与键盘输入等价
+        App->>LTM: recall / 回灌 (既有逻辑, 不变)
+        App-->>User: 小暖回复(文字 + TTS)
+    else 未同意/不支持 → 降级
+        Voice-->>App: onState('consent_required' | 'unsupported')
+        Note over App: 回退纯文字输入
+    end
+
+%% ===== ③ 设置同意 / 降级 / 偏好持久化 =====
+sequenceDiagram
+    autonumber
+    participant User as 用户
+    participant Settings as 设置页(index.html)
+    participant Voice as window.Voice
+    participant LS as localStorage
+    participant LTM as window.LTM
+
+    User->>Settings: 启用 ASR 开关
+    Settings->>Voice: setEnabled('asr', true)
+    Voice->>LS: 读取 xinyu_voice_asr_consent
+    alt 无同意
+        Voice-->>Settings: onState('consent_required')
+        Settings->>User: 独立同意弹窗(标注"浏览器可能经其语音服务处理音频")
+        User->>Settings: 同意
+        Settings->>LS: xinyu_voice_asr_consent='granted'
+        Settings->>Voice: setEnabled('asr', true) 再次生效
+    end
+    Voice->>LS: xinyu_voice_asr_enabled='true'
+    Note over Voice: 零上报：此过程无任何 fetch 到语音端点
+    User->>Settings: 调语速/音色
+    Settings->>Voice: setPref({rate, pitch})
+    Voice->>LS: xinyu_voice_pref = JSON
+    Voice->>LTM: update('preference', {voice:{...}})  // P1 显式写入

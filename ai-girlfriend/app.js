@@ -162,10 +162,21 @@ function pickTts() {
 }
 
 function speak(text) {
-  if (!S.tts || !("speechSynthesis" in window)) return;
   // 去掉 emoji / 控制符，避免部分合成器报错
   const clean = (text || "").replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu, "").replace(/\s+/g, " ").trim();
   if (!clean) return;
+  // 候选 B：优先经 window.Voice 本地零上报朗读（叠加层，不破坏文字对话）。
+  // Voice 作为朗读的唯一管理者；接管后不再回落既有 speechSynthesis 路径，避免重复朗读。
+  if (window.Voice && typeof Voice.isSupported === "function" && typeof Voice.isEnabled === "function") {
+    if (Voice.isSupported().tts && Voice.isEnabled("tts") && S.tts) {
+      try { Voice.speak(clean); } catch (e) {}   // 失败静默降级，绝不阻塞对话
+      return;
+    }
+    // Voice 已加载但 TTS 关闭 / 不支持 → 纯文字降级（不动既有 speechSynthesis）
+    return;
+  }
+  // 兜底：voice.js 未就绪（极端加载顺序问题），沿用既有 speechSynthesis 实现
+  if (!S.tts || !("speechSynthesis" in window)) return;
   try {
     const cfg = pickTts();
     speechSynthesis.cancel();
@@ -1962,31 +1973,211 @@ function bindActions() {
   });
 }
 
-/* ================= 语音输入（麦克风） ================= */
+/* ================= 候选 B · 语音输入（麦克风 → Voice.startListen → 发送） =================
+ * 叠加层：麦克风按钮点击 → 经 window.Voice 做 ASR；未同意先弹独立同意窗。
+ * 识别到的 final 文本送入现有发送流（与键盘输入等价，不破坏 v3-A 的 LTM 回灌）。 */
 function bindMic() {
   const btn = $("#btn-mic");
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { if (btn) btn.style.display = "none"; return; }
-  const rec = new SR();
-  rec.lang = "zh-CN"; rec.interimResults = false; rec.continuous = false;
+  if (!btn) return;
+  // 不支持 ASR（或 Voice 未就绪）→ 隐藏麦克风按钮，纯文字输入降级
+  if (!window.Voice || !Voice.isSupported || !Voice.isSupported().asr) {
+    try { btn.style.display = "none"; } catch (e) {}
+    return;
+  }
+
   let listening = false;
-  const stop = () => { try { rec.stop(); } catch (e) {} listening = false; btn.classList.remove("recording"); };
-  btn.addEventListener("click", () => {
-    if (listening) { stop(); return; }
-    try {
-      rec.start();
-      listening = true; btn.classList.add("recording");
-    } catch (e) { listening = false; btn.classList.remove("recording"); }
-  });
-  rec.onresult = e => {
-    const txt = e.results[0][0].transcript || "";
-    const input = $("#chat-input");
-    input.value = (input.value + " " + txt).trim();
-    input.focus();
-    stop();
+
+  // 停止聆听（松手 / 再次点击）
+  const stop = () => {
+    try { if (Voice && typeof Voice.stopListen === "function") Voice.stopListen(); } catch (e) {}
+    listening = false;
+    try { btn.classList.remove("recording"); } catch (e) {}
   };
-  rec.onend = stop;
-  rec.onerror = stop;
+
+  // 把 final 文本送入现有发送流（复用 #btn-send 的 click 处理器，与键盘输入完全等价）
+  const sendFinal = (finalText) => {
+    const t = (finalText || "").trim();
+    if (!t) return;
+    const input = $("#chat-input");
+    if (input) input.value = t;
+    const sendBtn = $("#btn-send");
+    if (sendBtn) sendBtn.click();   // 走现有发送流（含 LTM 回灌，保持一致）
+  };
+
+  // 开始聆听：若未同意返回 false 则不采集
+  const startListening = () => {
+    try {
+      const ok = Voice.startListen(
+        (finalText) => sendFinal(finalText),
+        {
+          // 可选 interim 实时回显到输入框（仅当输入框为空时，避免覆盖用户正在输入的内容）
+          onInterim: (t) => {
+            const input = $("#chat-input");
+            if (input && !input.value) input.value = (t || "").trim();
+          },
+          onEnd: () => { listening = false; if (btn) btn.classList.remove("recording"); },
+          onError: () => { listening = false; if (btn) btn.classList.remove("recording"); },
+        }
+      );
+      if (ok) { listening = true; if (btn) btn.classList.add("recording"); return; }
+    } catch (e) {}
+    // 启动失败（未同意 / 不支持）→ 弹同意窗
+    listening = false;
+    if (btn) btn.classList.remove("recording");
+    if (!Voice.getConsent || !Voice.getConsent()) showAsrConsentDialog(startListening);
+  };
+
+  btn.addEventListener("click", () => {
+    if (listening) { stop(); return; }   // 再次点击 = 松手停止
+    // 未同意 → 先走独立同意流；同意后再开 ASR 并直接开始聆听
+    if (!Voice.getConsent || !Voice.getConsent()) {
+      showAsrConsentDialog(() => {
+        try { Voice.setConsent(true); Voice.setEnabled("asr", true); } catch (e) {}
+        startListening();
+      });
+      return;
+    }
+    startListening();
+  });
+}
+
+/* 候选 B · ASR 独立同意弹窗（隐私优先：需用户单独勾选同意才开启麦克风） */
+let _asrAgreeCb = null;
+function showAsrConsentDialog(onAgree) {
+  const modal = $("#asr-consent-modal");
+  if (!modal) { try { if (onAgree) onAgree(); } catch (e) {} return; }   // 无弹窗兜底：直接同意
+  _asrAgreeCb = onAgree || null;
+  const chk = $("#asr-consent-check");
+  if (chk) chk.checked = false;
+  modal.classList.remove("hidden");
+}
+
+function bindAsrConsent() {
+  const modal = $("#asr-consent-modal");
+  if (!modal) return;
+  const okBtn = $("#asr-consent-ok");
+  const cancelBtn = $("#asr-consent-cancel");
+  const chk = $("#asr-consent-check");
+  const close = () => modal.classList.add("hidden");
+  if (okBtn) okBtn.addEventListener("click", () => {
+    if (chk && !chk.checked) {   // 必须勾选「我已了解并同意」
+      chk.classList.add("shake"); setTimeout(() => chk.classList.remove("shake"), 400);
+      return;
+    }
+    close();
+    const cb = _asrAgreeCb; _asrAgreeCb = null;
+    if (cb) { try { cb(); } catch (e) {} }
+  });
+  if (cancelBtn) cancelBtn.addEventListener("click", () => { close(); _asrAgreeCb = null; });
+}
+
+/* 候选 B · 设置页「语音与隐私」接线 */
+function refreshAsrConsentStatus() {
+  const el = $("#asr-consent-status");
+  if (!el || !window.Voice) return;
+  try { el.textContent = Voice.getConsent() ? "已同意" : "未同意"; } catch (e) {}
+}
+
+function bindVoicePrivacy() {
+  if (!window.Voice || typeof Voice.isEnabled !== "function") return;   // Voice 未就绪 → 不接线（纯降级）
+  // ASR 开关（默认关；切换时若未同意先走同意流）
+  const asr = $("#asr-enabled");
+  if (asr) {
+    try { asr.checked = Voice.isEnabled("asr"); } catch (e) {}
+    asr.addEventListener("change", () => {
+      const on = asr.checked;
+      if (on && !Voice.getConsent()) {
+        asr.checked = false;   // 暂不打开，等同意
+        showAsrConsentDialog(() => {
+          try { Voice.setConsent(true); Voice.setEnabled("asr", true); } catch (e) {}
+          const a2 = $("#asr-enabled"); if (a2) a2.checked = true;
+          refreshAsrConsentStatus();
+        });
+        return;
+      }
+      try { Voice.setEnabled("asr", on); } catch (e) {}
+      refreshAsrConsentStatus();
+    });
+  }
+  // 音色 / 语速 / 音量 滑块（rate/pitch/volume）→ Voice.setPref + 显式写 LTM（用户主动操作才写）
+  const rate = $("#voice-rate"), pitch = $("#voice-pitch"), vol = $("#voice-volume");
+  try {
+    const pref = Voice.getPref();
+    if (rate) rate.value = pref.rate;
+    if (pitch) pitch.value = pref.pitch;
+    if (vol) vol.value = pref.volume;
+  } catch (e) {}
+  const onSlide = (el, key) => {
+    if (!el) return;
+    el.addEventListener("input", () => { try { Voice.setPref({ [key]: parseFloat(el.value) }); } catch (e) {} });
+    el.addEventListener("change", () => {
+      try {
+        Voice.setPref({ [key]: parseFloat(el.value) });
+        Voice.writeVoicePrefToLTM();   // 仅用户主动调节并松手时才写 LTM（隐私优先，不静默写）
+      } catch (e) {}
+    });
+  };
+  onSlide(rate, "rate"); onSlide(pitch, "pitch"); onSlide(vol, "volume");
+  // 撤回麦克风同意
+  const revoke = $("#asr-consent-revoke");
+  if (revoke) revoke.addEventListener("click", () => {
+    try { Voice.setConsent(false); Voice.setEnabled("asr", false); } catch (e) {}
+    const a2 = $("#asr-enabled"); if (a2) a2.checked = false;
+    refreshAsrConsentStatus();
+  });
+  // 清除本地语音偏好（清 localStorage 语音键，并重置内存到默认）
+  const clear = $("#voice-pref-clear");
+  if (clear) clear.addEventListener("click", () => {
+    try {
+      localStorage.removeItem("xinyu_voice_pref");
+      Voice.setPref({ rate: 1, pitch: 1, volume: 1, voiceURI: "" });   // 重置为默认音色/语速
+    } catch (e) {}
+    if (rate) rate.value = 1; if (pitch) pitch.value = 1; if (vol) vol.value = 1;
+    const st = $("#voice-pref-status");
+    if (st) { st.textContent = "已清除本地语音偏好，恢复默认音色/语速。"; st.className = "me-status ok"; }
+  });
+  refreshAsrConsentStatus();
+}
+
+/* 候选 B · 对话页朗读条（状态指示 + 波形 + 暂停/静音） */
+function bindVoiceBar() {
+  const bar = $("#voice-bar");
+  if (!bar) return;
+  // 不支持 TTS → 隐藏朗读条（麦克风按钮本身由 bindMic 控制）
+  if (!window.Voice || !Voice.isSupported || !Voice.isSupported().tts) {
+    try { bar.style.display = "none"; } catch (e) {}
+    return;
+  }
+  const statusEl = $("#voice-status");
+  const wave = $("#voice-wave");
+  const muteBtn = $("#voice-mute");
+  const pauseBtn = $("#voice-pause");
+  const labelOf = (type) => ({
+    idle: "待命", speaking: "朗读中…", listening: "聆听中…",
+    muted: "已静音", unsupported: "语音不支持", consent_required: "需同意麦克风",
+  }[type] || "待命");
+
+  if (pauseBtn) pauseBtn.addEventListener("click", () => { try { Voice.cancelSpeak(); } catch (e) {} });
+  if (muteBtn) muteBtn.addEventListener("click", () => {
+    try {
+      const on = !Voice.isEnabled("tts");
+      if (typeof S !== "undefined") S.tts = on;          // 同步 app 主开关
+      Voice.setEnabled("tts", on);                        // 同步 Voice 开关
+      const ttsChk = $("#tts-enabled"); if (ttsChk) ttsChk.checked = on;
+      const navTts = $("#btn-tts"); if (navTts) navTts.classList.toggle("off", !on);
+      muteBtn.textContent = on ? "🔇" : "🔊";
+      muteBtn.title = on ? "已静音（点按恢复）" : "静音小暖";
+    } catch (e) {}
+  });
+
+  // 订阅状态：更新状态文字 + 波形动画（朗读/聆听时跳动）
+  try {
+    Voice.onState((ev) => {
+      const type = ev && ev.type ? ev.type : "idle";
+      if (statusEl) statusEl.textContent = labelOf(type);
+      if (wave) wave.classList.toggle("active", type === "speaking" || type === "listening");
+    });
+  } catch (e) {}
 }
 
 /* ================= 语音通话（打电话给小暖） ================= */
@@ -2805,6 +2996,13 @@ function bindVoice() {
     c.addEventListener("click", () => {
       S.voiceName = c.dataset.voice;
       save(); sync();
+      // 候选 B：把音色预设的 rate/pitch 同步给 Voice（让新朗读路径也用这个音色基调）
+      try {
+        if (window.Voice && typeof Voice.setPref === "function") {
+          const p = VOICE_PROFILES[S.voiceName] || VOICE_PROFILES.auto;
+          Voice.setPref({ rate: p.rate, pitch: p.pitch, volume: 1 });
+        }
+      } catch (e) {}
       // 试听
       if (S.tts && "speechSynthesis" in window) speak("我是" + currentChar().name + "，这是新的声音，喜欢吗？😊");
     });
@@ -3861,6 +4059,10 @@ function bindSettings() {
     S.tts = !!on;
     const btn = $("#btn-tts");
     if (btn) btn.classList.toggle("off", !S.tts);
+    // 候选 B：同步 Voice 的 TTS 开关（默认开，本地零上报）
+    if (window.Voice && typeof Voice.setEnabled === "function") {
+      try { Voice.setEnabled("tts", !!on); } catch (e) {}
+    }
   };
   $("#tts-enabled").addEventListener("change", e => { syncTts(e.target.checked); save(); });
   const navTts = $("#btn-tts");
@@ -4156,6 +4358,16 @@ function init() {
   bindTabs(); bindInput(); bindActions(); bindSettings(); bindCall(); bindGames(); bindPropose(); bindOutfit(); bindGender(); bindSearch(); bindDayDetail();
   bindVoice(); bindNotify(); bindCloudSave(); bindLocalModel(); bindSync(); bindPush();
   bindArcUI();
+  // 候选 B · 语音接线（设置页同意/偏好、朗读条状态、打断）
+  try { bindAsrConsent(); } catch (e) {}
+  try { bindVoicePrivacy(); } catch (e) {}
+  try { bindVoiceBar(); } catch (e) {}
+  // 打断（Q3）：用户开始说话即打断小暖正在朗读（Voice 内部 startListen 已 cancel，这里再显式兜底）
+  try {
+    if (window.Voice && typeof Voice.onState === "function") {
+      Voice.onState((ev) => { try { if (ev && ev.type === "listening") Voice.cancelSpeak(); } catch (_) {} });
+    }
+  } catch (e) {}
   // 设置页分组 / 搜索：必须排在 refreshCharacter()→applyCharIdentity() 与 bindSettings() 之后，
   // 这样卡片里的角色文案（data-xn-*）已注入完毕，搜索读到的是最终文本。
   initMeGroups(); initMeSearch();
