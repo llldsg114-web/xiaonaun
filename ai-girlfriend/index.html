@@ -53,6 +53,7 @@
         <div class="nav-status" id="nav-status">在线</div>
       </div>
       <div class="nav-mood" id="nav-mood" title="今日心情">😊</div>
+      <span class="xn-led-anchor" id="nav-offline-led" title="网络状态"></span>
       <button class="nav-call" id="btn-call" data-xn-title="给{n}打电话" title="给小暖打电话">📞</button>
       <button class="nav-tts" id="btn-tts" data-xn-title="{n}开口说话" title="小暖开口说话" aria-label="语音开关">🔊</button>
       <button class="nav-search" id="btn-search" title="搜索聊天记录">🔍</button>
@@ -652,6 +653,19 @@
     </div>
   </div>
 
+  <!-- ======= 候选 C（C-E3 · C-T5）· 隐私审计面板（独立可关闭弹窗，默认隐藏） ======= -->
+  <div class="xn-modal-mask hidden" id="privacy-audit-modal">
+    <div class="xn-audit-panel">
+      <div class="xn-audit-head">
+        <span class="xn-audit-title">🔒 小暖的隐私审计</span>
+        <button class="xn-audit-close" id="privacy-audit-close" title="关闭" aria-label="关闭">✕</button>
+      </div>
+      <div class="xn-audit-body" id="privacy-audit-body">
+        <!-- PrivacyAudit.render 注入 -->
+      </div>
+    </div>
+  </div>
+
   <!-- ======= 底部 Tab 栏 ======= -->
   <nav class="tabbar">
     <button class="tab active" data-page="chat"><span class="tab-ico">💬</span>聊天<span class="tab-dot hidden" id="chat-dot"></span></button>
@@ -678,6 +692,25 @@
 <script src="ltm-ui.js"></script>
 <!-- 候选 B · 语音底座（挂 window.Voice，IIFE 零依赖）须在 app.js 之前就绪 -->
 <script src="voice.js"></script>
+<!-- 候选 C · 隐私/端侧增强共存叠加层（先于 app.js 引入，仅追加不改动既有顺序与 B 引用）
+     顺序：consent-store → audit-probe → offline-probe → cache-warmer；app.js 仍最后加载并做编排。 -->
+<script src="consent-store.js"></script>
+<script src="audit-probe.js"></script>
+<script src="offline-probe.js"></script>
+<script src="cache-warmer.js"></script>
+<!-- 候选 C（C2 本地模型热切换）：原生启发式兜底 + 路由层，须在 app.js 之前就绪 -->
+<script src="local-heuristic.js"></script>
+<script src="reply-router.js"></script>
+<!-- 候选 C（C-E3 · C-T5）· 隐私审计面板 + 精细同意开关：先于 app.js 引入，仅追加不改动既有顺序 -->
+<script src="consent-ui.js"></script>
+<script src="privacy-audit.js"></script>
+<!-- 候选 C（C-E4 · C-T7/C-T8）· P1/P2 增强模块：CSP注入 / 本地模型UI / 审计导出 / 离线指示灯 / 隐私评分 / 诊断报告；先于 app.js 引入，仅追加 -->
+<script src="csp-inject.js"></script>
+<script src="audit-export.js"></script>
+<script src="offline-indicator.js"></script>
+<script src="privacy-score.js"></script>
+<script src="diagnostic-report.js"></script>
+<script src="local-model-ui.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

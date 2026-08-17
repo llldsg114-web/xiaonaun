@@ -1,0 +1,109 @@
+sequenceDiagram
+    autonumber
+    participant App as app.js(共存层,最末加载)
+    participant Probe as AuditProbe
+    participant G as 浏览器外发通道
+    participant Voice as voice.js(window.Voice)
+    participant LTM as longterm-memory.js(window.LTM)
+    participant QA as qa-voice-acceptance(测试)
+
+    App->>Probe: install() 最早执行
+    Probe->>G: wrap fetch/XHR/WebSocket/sendBeacon/EventSource + hook resource tags
+    Note over App,Probe: 先校验 A/B 零外发(已 grep 确认二者无外部调用)
+    App->>Voice: 初始化 小暖 语音
+    Voice->>G: 运行时外发尝试(经包装)
+    G->>Probe: record(channel,url,action)
+    alt 命中 allowlist(同源/blob/data)或 consentedRegistry
+        Probe-->>G: 放行 allowedCount++/consentedCount++
+    else 疑似上报
+        Probe-->>G: 阻断 blockedCount++
+    end
+    App->>LTM: 读写长期记忆(全本地)
+    LTM->>G: 同上被探针记录(无外发)
+    App->>Probe: proveZeroReporting()
+    Probe-->>App: {zeroReporting:true,blocked,allowed,consented,logs}
+    QA->>Probe: getInstance().proveZeroReporting()
+    Probe-->>QA: 断言零非授权上报(A/B/C 共用探针)
+---
+
+sequenceDiagram
+    autonumber
+    participant App as app.js
+    participant Router as ReplyRouter(共存层)
+    participant Cloud as CloudChatProvider(S.cloud fetch)
+    participant Local as LocalModelAdapter(window.LocalModel)
+    participant Heur as LocalHeuristic(原生启发式)
+    participant Probe as AuditProbe
+
+    App->>Router: registerProviders([cloud, local, heuristic])
+    Note over App,Router: 优先级 cloud→local→heuristic;engine.js 零改动
+    App->>Router: route(prompt, ctx) 小暖 对话
+    Router->>Cloud: generate(prompt,ctx) 8s 超时
+    Cloud->>Probe: record(外发, S.cloud base, consented)
+    alt 超时/401/连续2次失败
+        Cloud-->>Router: reject
+        Router->>Router: failCount++; 401或连续2次→降级
+        Router->>Local: generate(prompt,ctx)
+        alt LocalModel 已加载
+            Local-->>Router: 端侧回复
+        else 未加载/失败
+            Router->>Heur: generate(prompt,ctx)
+            Heur-->>Router: 原生启发式回复(零外部依赖)
+        end
+        Router-->>App: 降级响应(degraded 标记)
+    else 云端正常
+        Cloud-->>Router: 云端回复(online 标记)
+    end
+    Router-->>App: 响应 + online/degraded
+---
+
+sequenceDiagram
+    autonumber
+    participant App as app.js
+    participant Off as OfflineProbe
+    participant Cache as Cache API(独立命名空间)
+    participant UI as PrivacyAudit(面板)
+    participant Probe as AuditProbe
+    participant CS as ConsentStore
+    participant Ind as OfflineIndicator
+
+    App->>Off: start(interval)
+    loop 周期探测(绕开 sw.js)
+        Off->>Off: checkConnectivity()(onLine+同源探测)
+        Off->>Cache: 仅读独立 ns(如 xinyu-edge-v1),不碰 sw key=19
+        Off->>Off: setState(online/degraded/offline)
+        Off->>Ind: setState(state)
+        Ind->>Ind: animate() 三态动效
+    end
+    App->>UI: render(面板)
+    UI->>Probe: getReport()→外发计数
+    UI->>CS: get(tts/asr/ltm/cloudSync)
+    UI->>Off: getState()
+    UI->>UI: getStorageUsage()(IDB估算+localStorage+独立Cache)
+    UI->>UI: refreshMetrics() 渲染
+    Note over App,UI: sw.js(v14)与 manifest 指纹未改动
+---
+
+sequenceDiagram
+    autonumber
+    participant User
+    participant UI as PrivacyAudit
+    participant Exp as AuditExporter
+    participant WC as Web Crypto(AES-GCM/PBKDF2)
+    participant Store as 本地存储(IDB/独立Cache)
+
+    User->>UI: 点击导出
+    UI->>UI: buildReport()(外发计数+存储+同意+日志)
+    alt 默认未加密
+        UI->>Exp: exportJSON(report)
+        Exp-->>User: 下载 xinyu-audit.json
+    else 可选 AES-GCM
+        UI->>WC: deriveKey(passphrase, salt) PBKDF2
+        WC-->>UI: CryptoKey
+        UI->>Exp: exportEncrypted(report, key)
+        Exp-->>User: 下载 xinyu-audit.json.enc
+    end
+    User->>UI: 点击清除
+    UI->>CS: reset()(cloudSync 需二次确认)
+    UI->>Store: clear IDB + 独立Cache + 审计日志(不碰 sw key=19)
+    Note over User,Store: 清除不触及 xinyu.ltm.* / xinyu.voice.* (A/B 共存)

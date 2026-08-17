@@ -4,6 +4,134 @@
 (() => {
 "use strict";
 
+/* ================= 候选 C（隐私/端侧增强）共存叠加层 =================
+ * 最早安装零上报探针（须早于 voice.js / longterm-memory.js 的任意运行时外发）。
+ * 本批次仅叠加：初始化 ConsentStore，供后续隐私面板使用；不改动 B 已合入逻辑。
+ * 铁律：不触碰冻结线；不引入第三方库；小暖 不更名。
+ */
+let __auditProbe = null;     // AuditProbe 单例（零上报探针）
+let __consentStore = null;   // ConsentStore 单例（同意态）
+let __offlineProbe = null;   // OfflineProbe 单例（离线三态）
+let __cacheWarmer = null;    // CacheWarmer 单例（独立 Cache 预热）
+/* 候选 C（C2 本地模型热切换）：路由层共存状态 */
+let __replyRouter = null;        // ReplyRouter 单例（优先级 cloud→local→heuristic）
+let __cloudProvider = null;      // CloudChatProvider（包装 S.cloud fetch）
+let __localModelAdapter = null;  // LocalModelAdapter（包装 window.LocalModel）
+let __localHeuristic = null;     // LocalHeuristic（原生启发式兜底，零外部依赖）
+try {
+  if (window.AuditProbe && typeof window.AuditProbe.install === "function") {
+    window.AuditProbe.install();                 // 包装 fetch/XHR/WS/beacon/EventSource + 资源标签钩子
+    __auditProbe = window.AuditProbe.getInstance();
+  }
+} catch (e) {}
+// 候选 C（C-E4 · C6）：最早注入 CSP Report-Only meta，违规仅在本地 securitypolicyviolation 捕获，绝不连接外部 report-uri
+try {
+  if (window.CspInjector && typeof window.CspInjector.injectReportOnly === "function") {
+    window.CspInjector.injectReportOnly();
+  }
+} catch (e) {}
+try {
+  if (window.ConsentStore && typeof window.ConsentStore.getInstance === "function") {
+    __consentStore = window.ConsentStore.getInstance();
+  }
+} catch (e) {}
+
+/* 注册用户显式同意的外发端点（仅当对应功能开启）。
+ * 同源（syncBase/pushBase 默认 = location.origin）已被 allowlist 放行；
+ * 仅当配置了自定义 endpoint（SC.endpoint）或开启了云端大脑（S.cloud.base）时，
+ * 才作为 consented 登记，确保唯一外发通道在审计面板可见且不被误阻断。 */
+function registerConsentedEndpoints() {
+  try {
+    const ap = (window.AuditProbe && window.AuditProbe.getInstance) ? window.AuditProbe.getInstance() : null;
+    if (!ap || typeof ap.registerConsented !== "function") return;
+    // 云端大脑：仅当开启且有 base
+    if (S && S.cloud && S.cloud.enabled && S.cloud.base) {
+      ap.registerConsented(S.cloud.base.trim());
+    }
+    // 云同步 / 主动推送：仅当设置了自定义 endpoint（空 = 同源，allowlist 已放行）
+    if (typeof SC !== "undefined" && SC && SC.enabled && SC.endpoint) {
+      ap.registerConsented(SC.endpoint.trim());
+    }
+    if (typeof SC !== "undefined" && SC && SC.endpoint && typeof PC !== "undefined" && PC && PC.enabled) {
+      ap.registerConsented(SC.endpoint.trim());
+    }
+  } catch (e) {}
+}
+
+/* ================= 候选 C（C2 本地模型热切换）共存叠加层 =================
+ * 在 app.js 内把既有 S.cloud fetch（callCloud）/ 端侧推理（localThink）包装为统一 ReplyProvider，
+ * 由 ReplyRouter 持有优先级 [cloud → local → heuristic] 并弹性降级：
+ *   8s 超时 / 连续 2 次失败 / 401 立即降级。最终兜底 LocalHeuristic（零外部依赖，小暖 永不静默）。
+ * engine.js 全程零改动；云端对话边界仍在 S.cloud fetch（callCloud），由 CloudChatProvider 包装。
+ * 铁律：默认不触发任何外部下载（LocalModelAdapter 未 loaded → isAvailable()=false → 跳过 → 落 heuristic）；
+ *       仅用户显式同意加载本地权重时，经 AuditProbe.registerConsented(CDN host) + 审计标注「用户自导权重」。 */
+function initReplyRouter() {
+  try {
+    if (!window.ReplyRouter) return; // 路由模块未就绪则共存安全网（herReply 回退原 callCloud）
+    __replyRouter = (window.ReplyRouter.getInstance) ? window.ReplyRouter.getInstance() : new window.ReplyRouter();
+    // CloudChatProvider：注入既有 callCloud 作 generate 实现（保留 mindCtx / 鉴权头 / 错误处理，8s 超时在其内部生效）
+    // 适配器将 ReplyProvider 的 ctx 映射回 callCloud(userText, ltmFragment, { signal }) 签名（向后兼容）。
+    __cloudProvider = new window.CloudChatProvider({
+      generate: (prompt, ctx) => callCloud(
+        prompt,
+        (ctx && ctx.ltmFragment) || null,
+        (ctx && ctx.signal) ? { signal: ctx.signal } : {}
+      ),
+    });
+    // LocalModelAdapter：注入既有 localThink 作 generate 实现；仅当 window.LocalModel.isLoaded() 才可用
+    __localModelAdapter = new window.LocalModelAdapter({ generate: localThink, localModel: (window.LocalModel || null) });
+    // LocalHeuristic：原生启发式兜底（local-heuristic.js，零外部依赖）
+    __localHeuristic = (window.LocalHeuristic) ? new window.LocalHeuristic() : null;
+    // 注册优先级 [cloud → local → heuristic]（heuristic 永远可用，保证 小暖 永不静默）
+    __replyRouter.registerProviders([__cloudProvider, __localModelAdapter, __localHeuristic]);
+    refreshCloudAvailability();
+  } catch (e) {
+    __replyRouter = null; // 异常则回退原 callCloud（共存安全网）
+  }
+}
+
+/* 依据 S.cloud 配置同步 CloudChatProvider 可用性，并登记 consented 端点（仅开启时）。 */
+function refreshCloudAvailability() {
+  try {
+    if (__cloudProvider) __cloudProvider.setAvailable(!!(S && S.cloud && S.cloud.enabled && S.cloud.base && S.cloud.key));
+    // LocalModelAdapter 的可用性由 window.LocalModel.isLoaded() 实时决定，无需在此设置
+    if (__localModelAdapter && window.LocalModel) __localModelAdapter.setLocalModel(window.LocalModel);
+  } catch (e) {}
+  try { registerConsentedEndpoints(); } catch (e) {}
+}
+
+/* D1 合规：本地权重（transformers 路径 / HuggingFace CDN）仅用户显式同意下加载。
+ * 加载前将 CDN host 登记为 consented，并在审计探针标注「用户自导权重」，确保零上报面板可见且不被误阻断。 */
+function registerLocalModelConsent() {
+  try {
+    if (!window.AuditProbe || !window.AuditProbe.getInstance) return;
+    var ap = window.AuditProbe.getInstance();
+    var CDN = (window.LocalModel && window.LocalModel.DEFAULT_MODEL)
+      ? "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0"
+      : "https://cdn.jsdelivr.net";
+    ap.registerConsented(CDN);                       // 登记 consented 端点（host）
+    if (typeof ap.record === "function") {
+      ap.record("resource", CDN, "consented");       // 审计日志标注「用户自导权重」
+    }
+    if (typeof ap.tagConsented === "function") ap.tagConsented(CDN, "用户自导权重");
+  } catch (e) {}
+}
+
+/* 用户显式同意门控的本地权重加载（默认绝不自动触发，满足「默认零上报 / 不下载外部模型」）。 */
+async function loadLocalModelWithConsent() {
+  try {
+    if (!window.LocalModel || typeof window.LocalModel.load !== "function") return false;
+    registerLocalModelConsent();                     // D1：先登记 consented + 审计标注
+    await window.LocalModel.load(S.localModel.model || window.LocalModel.DEFAULT_MODEL);
+    refreshCloudAvailability();                      // 同步 adapter 可用性
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+// 候选 C（C-E2→C-E4 接缝）：暴露为全局钩子，供 local-model-ui.js 调用（默认绝不自动触发，满足 D1 合规）。
+window.loadLocalModelWithConsent = loadLocalModelWithConsent;
+
 /* ================= 状态与持久化 ================= */
 const SAVE_KEY = "xiaonuan_save_v1";
 
@@ -1157,9 +1285,23 @@ async function herReply(userText, img) {
       mindCtx = null;
     }
 
-    // 优先云端大模型（有配置时作为主引擎）
+    // 候选 C（C2 本地模型热切换）：云端大脑启用时，走 ReplyRouter 统一路由 [cloud → local → heuristic]
+    //   - cloud 失败 / 8s 超时 / 连续 2 次失败 / 401 → 降级 local（若 LocalModel 已 loaded）→ 终落 LocalHeuristic
+    //   - S.cloud 关闭时本分支不进入，维持既有 engine.js 本地回复路径（不破坏 B）
     if (S.cloud.enabled && S.cloud.base && S.cloud.key) {
-      result = await callCloud(text, ltmFrag);
+      try {
+        if (__replyRouter) {
+          const routed = await __replyRouter.route(text, { ltmFragment: ltmFrag, mode: "reply" });
+          if (typeof routed === "string" && routed.trim()) {
+            result = { replies: [routed], delta: 3, expression: "normal", via: (__replyRouter.lastVia || "cloud") };
+          }
+        } else {
+          result = await callCloud(text, ltmFrag); // 路由未就绪：回退原 callCloud（共存安全网）
+        }
+      } catch (e) {
+        console.warn("ReplyRouter 路由失败，回落本地引擎：", e);
+        result = null; // 落入下方本地引擎兜底（冻结 engine.js，永远可用）
+      }
     }
     // 端侧模型兜底（零配置离线 AI）：云端未配/失败，且用户已启用并加载了本地模型
     if (!result && S.localModel.enabled) {
@@ -1542,8 +1684,10 @@ async function generateWeeklySummary(weekKey) {
   refreshStoryUI();
 }
 
-/* ================= 云端大模型 ================= */
-async function callCloud(userText, ltmFragment) {
+/* ================= 云端大模型 =================
+ * 候选 C（C2）：新增可选第三参 opts（向后兼容：既有调用仅传 1~2 个参数）。
+ * opts.signal 用于承接 CloudChatProvider 的 8s AbortController 中断信号，使云端超时真正生效。 */
+async function callCloud(userText, ltmFragment, opts = {}) {
   try {
     const base = S.cloud.base.trim().replace(/\/+$/, "");
     let url;
@@ -1567,7 +1711,7 @@ async function callCloud(userText, ltmFragment) {
         temperature: 0.9, max_tokens: 200,
         frequency_penalty: 0.6, presence_penalty: 0.4,
       }),
-      signal: AbortSignal.timeout(15000),
+      signal: (opts && opts.signal) ? opts.signal : AbortSignal.timeout(15000),
     });
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
@@ -3146,7 +3290,7 @@ function loadSyncCfg() {
   }, c);
 }
 let SC = loadSyncCfg();
-const saveSyncCfg = () => localStorage.setItem(SYNC_KEY, JSON.stringify(SC));
+const saveSyncCfg = () => { localStorage.setItem(SYNC_KEY, JSON.stringify(SC)); try { registerConsentedEndpoints(); } catch (e) {} };
 const syncBase = () => (SC.endpoint || location.origin).replace(/\/+$/, "");
 
 function deviceName() {
@@ -3853,6 +3997,7 @@ let lmLoadingTriggered = false;
 function ensureLocalModelLoaded() {
   if (lmLoadingTriggered || LocalModel.isLoaded()) return;
   lmLoadingTriggered = true;
+  registerLocalModelConsent();   // 候选 C（D1）：用户显式触发权重加载前，登记 consented + 审计标注「用户自导权重」
   LocalModel.load(S.localModel.model || LocalModel.DEFAULT_MODEL)
     .catch(() => { lmLoadingTriggered = false; });
 }
@@ -4096,6 +4241,8 @@ function bindSettings() {
       embedModel: (embedModel && embedModel.value.trim()) || "text-embedding-3-small",
     };
     save();
+    try { registerConsentedEndpoints(); } catch (e) {}  // 候选 C：云端大脑开启时登记 consented 端点
+    try { refreshCloudAvailability(); } catch (e) {}     // 候选 C（C2）：同步 CloudChatProvider 可用性
     const st = $("#cloud-status");
     if (!S.cloud.enabled) { st.textContent = "已保存，当前使用本地情感引擎。"; st.className = "me-status"; return; }
     st.textContent = "正在测试连接…"; st.className = "me-status";
@@ -4362,6 +4509,39 @@ function init() {
   try { bindAsrConsent(); } catch (e) {}
   try { bindVoicePrivacy(); } catch (e) {}
   try { bindVoiceBar(); } catch (e) {}
+  try { bindPrivacyAudit(); } catch (e) {}  // 候选 C（C-E3）：顶栏「⚙ 隐私审计」入口 + 面板开关
+
+  /* ================= 候选 C · 隐私共存启动 =================
+   * 仅叠加，不改动 B 逻辑：
+   *  1) 注册用户显式同意的外发端点（云/同步/推送，仅当开启时）
+   *  2) 启动离线三态探测（绕开冻结 sw.js）
+   *  3) 预热独立 Cache 命名空间 xinyu-edge-v1（绝不读写 sw key=19）
+   */
+  try { registerConsentedEndpoints(); } catch (e) {}
+  // 候选 C（C-E3）：暴露「重新登记已同意外发端点」钩子，供 PrivacyAudit.clearAll() 在重置探针后恢复 consentedRegistry
+  try { if (typeof registerConsentedEndpoints === "function" && typeof window !== "undefined") window.__xinyuReconsent = registerConsentedEndpoints; } catch (e) {}
+  try { initReplyRouter(); } catch (e) {}  // 候选 C（C2）：注册 [cloud→local→heuristic] 路由
+  try {
+    if (window.OfflineProbe) { __offlineProbe = window.OfflineProbe.getInstance(); __offlineProbe.start(30000); }
+  } catch (e) {}
+  // 候选 C（C-E4 · C11）：顶栏挂载离线三态指示灯，订阅 OfflineProbe.onChange 驱动 setState/animate
+  try {
+    if (window.OfflineIndicator) {
+      var __ledAnchor = document.querySelector("#nav-offline-led") || document.querySelector("#page-chat .nav");
+      if (__ledAnchor) {
+        var __led = window.OfflineIndicator.getInstance().mount(__ledAnchor);
+        if (window.OfflineProbe && window.OfflineProbe.getInstance) {
+          window.OfflineProbe.getInstance().onChange(function (st) {
+            try { __led.setState(st); __led.animate(); } catch (e2) {}
+          });
+          __led.setState(window.OfflineProbe.getInstance().getState());
+        }
+      }
+    }
+  } catch (e) {}
+  try {
+    if (window.CacheWarmer) { __cacheWarmer = window.CacheWarmer.getInstance(); __cacheWarmer.preloadCritical(); }
+  } catch (e) {}
   // 打断（Q3）：用户开始说话即打断小暖正在朗读（Voice 内部 startListen 已 cancel，这里再显式兜底）
   try {
     if (window.Voice && typeof Voice.onState === "function") {
@@ -4489,6 +4669,51 @@ function initPWAUpdate() {
     document.body.appendChild(t);
     setTimeout(() => { t.classList.remove("show"); setTimeout(() => t.remove(), 400); }, 2600);
   }
+}
+
+/* ================= 候选 C（C-E3 · C-T5）· 隐私审计面板入口 =================
+ * 在 B 已合入的聊天顶栏追加「⚙ 隐私审计」按钮（不破坏语音条 / 其它按钮），
+ * 绑定弹窗开关，并在 index.html 的隐藏弹窗骨架内渲染 PrivacyAudit。
+ * 铁律：小暖 不更名；B 逻辑零改动；仅共存叠加；不触碰冻结线。 */
+function bindPrivacyAudit() {
+  // 1) 聊天顶栏追加入口按钮（B 已合入结构内追加，不破坏语音条等）
+  try {
+    const nav = document.querySelector("#page-chat .nav");
+    if (nav && !nav.querySelector("#btn-privacy-audit")) {
+      const b = document.createElement("button");
+      b.className = "nav-audit";
+      b.id = "btn-privacy-audit";
+      b.type = "button";
+      b.title = "隐私审计";
+      b.setAttribute("aria-label", "隐私审计");
+      b.textContent = "⚙";
+      nav.appendChild(b);
+      b.addEventListener("click", openPrivacyAudit);
+    }
+  } catch (e) {}
+
+  // 2) 弹窗开关（关闭按钮 + 点遮罩关闭）
+  try {
+    const modal = document.getElementById("privacy-audit-modal");
+    const closeBtn = document.getElementById("privacy-audit-close");
+    if (modal && closeBtn) {
+      closeBtn.addEventListener("click", () => { try { modal.classList.add("hidden"); } catch (e) {} });
+      modal.addEventListener("click", (ev) => { try { if (ev.target === modal) modal.classList.add("hidden"); } catch (e) {} });
+    }
+  } catch (e) {}
+}
+
+/* 打开隐私审计面板：渲染并刷新指标（指标动态，每次打开重算）。 */
+function openPrivacyAudit() {
+  try {
+    const modal = document.getElementById("privacy-audit-modal");
+    if (!modal) return;
+    if (window.PrivacyAudit && typeof window.PrivacyAudit.render === "function") {
+      const body = document.getElementById("privacy-audit-body");
+      window.PrivacyAudit.render(body);
+    }
+    modal.classList.remove("hidden");
+  } catch (e) {}
 }
 
 document.addEventListener("DOMContentLoaded", init);

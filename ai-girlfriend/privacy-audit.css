@@ -1,0 +1,200 @@
+/**
+ * privacy-audit.css · 心屿 候选 C（C-E3）· 隐私审计面板样式
+ * 覆盖：弹窗 / 面板 / 区块 / 外发计数 / 存储占用 / 同意开关 / 同意徽标 / 操作按钮 / 确认弹窗。
+ * 主题沿用产品樱粉（#ff7b9c），变量回退自 style.css 的 --pink。
+ * 注：指示灯动效（offline-indicator）留待 C-E4，本批次不实现动画。
+ * 铁律：小暖 不更名；仅原生 CSS，零依赖。
+ */
+
+/* ============ 弹窗遮罩（自包含，避免与 style.css 的 .modal-mask 耦合） ============ */
+.xn-modal-mask {
+  position: fixed; inset: 0; z-index: 80;
+  background: rgba(40, 20, 30, .45);
+  display: flex; align-items: center; justify-content: center;
+  padding: 18px;
+  -webkit-overflow-scrolling: touch;
+}
+.xn-modal-mask.hidden { display: none; }
+
+.xn-modal-panel {
+  width: 100%; max-width: 340px;
+  background: #fff; border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 12px 40px rgba(255, 123, 156, .3);
+  border: 1px solid rgba(255, 123, 156, .25);
+}
+.xn-modal-title { font-size: 16px; font-weight: 800; color: var(--pink-deep, #e0557f); margin-bottom: 10px; }
+.xn-modal-title.danger { color: #d8453f; }
+.xn-modal-text { font-size: 13px; line-height: 1.7; color: #6b5560; margin: 0 0 12px; }
+.xn-modal-text b { color: var(--pink-deep, #e0557f); }
+.xn-modal-actions { display: flex; gap: 10px; margin-top: 14px; }
+.xn-modal-actions .xn-btn { flex: 1; margin: 0; }
+
+/* ============ 隐私审计面板 ============ */
+.xn-audit-panel {
+  width: 100%; max-width: 460px;
+  max-height: 86vh; overflow-y: auto;
+  background: #fff; border-radius: 18px;
+  box-shadow: 0 16px 50px rgba(255, 123, 156, .35);
+  border: 1px solid rgba(255, 123, 156, .25);
+  display: flex; flex-direction: column;
+}
+.xn-audit-head {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, #ff8fab, #ff7b9c);
+  color: #fff; border-radius: 18px 18px 0 0;
+}
+.xn-audit-title { font-size: 16px; font-weight: 800; }
+.xn-audit-close {
+  width: 30px; height: 30px; border: none; border-radius: 50%;
+  background: rgba(255, 255, 255, .25); color: #fff; font-size: 16px;
+  cursor: pointer; line-height: 1;
+}
+.xn-audit-close:hover { background: rgba(255, 255, 255, .4); }
+.xn-audit-body { padding: 14px 18px 20px; }
+
+/* ============ 区块 ============ */
+.xn-audit-section { padding: 12px 0; border-bottom: 1px solid #f1e3e9; }
+.xn-audit-section:last-of-type { border-bottom: none; }
+.xn-audit-subtitle { font-size: 14px; font-weight: 800; color: #3a2a33; margin-bottom: 10px; }
+.xn-audit-note { font-size: 12px; line-height: 1.6; color: #8a7681; margin-top: 8px; }
+
+/* ============ 零上报证明 ============ */
+.xn-audit-proof-status { font-size: 13px; line-height: 1.6; padding: 8px 10px; border-radius: 10px; }
+.xn-audit-proof-status.ok { background: #e9f9ef; color: #1f8a4d; }
+.xn-audit-proof-status.warn { background: #fdecec; color: #d8453f; }
+.xn-audit-counts { display: flex; gap: 8px; margin-top: 10px; }
+.xn-count {
+  flex: 1; text-align: center; padding: 8px 4px;
+  background: #faf3f6; border-radius: 10px; border: 1px solid #f3e1e9;
+}
+.xn-count-num { display: block; font-size: 18px; font-weight: 800; color: var(--pink-deep, #e0557f); }
+.xn-count-label { display: block; font-size: 10.5px; color: #8a7681; margin-top: 2px; }
+
+/* ============ 存储占用 ============ */
+.xn-store-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.xn-store-col {
+  background: #faf3f6; border-radius: 10px; padding: 10px;
+  border: 1px solid #f3e1e9; text-align: center;
+}
+.xn-store-total { grid-column: span 2; background: #fff0f5; border-color: rgba(255, 123, 156, .35); }
+.xn-store-val { font-size: 16px; font-weight: 800; color: #3a2a33; }
+.xn-store-name { font-size: 10.5px; color: #8a7681; margin-top: 3px; }
+
+/* ============ 同意开关（精细） ============ */
+.xn-consent-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 10px 0; border-bottom: 1px dashed #f1e3e9;
+}
+.xn-consent-row:last-child { border-bottom: none; }
+.xn-consent-info { min-width: 0; }
+.xn-consent-title { font-size: 13px; font-weight: 700; color: #3a2a33; }
+.xn-consent-desc { font-size: 11px; line-height: 1.5; color: #8a7681; margin-top: 2px; }
+.xn-consent-right { display: flex; align-items: center; flex-shrink: 0; }
+
+/* 「已授权外发」徽标（D2：云同步显著标注） */
+.xn-consent-badge {
+  display: inline-block; font-size: 10.5px; font-weight: 800; color: #fff;
+  background: #ff5a7a; padding: 2px 8px; border-radius: 10px; margin-right: 8px;
+  white-space: nowrap;
+}
+.xn-consent-badge::before { content: '● '; font-size: 8px; vertical-align: middle; }
+
+/* 开关 */
+.xn-consent-switch { position: relative; display: inline-block; width: 46px; height: 26px; flex-shrink: 0; }
+.xn-consent-switch input { opacity: 0; width: 0; height: 0; }
+.xn-consent-slider {
+  position: absolute; inset: 0; cursor: pointer;
+  background: #e2c6cf; border-radius: 20px; transition: background .2s;
+}
+.xn-consent-slider::before {
+  content: ''; position: absolute; height: 20px; width: 20px; left: 3px; top: 3px;
+  background: #fff; border-radius: 50%; transition: transform .2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
+}
+.xn-consent-switch input:checked + .xn-consent-slider { background: var(--pink, #ff7b9c); }
+.xn-consent-switch input:checked + .xn-consent-slider::before { transform: translateX(20px); }
+.xn-consent-switch input:focus-visible + .xn-consent-slider { outline: 2px solid var(--pink, #ff7b9c); outline-offset: 2px; }
+
+/* ============ 当前网络通道 ============ */
+.xn-channel-val { font-size: 14px; font-weight: 800; color: var(--pink-deep, #e0557f); }
+
+/* ============ 操作按钮 ============ */
+.xn-audit-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+.xn-btn {
+  border: none; border-radius: 12px; padding: 11px 14px;
+  font-size: 13.5px; font-weight: 700; cursor: pointer;
+  transition: transform .12s, filter .12s;
+}
+.xn-btn:active { transform: scale(.97); }
+.xn-btn-primary { background: var(--pink, #ff7b9c); color: #fff; }
+.xn-btn-primary:hover { filter: brightness(1.04); }
+.xn-btn-danger { background: #fff; color: #d8453f; border: 1.5px solid #f3b6b1; }
+.xn-btn-danger:hover { background: #fdecec; }
+
+/* ============ 顶栏「⚙ 隐私审计」入口（B 已合入的 nav 内追加，不破坏语音条等） ============ */
+.nav-audit {
+  background: none; border: none; font-size: 18px; cursor: pointer;
+  padding: 4px 6px; opacity: .8; line-height: 1;
+}
+.nav-audit:hover { opacity: 1; }
+.nav-audit:active { transform: scale(.88); }
+
+/* ============ 顶栏离线三态指示灯（C11，纯原生 CSS 动效） ============ */
+.xn-led-anchor { display: inline-flex; align-items: center; margin: 0 2px; flex-shrink: 0; }
+.xn-offline-led {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 10px; height: 10px; border-radius: 50%;
+  margin: 0 6px; flex-shrink: 0;
+  background: #9aa0a6; box-shadow: 0 0 0 0 rgba(0,0,0,0);
+  transition: background .3s;
+}
+.xn-offline-led[data-state="online"]   { background: #34c759; }
+.xn-offline-led[data-state="degraded"] { background: #f5a623; }
+.xn-offline-led[data-state="offline"]  { background: #9aa0a6; }
+/* 呼吸/脉冲动效（由 OfflineIndicator.animate() 触发重启动画） */
+.xn-led-anim[data-state="online"]   { animation: xn-led-pulse-green 2s ease-in-out infinite; }
+.xn-led-anim[data-state="degraded"] { animation: xn-led-pulse-amber 1.2s ease-in-out infinite; }
+.xn-led-anim[data-state="offline"]  { animation: xn-led-pulse-gray 3s ease-in-out infinite; }
+@keyframes xn-led-pulse-green { 0%,100% { box-shadow: 0 0 0 0 rgba(52,199,89,.55); } 50% { box-shadow: 0 0 0 5px rgba(52,199,89,0); } }
+@keyframes xn-led-pulse-amber { 0%,100% { box-shadow: 0 0 0 0 rgba(245,166,35,.6); } 50% { box-shadow: 0 0 0 5px rgba(245,166,35,0); } }
+@keyframes xn-led-pulse-gray { 0%,100% { box-shadow: 0 0 0 0 rgba(154,160,166,.4); } 50% { box-shadow: 0 0 0 4px rgba(154,160,166,0); } }
+
+/* ============ 隐私评分（C12） ============ */
+.xn-score-row { display: flex; align-items: center; gap: 14px; padding: 8px 0; }
+.xn-score-num {
+  font-size: 34px; font-weight: 900; color: var(--pink-deep, #e0557f);
+  line-height: 1; min-width: 64px; text-align: center;
+}
+.xn-score-grade {
+  font-size: 18px; font-weight: 800; padding: 6px 14px; border-radius: 12px;
+  background: #fff0f5; border: 1px solid rgba(255,123,156,.35); color: var(--pink-deep, #e0557f);
+}
+
+/* ============ 本地模型管理（C7） ============ */
+.xn-lm-head { display: flex; flex-direction: column; gap: 2px; }
+.xn-lm-title { font-size: 13px; font-weight: 800; color: #3a2a33; }
+.xn-lm-status { font-size: 12px; color: #8a7681; }
+.xn-lm-desc { font-size: 11.5px; line-height: 1.6; color: #8a7681; margin: 6px 0 10px; }
+.xn-lm-desc code, .xn-lm-w-txt code { background: #f5eef2; padding: 1px 5px; border-radius: 5px; font-size: 11px; word-break: break-all; }
+.xn-lm-actions { display: flex; gap: 10px; }
+.xn-lm-actions .xn-btn { flex: 1; }
+.xn-lm-actions .xn-btn:disabled { opacity: .5; cursor: not-allowed; }
+.xn-lm-progress { margin-top: 10px; }
+.xn-lm-bar { height: 6px; border-radius: 4px; background: #f0e3ea; overflow: hidden; }
+.xn-lm-bar > span { display: block; height: 100%; background: var(--pink, #ff7b9c); transition: width .2s; }
+.xn-lm-bar-txt { font-size: 11px; color: #8a7681; margin-top: 4px; }
+.xn-lm-weights { margin-top: 8px; font-size: 11.5px; color: #8a7681; line-height: 1.6; }
+
+/* ============ 口令输入（加密导出） ============ */
+.xn-input {
+  width: 100%; box-sizing: border-box; padding: 10px 12px; margin: 4px 0 2px;
+  border: 1.5px solid #f0d8e1; border-radius: 10px; font-size: 13.5px;
+  outline: none; transition: border-color .15s;
+}
+.xn-input:focus { border-color: var(--pink, #ff7b9c); }
+
+/* ============ 诊断二维码弹层（C14，本地 canvas） ============ */
+#xn-qr-canvas { border-radius: 8px; image-rendering: pixelated; }

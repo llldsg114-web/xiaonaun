@@ -1,0 +1,157 @@
+classDiagram
+    direction TB
+
+    class AuditProbe {
+        +Number blockedCount
+        +Number allowedCount
+        +Number consentedCount
+        +Array~ProbeLog~ probeLog
+        +Set~String~ allowlist
+        +Set~String~ consentedRegistry
+        +install() void
+        +wrapFetch() void
+        +wrapXHR() void
+        +wrapWebSocket() void
+        +wrapSendBeacon() void
+        +wrapEventSource() void
+        +hookResourceTags() void
+        +record(channel, url, action) void
+        +registerConsented(pattern) void
+        +proveZeroReporting() Object
+        +getReport() Object
+        +reset() void
+        +getInstance() AuditProbe
+    }
+
+    class ReplyProvider {
+        <<interface>>
+        +generate(prompt, ctx) Promise~String~
+        +isAvailable() Boolean
+    }
+
+    class CloudChatProvider {
+        +String base
+        +String model
+        +Number timeoutMs
+        +Number failCount
+        +generate(prompt, ctx) Promise~String~
+        +isAvailable() Boolean
+    }
+
+    class LocalModelAdapter {
+        +Boolean enabled
+        +generate(prompt, ctx) Promise~String~
+        +isAvailable() Boolean
+        +ensureLoaded() Promise~void~
+    }
+
+    class LocalHeuristic {
+        +generate(prompt, ctx) Promise~String~
+        +isAvailable() Boolean
+        +ruleReply(text) String
+    }
+
+    class ReplyRouter {
+        +Array~ReplyProvider~ providers
+        +registerProviders(list) void
+        +route(prompt, ctx) Promise~String~
+        +onDegrade(cb) void
+    }
+
+    class OfflineProbe {
+        +String state
+        +Number lastCheck
+        +String cacheName
+        +Number checkInterval
+        +start() void
+        +checkConnectivity() Promise~String~
+        +warmCache(resources) Promise~void~
+        +getState() String
+        +onChange(cb) void
+    }
+
+    class CacheWarmer {
+        +String cacheName
+        +warm(list) Promise~void~
+        +preloadCritical() Promise~void~
+    }
+
+    class ConsentStore {
+        +Boolean tts
+        +Boolean asr
+        +Boolean ltm
+        +Boolean cloudSync
+        +String version
+        +load() void
+        +save() void
+        +get(key) Boolean
+        +set(key, val) void
+        +isGranted(key) Boolean
+        +reset() void
+    }
+
+    class PrivacyAudit {
+        +AuditProbe probe
+        +ConsentStore consent
+        +OfflineProbe offline
+        +render(container) void
+        +refreshMetrics() Promise~void~
+        +exportLogs(format, encrypt, pass) Promise~void~
+        +clearAll() Promise~void~
+        +getStorageUsage() Promise~Object~
+    }
+
+    class AuditExporter {
+        +exportJSON(report) Blob
+        +exportEncrypted(report, key) Promise~Blob~
+        +deriveKey(passphrase, salt) Promise~CryptoKey~
+    }
+
+    class ConsentUI {
+        +render(container) void
+        +bindSwitch(key, el) void
+    }
+
+    class LocalModelUI {
+        +render(container) void
+        +toggleModel() void
+        +showWeights() void
+    }
+
+    class CspInjector {
+        +injectReportOnly() void
+        +handleReport(e) void
+    }
+
+    class OfflineIndicator {
+        +mount(anchor) void
+        +setState(state) void
+        +animate() void
+    }
+
+    class PrivacyScore {
+        +compute(metrics) Number
+        +grade(score) String
+    }
+
+    class DiagnosticReport {
+        +build() Object
+        +shareLocal() void
+    }
+
+    ReplyProvider <|.. CloudChatProvider : 实现
+    ReplyProvider <|.. LocalModelAdapter : 实现
+    ReplyProvider <|.. LocalHeuristic : 实现
+    ReplyRouter o-- ReplyProvider : 持有优先级列表
+    PrivacyAudit --> AuditProbe : 读外发计数
+    PrivacyAudit --> ConsentStore : 读同意态
+    PrivacyAudit --> OfflineProbe : 读离线态
+    PrivacyAudit --> AuditExporter : 导出
+    PrivacyAudit --> ConsentUI : 内嵌开关
+    PrivacyAudit --> PrivacyScore : 评分
+    PrivacyAudit --> DiagnosticReport : 诊断
+    OfflineProbe --> CacheWarmer : 预热独立Cache
+    OfflineProbe --> OfflineIndicator : 驱动三态
+    LocalModelUI --> LocalModelAdapter : 管理
+    CspInjector ..> AuditProbe : 违规进本地审计
+    ConsentStore ..> ConsentUI : 绑定
