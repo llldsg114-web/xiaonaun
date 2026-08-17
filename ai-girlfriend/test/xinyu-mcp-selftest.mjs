@@ -168,8 +168,72 @@ async function main() {
     ok("_call 401 仅重试一次（共 2 次调用）", callCount === 2);
   } finally { globalThis.fetch = realFetch; }
 
+  // 候选 A · 长期记忆 端到端烟雾测试（自包含段，复用 ok() 并入总 tally）
+  await ltmSmokeTest();
+
   console.log(`\n结果：通过 ${pass} / 失败 ${fail}`);
   process.exit(fail === 0 ? 0 : 1);
+}
+
+/* ============== 候选 A · 长期记忆（LTM）端到端烟雾测试 ==============
+ * 自包含段：在 Node 下为 LTM 补齐浏览器全局（localStorage / window / crypto），
+ * 跑通 init→distill→list→retrieve→buildMemoryFragment→clearSubject 闭环。
+ * 复用既有 ok() 断言，结果并入总 pass/fail，不破坏上方任何断言。 */
+async function ltmSmokeTest() {
+  console.log("\n[ltm] 长期记忆 端到端烟雾测试");
+
+  // --- Node 兼容 shim（与 longterm-memory.js 后端选择逻辑对齐：优先 localStorage 回退 memory）---
+  if (!globalThis.localStorage) {
+    globalThis.localStorage = {
+      _m: new Map(),
+      getItem(k) { return this._m.has(k) ? this._m.get(k) : null; },
+      setItem(k, v) { this._m.set(k, String(v)); },
+      removeItem(k) { this._m.delete(k); },
+    };
+  }
+  if (!globalThis.crypto) {
+    try { globalThis.crypto = (await import("node:crypto")).webcrypto; } catch (e) {}
+  }
+  // longterm-memory.js 为 CJS（module.exports = LTM）；ESM 下经动态 import 取 default
+  const LTM = (await import("../longterm-memory.js")).default;
+  globalThis.window = globalThis.window || globalThis;
+  globalThis.window.LTM = LTM;
+
+  const SUBJECT = "selftest_subject";
+  const SID = "conv_selftest";
+
+  // init（Node 下后端回退到 local / memory，shim 已就绪）
+  await LTM.init();
+  ok("LTM.init 后可调用 distillFromTurns", typeof LTM.distillFromTurns === "function");
+
+  // 样例 turns（含偏好 / 约定，验证蒸馏能抽取）
+  const turns = [
+    { role: "user", text: "我喜欢香菜，火锅必点它" },
+    { role: "assistant", text: "哈哈你口味真特别～" },
+    { role: "user", text: "我每周三晚上都去健身房" },
+    { role: "assistant", text: "好棒，注意安全哦" },
+    { role: "user", text: "我们约好周末一起看电影" },
+    { role: "assistant", text: "好呀，我已经期待了" },
+  ];
+  const d = await LTM.distillFromTurns(turns, SUBJECT, SID);
+  ok("distillFromTurns 返回 {added,updated}", !!(d && typeof d.added === "number" && typeof d.updated === "number"));
+  ok("distillFromTurns 至少抽取到 1 条记忆", d.added > 0);
+
+  const all = await LTM.list(SUBJECT);
+  ok("list 条数 > 0", Array.isArray(all) && all.length > 0);
+  ok("list 返回条目含 content/type", all.every((it) => it && it.content && it.type));
+
+  const rec = await LTM.retrieveForSession(SUBJECT, "香菜");
+  ok("retrieveForSession('香菜') 召回相关偏好", Array.isArray(rec) && rec.length > 0 && rec.some((it) => (it.content || "").includes("香菜")));
+
+  const frag = LTM.buildMemoryFragment(rec);
+  ok("buildMemoryFragment 非空且为字符串", typeof frag === "string" && frag.length > 0);
+  ok("buildMemoryFragment 含类型标签 [偏好]", frag.includes("[偏好]"));
+
+  // 清理：彻底清除本 subject，避免污染其它测试
+  await LTM.clearSubject(SUBJECT);
+  const after = await LTM.list(SUBJECT);
+  ok("clearSubject 后该分组记忆已清空", Array.isArray(after) && after.length === 0);
 }
 
 main().catch((e) => { console.error("自测异常：", e); process.exit(1); });

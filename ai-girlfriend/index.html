@@ -590,6 +590,15 @@
     </div>
   </div>
 
+  <!-- ======= 候选 A · 长期记忆管理页（默认隐藏：.page 默认 display:none，由 app.js 加 .active 控制显隐） ======= -->
+  <section class="page" id="ltm-manage">
+    <!-- 内容由 ltm-ui.js 的 LTMUI.renderManagePage 渲染注入 -->
+    <div class="ltm-body" id="ltm-manage-body"></div>
+  </section>
+
+  <!-- ======= 对话唤起：右下角「⌐ 记忆」角标（由 ltm-ui.js 控制显隐/数字） ======= -->
+  <div id="ltm-corner" class="hidden">⌐ 记忆</div>
+
   <!-- ======= 底部 Tab 栏 ======= -->
   <nav class="tabbar">
     <button class="tab active" data-page="chat"><span class="tab-ico">💬</span>聊天<span class="tab-dot hidden" id="chat-dot"></span></button>
@@ -610,6 +619,10 @@
 <script src="contingency.js"></script>
 <script src="localmodel.js"></script>
 <script src="caption.js"></script>
+<!-- 候选 A · 长期记忆：核心模块 longterm-memory.js（挂 window.LTM）须先于 ltm-ui.js（挂 window.LTMUI）；
+     二者均在 app.js 之前加载，确保 app.js 集成时可消费 window.LTM。 -->
+<script src="longterm-memory.js"></script>
+<script src="ltm-ui.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

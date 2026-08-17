@@ -1,0 +1,72 @@
+%% ① 蒸馏：触发 → 产出 → 持久化
+sequenceDiagram
+    participant App as app.js(宿主)
+    participant LTM as LTManager
+    participant PF as PrivacyFilter
+    participant D as Distiller
+    participant C as LTMcrypto
+    participant S as StorageBackend
+
+    App->>LTM: distillFromTurns(turns, subject, sessionId)
+    LTM->>PF: shouldBlock(turn.text)
+    alt 命中 HARD/SOFT 边界
+        PF-->>LTM: {blocked, reason} 丢弃该片段
+    else 通过
+        LTM->>D: extractItems(text, ctx)
+        D-->>LTM: candidates[MemoryItem]
+        LTM->>D: merge(existing, candidates)
+        D-->>LTM: {merged, added, updated}
+        loop 每条待存
+            LTM->>C: encrypt(item, key)
+            C-->>LTM: {iv, ct}
+            LTM->>S: put(EncryptedRecord)
+        end
+        LTM-->>App: {added, updated}
+    end
+
+%% ② 新会话：检索 → 回灌注入 → engine 使用
+sequenceDiagram
+    participant App as app.js(herReply 前)
+    participant MCP as mcp-client(identity)
+    participant LTM as LTManager
+    participant R as Retriever
+    participant Engine as Engine(冻结)
+    participant UI as LTMUI
+
+    App->>MCP: identity()
+    MCP-->>App: {subject, sessionId}
+    App->>LTM: retrieveForSession(subject, query)
+    LTM->>R: score(item, query)  (分词+标签+时间衰减)
+    R-->>LTM: topK MemoryItem[]
+    LTM-->>App: items
+    App->>App: est.longTermMemories = items  (补充字段, 不覆盖 mindCtx)
+    App->>App: buildMemoryFragment(items) → 注入云端/本地模型分支
+    App->>Engine: reply(text, est)  (冻结引擎忽略 longTermMemories)
+    Engine-->>App: replies
+    App->>UI: renderRecallBubble(items) + renderCornerBadge
+
+%% ③ 管理页 CRUD
+sequenceDiagram
+    participant U as 用户
+    participant UI as LTMUI
+    participant LTM as LTManager
+    participant C as LTMcrypto
+    participant S as StorageBackend
+
+    U->>UI: 打开管理页
+    UI->>LTM: list(subject, filter)
+    LTM->>S: getAllBySubject(subject)
+    S-->>LTM: EncryptedRecord[]
+    LTM->>C: decrypt(rec, key)
+    C-->>LTM: MemoryItem[]
+    LTM-->>UI: 列表渲染
+    U->>UI: 编辑 content
+    UI->>LTM: update(id, content)
+    LTM->>S: put(updated)  (updated_at 留痕)
+    U->>UI: 删除单条
+    UI->>LTM: remove(id)
+    LTM->>S: delete(id)
+    U->>UI: 彻底清除全部
+    UI->>UI: confirmWipe(scope) 二次确认
+    UI->>LTM: clearSubject(subject) | clearAll()
+    LTM->>S: deleteBySubject | clearAll (不可逆)

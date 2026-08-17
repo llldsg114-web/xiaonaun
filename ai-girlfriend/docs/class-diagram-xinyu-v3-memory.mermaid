@@ -1,0 +1,90 @@
+classDiagram
+    class MemoryItem {
+        +string id
+        +string subject
+        +("fact"|"preference"|"agreement") type
+        +string content
+        +number created_at
+        +number updated_at
+        +string source_session
+        +number confidence
+        +string[] tags
+    }
+    class EncryptedRecord {
+        +string id
+        +string subject
+        +("fact"|"preference"|"agreement") type
+        +string iv
+        +string ct
+        +number created_at
+        +number updated_at
+    }
+    class LTMcrypto {
+        +deriveKey(subject, salt) Promise~CryptoKey~
+        +encrypt(obj, key) Promise~{iv,ct}~
+        +decrypt(rec, key) Promise~object~
+        +genSalt() string
+    }
+    class PrivacyFilter {
+        +shouldBlock(text) ~{blocked,reason}~
+        +sanitize(text) string
+    }
+    class Distiller {
+        +extractItems(text, ctx) MemoryItem[]
+        +merge(existing, candidates) ~{merged,added,updated}~
+        +distill(turns, subject, sessionId) MemoryItem[]
+    }
+    class Retriever {
+        +score(item, query) number
+        +retrieve(subject, query, opts) ScoredMemory[]
+    }
+    class StorageBackend {
+        <<interface>>
+        +open()
+        +put(rec)*
+        +getAllBySubject(s)*
+        +delete(id)*
+        +deleteBySubject(s)*
+        +clearAll()*
+        +countBySubject(s)*
+    }
+    class IdbBackend
+    class LocalStorageBackend
+    class MemoryBackend
+    class LTManager {
+        +init() Promise~void~
+        +isEnabled() bool
+        +setEnabled(b) void
+        +distillFromTurns(turns, subject, sid) Promise~void~
+        +retrieveForSession(subject, query) Promise~MemoryItem[]~
+        +list(subject, filter) Promise~MemoryItem[]~
+        +get(id) Promise~MemoryItem~
+        +update(id, content) Promise~void~
+        +remove(id) Promise~void~
+        +clearSubject(subject) Promise~void~
+        +clearAll() Promise~void~
+        +buildMemoryFragment(items) string
+        +exportEncrypted(subject) Promise~Blob~
+        +importEncrypted(blob) Promise~void~
+    }
+    class LTMUI {
+        +renderManagePage()
+        +renderRecallBubble(items, anchor)
+        +renderCornerBadge(count)
+        +bindToggle()
+        +confirmWipe(scope)
+    }
+
+    MemoryItem "1" -- "1" EncryptedRecord : encrypt-at-rest
+    StorageBackend <|.. IdbBackend
+    StorageBackend <|.. LocalStorageBackend
+    StorageBackend <|.. MemoryBackend
+    LTManager o-- LTMcrypto
+    LTManager o-- PrivacyFilter
+    LTManager o-- Distiller
+    LTManager o-- Retriever
+    LTManager o-- StorageBackend
+    Distiller ..> MemoryItem : produces
+    Retriever ..> MemoryItem : scores
+    LTMUI ..> LTManager : calls
+    app.js ..> LTManager : host wiring

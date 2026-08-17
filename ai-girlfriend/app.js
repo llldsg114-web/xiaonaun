@@ -11,6 +11,79 @@ const SAVE_KEY = "xiaonuan_save_v1";
 let mindCtx = null;
 let MCP = null;
 
+/* ================= 候选 A · 长期记忆（LTM）集成 =================
+ * 把 window.LTM（核心模块）与 window.LTMUI（视图层）接进真实对话流程。
+ * 铁律：隐私优先、零上报、可清除；任何 LTM 调用异常必须降级，绝不阻塞主对话回复。
+ * 冻结线（engine.js 等）不消费 longTermMemories；唤起经 UI 气泡 + 模型分支注入 buildMemoryFragment。
+ */
+let __ltmIdentity = null;     // 缓存 { subject, sessionId }，避免每轮重复解析身份
+let __ltmRecallItems = null;  // 本轮检索到的长期记忆条目（per-turn 缓冲，供 herReply 注入 est）
+let __ltmTurns = [];          // 本会话累计的 turns 缓冲（user/assistant 文本），用于蒸馏
+
+/** 解析当前会话身份 { subject, sessionId }（优先 MCP.identity，回退设备 id）。降级安全。 */
+async function ltmIdentity() {
+  try {
+    if (__ltmIdentity) return __ltmIdentity;
+    let subject = null, sessionId = null;
+    if (MCP && typeof MCP.identity === "function") {
+      try { const r = await MCP.identity(); subject = r && r.subject; sessionId = r && r.sessionId; } catch (e) {}
+    }
+    if (!subject || !sessionId) {
+      // 回退：用 localStorage 里的设备 id 作为 subject/sessionId（与 mcp-client 同源）
+      let dev = null;
+      try { if (window.localStorage) dev = window.localStorage.getItem("xinyu_device_id"); } catch (e) {}
+      if (!dev) dev = "default";
+      subject = subject || dev;
+      sessionId = sessionId || ("conv-" + dev);
+    }
+    __ltmIdentity = { subject: String(subject), sessionId: String(sessionId) };
+    try { window.__xinyuSubject = __ltmIdentity.subject; } catch (e) {}
+    return __ltmIdentity;
+  } catch (e) {
+    return { subject: "default", sessionId: "conv-default" };
+  }
+}
+
+/** 用户消息发送前：召回相关长期记忆，渲染唤起气泡与角标（降级安全，绝不阻塞）。 */
+async function ltmRetrieve(userText) {
+  try {
+    if (!window.LTM || typeof window.LTM.retrieveForSession !== "function") return;
+    const id = await ltmIdentity();
+    const items = await window.LTM.retrieveForSession(id.subject, userText);
+    if (items && items.length) {
+      __ltmRecallItems = items;
+      try { if (window.LTMUI) { window.LTMUI.renderRecallBubble(items); window.LTMUI.renderCornerBadge(items.length); } } catch (e2) {}
+    } else {
+      __ltmRecallItems = null;
+    }
+  } catch (e) {
+    __ltmRecallItems = null; // 降级：忽略检索异常，绝不阻塞对话
+  }
+}
+
+/** 轻量缓冲：收集本会话的 user/assistant 文本，供会话结束/切换时蒸馏。 */
+function ltmPushTurn(role, text) {
+  try {
+    if (!text) return;
+    __ltmTurns.push({ role: role, text: String(text) });
+    if (__ltmTurns.length > 200) __ltmTurns = __ltmTurns.slice(-200); // 轻量上限，避免无限增长
+  } catch (e) {}
+}
+
+/** 会话/回合结束钩子：把累计 turns 蒸馏进长期记忆并清空缓冲（降级安全）。 */
+async function ltmDistill() {
+  try {
+    if (!window.LTM || typeof window.LTM.distillFromTurns !== "function") return;
+    if (!__ltmTurns.length) return;
+    const turns = __ltmTurns.slice();
+    __ltmTurns = []; // 蒸馏后清空，避免重复落库
+    const id = await ltmIdentity();
+    await window.LTM.distillFromTurns(turns, id.subject, id.sessionId);
+  } catch (e) {
+    // 降级：忽略，绝不阻塞
+  }
+}
+
 /* 主题色预设 —— 切换时同步 CSS 变量，立绘衣服/UI 一起换色 */
 const THEMES = {
   sakura: { pink: "#ff7b9c", deep: "#f25c82", me1: "#ff8fab", me2: "#ff6b95", soft: "#ffd6e2" },
@@ -1007,6 +1080,15 @@ function applyEmotion(intent, delta, ue) {
 
 async function herReply(userText, img) {
   herBusy = true;
+  // 候选 A · 长期记忆：捕获本轮召回条目（send 阶段已检索），供引擎/模型分支注入
+  const ltmRecall = __ltmRecallItems; __ltmRecallItems = null;
+  // 构建长期记忆片段（供云端/端侧模型分支注入 prompt；本地冻结引擎忽略该字段）
+  let ltmFrag = null;
+  try {
+    if (ltmRecall && ltmRecall.length && window.LTM && typeof window.LTM.buildMemoryFragment === "function") {
+      ltmFrag = window.LTM.buildMemoryFragment(ltmRecall);
+    }
+  } catch (e) { ltmFrag = null; }
   if (userText) pendingQueue.push(userText);
   if (img) pendingImgs.push(img);
 
@@ -1032,6 +1114,7 @@ async function herReply(userText, img) {
       S.lastReply = special.replies[special.replies.length - 1];
       save();
       if (special.delta) addAffection(special.delta);
+      try { ltmPushTurn("assistant", special.replies.join(" ")); } catch (e) {}
       continue;
     }
 
@@ -1051,6 +1134,7 @@ async function herReply(userText, img) {
       S.lastReply = sem.replies[sem.replies.length - 1];
       save();
       addAffection(sem.delta);
+      try { ltmPushTurn("assistant", sem.replies.join(" ")); } catch (e) {}
       continue;
     }
 
@@ -1064,11 +1148,11 @@ async function herReply(userText, img) {
 
     // 优先云端大模型（有配置时作为主引擎）
     if (S.cloud.enabled && S.cloud.base && S.cloud.key) {
-      result = await callCloud(text);
+      result = await callCloud(text, ltmFrag);
     }
     // 端侧模型兜底（零配置离线 AI）：云端未配/失败，且用户已启用并加载了本地模型
     if (!result && S.localModel.enabled) {
-      result = await localThink(text);
+      result = await localThink(text, ltmFrag);
     }
     // 本地引擎兜底（永远可用，无网络也无模型也能聊）
     // v11：把完整 state 交给引擎（话题 / 跨轮去重窗口 / 用户情绪 / 危机冷却 / 开关），
@@ -1091,6 +1175,8 @@ async function herReply(userText, img) {
         // v2 ③ 本地引擎消费 mindCtx：把 12 维信封归一化为 MindProfile 注入本地引擎，
         // 做回复塑形偏置（黏人/安抚/更早给台阶）。云端分支（callCloud）不变，仍用 buildFragment。
         mindProfile: (mindCtx && MCP) ? MCP.normalizeProfile(mindCtx) : null,
+        // 候选 A · 长期记忆：补充字段，绝不覆盖上面的 mindCtx/mindProfile；冻结引擎忽略该字段
+        longTermMemories: (ltmRecall && ltmRecall.length) ? ltmRecall : null,
       };
       const r = Engine.reply(text, est);
       // ★ v13 待决点④ 落盘：engine.js 冻结（T5a 零 diff），afterTurn 的调用点只能落在宿主。
@@ -1156,6 +1242,7 @@ async function herReply(userText, img) {
     markAllRead();
     S.lastReply = result.replies[result.replies.length - 1];
     save();
+    try { ltmPushTurn("assistant", result.replies.join(" ")); } catch (e) {}
     refreshNavStatus();
     refreshRecentUI();
     addAffection(result.delta);
@@ -1445,7 +1532,7 @@ async function generateWeeklySummary(weekKey) {
 }
 
 /* ================= 云端大模型 ================= */
-async function callCloud(userText) {
+async function callCloud(userText, ltmFragment) {
   try {
     const base = S.cloud.base.trim().replace(/\/+$/, "");
     let url;
@@ -1457,7 +1544,9 @@ async function callCloud(userText) {
     }));
     // 心屿 MCP：先取系统提示基线，再（若有心智上下文）追加摘要片段（字符串拼接，绝不改 engine.js）
     const sysBase = Engine.systemPrompt({ affection: S.affection, nick: S.nick, mood, firstMeet: S.firstMeet, dating: S.dating, memory: S.memory, persona: S.persona, caredTopics: S.caredTopics, recall: await retrieveMemoriesCloud(userText), emotion: S.emotion, lastVisit: S.lastVisit, dailyNotes: S.dailyNotes });
-    const sysContent = (mindCtx && MCP) ? sysBase + "\n\n【当前心智状态】\n" + MCP.buildFragment(mindCtx) : sysBase;
+    let sysContent = (mindCtx && MCP) ? sysBase + "\n\n【当前心智状态】\n" + MCP.buildFragment(mindCtx) : sysBase;
+    // 候选 A · 长期记忆：把召回片段注入系统提示（补充上下文，不改动引擎）
+    if (ltmFragment) sysContent += "\n\n【长期记忆唤起】\n" + ltmFragment;
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${S.cloud.key}` },
@@ -1501,18 +1590,20 @@ function cleanLocalReply(t) {
   return s;
 }
 
-async function localThink(text) {
+async function localThink(text, ltmFragment) {
   if (!S.localModel.enabled || !window.LocalModel || !LocalModel.isLoaded()) return null;
   try {
     const intent = Engine.detect(text);
     const history = S.messages.slice(-10).map(m => ({
       role: m.from === "me" ? "user" : "assistant", content: m.text,
     }));
-    const sys = Engine.systemPrompt({
+    let sys = Engine.systemPrompt({
       affection: S.affection, nick: S.nick, mood, firstMeet: S.firstMeet,
       dating: S.dating, memory: S.memory, persona: S.persona,
       caredTopics: S.caredTopics, recall: [], emotion: S.emotion,
     }) + "\n\n（请用一句话简短回复，像女朋友在微信上发的消息，口语化、带点 emoji，不要列清单、不要写小标题。）";
+    // 候选 A · 长期记忆：把召回片段注入系统提示（补充上下文，不改动引擎）
+    if (ltmFragment) sys += "\n\n【长期记忆唤起】\n" + ltmFragment;
     const messages = [
       { role: "system", content: sys },
       ...history,
@@ -2563,13 +2654,29 @@ function bindTabs() {
       document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
       document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
       tab.classList.add("active");
-      $("#page-" + tab.dataset.page).classList.add("active");
+      // 候选 A · 长期记忆：管理页容器 id 为 #ltm-manage（与既有 page-<name> 约定不同）
+      const pageEl = tab.dataset.page === "ltm-manage"
+        ? document.getElementById("ltm-manage")
+        : $("#page-" + tab.dataset.page);
+      if (pageEl) pageEl.classList.add("active");
       if (tab.dataset.page === "chat") {
         $("#chat-dot").classList.add("hidden");
         scrollBottom();
       }
       if (tab.dataset.page === "story") refreshStoryUI();
       if (tab.dataset.page === "her") refreshRecentUI();
+      // 候选 A · 长期记忆：进入记忆管理页时渲染 + 绑定总开关（降级安全）
+      if (tab.dataset.page === "ltm-manage") {
+        try {
+          if (window.LTMUI) {
+            window.LTMUI.renderManagePage(document.getElementById("ltm-manage-body"), window.__xinyuSubject || null);
+            window.LTMUI.bindToggle();
+          }
+        } catch (e2) {}
+        ltmDistill(); // 离开聊天 → 蒸馏本会话累计 turns
+      } else if (tab.dataset.page !== "chat") {
+        ltmDistill(); // 切到其它非聊天页也尝试蒸馏（best-effort）
+      }
     });
   });
 }
@@ -2579,7 +2686,7 @@ const EMOJIS = ["😊","😂","🥰","😳","😤","😭","🥺","😆","😉","
 
 function bindInput() {
   const input = $("#chat-input");
-  const send = () => {
+  const send = async () => {
     const text = input.value.trim();
     if (!text) return;
     input.value = "";
@@ -2596,6 +2703,10 @@ function bindInput() {
       if (isNew) pushStory("memory", "👤", `你告诉${currentChar().name}，你叫 ${mem.userName}`);
     }
     pushMessage("me", text);
+
+    // 候选 A · 长期记忆：用户消息落库前先召回相关记忆（降级安全，绝不阻塞对话）
+    try { await ltmRetrieve(text); } catch (e) {}
+    try { ltmPushTurn("user", text); } catch (e) {}
 
     // 心屿 MCP：异步 fire 交互事件（失败静默，绝不阻断 UI；不 await）
     if (MCP) MCP.fireUserEvent(text, { intensity: 0.5, tags: [] }).catch(() => {});
@@ -4031,6 +4142,17 @@ function init() {
   applyOutfit(S.wardrobe.outfit || "default");
   updateAura();
 
+  // 候选 A · 长期记忆：在底部 tabbar 注入「记忆」入口（不改动 index.html，外科手术式）。
+  // 必须在 bindTabs() 之前注入，使其被通用 tab 点击处理器统一绑定。
+  try {
+    const bar = document.querySelector(".tabbar");
+    if (bar && !bar.querySelector('[data-page="ltm-manage"]')) {
+      const b = document.createElement("button");
+      b.className = "tab"; b.dataset.page = "ltm-manage";
+      b.innerHTML = '<span class="tab-ico">🧠</span>记忆';
+      bar.appendChild(b);
+    }
+  } catch (e) {}
   bindTabs(); bindInput(); bindActions(); bindSettings(); bindCall(); bindGames(); bindPropose(); bindOutfit(); bindGender(); bindSearch(); bindDayDetail();
   bindVoice(); bindNotify(); bindCloudSave(); bindLocalModel(); bindSync(); bindPush();
   bindArcUI();
@@ -4062,6 +4184,9 @@ function init() {
   // 日记提醒 & 周小结：每 5 分钟检查一次（21-23 点问日记、周日 20-22 点出周小结）
   setInterval(() => { try { checkDiaryReminder(); checkWeeklySummary(); } catch (e) {} }, 5 * 60000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { try { checkDiaryReminder(); checkWeeklySummary(); } catch (e) {} } });
+  // 候选 A · 长期记忆：页面隐藏 / 卸载前蒸馏本会话累计 turns（隐私优先，本地落库；降级安全）
+  document.addEventListener("visibilitychange", () => { if (document.hidden) ltmDistill(); });
+  window.addEventListener("beforeunload", () => { try { ltmDistill(); } catch (e) {} });
 
   // 连续情绪光晕：空闲时缓慢回落，立绘始终"活"着
   setInterval(tickEmotion, 10000);
@@ -4089,6 +4214,24 @@ function init() {
       console.warn("[xinyu-mcp] 心智引擎模块不可用，已降级:", e && e.message);
       MCP = null;
     }
+    // 候选 A · 长期记忆：解析身份、初始化视图层与本地后端（全部降级安全，绝不阻塞对话）
+    try {
+      const id = await ltmIdentity();
+      if (id && id.subject) {
+        try { window.__xinyuSubject = id.subject; } catch (e2) {}
+        if (window.LTMUI && window.LTMUI.setSubject) {
+          try { window.LTMUI.setSubject(id.subject); } catch (e2) {}
+        }
+      }
+      // 首次加载弹出隐私同意（方法有 consent 标志守卫，幂等安全）
+      if (window.LTMUI && window.LTMUI.maybeShowConsent) {
+        try { window.LTMUI.maybeShowConsent(); } catch (e2) {}
+      }
+      // 顺手初始化 LTM 后端（失败静默）
+      if (window.LTM && typeof window.LTM.init === "function") {
+        try { await window.LTM.init(); } catch (e2) {}
+      }
+    } catch (e) {}
   })();
 }
 
