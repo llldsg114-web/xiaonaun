@@ -1286,3 +1286,140 @@ body::after { width: 55vw; height: 55vw; right: -12vw; bottom: -8vh;
   75% { transform: translateX(5px); }
 }
 .ltm-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ============================================================================
+ * 候选 D · 统一导航壳（ui-shell.js / window.UiShell）
+ * 本段**全部为文件末尾追加**，不修改上方任何既有规则 —— 尤其是：
+ *   :41   .hidden{display:none!important}   （INV-5：id 特异性下唯一能压住 display:grid 的机制）
+ *   :62   #app{...max-width:560px}          （只在 @media ≥1024px 内、且带壳层标记时覆盖）
+ *   :63-64 .page{display:none}/.page.active{display:flex}（屏切换真源机制，逐字保留）
+ *   :324-327 .tabbar{...}                   （只在 @media ≥1024px 内、且带壳层标记时隐藏）
+ *   :357-359 @media(min-width:600px) 左右边框（与 768/1024 断点正交，叠加无冲突）
+ *
+ * 响应式**纯 CSS media query，零 JS 测量**：无 matchMedia / ResizeObserver / onresize，
+ * 故无布局抖动、无监听器泄漏、不采集任何设备或视口指标（与零上报铁律一致）。
+ *
+ * ★ 降级安全：壳层可见性一律以 `#app[data-xn-shell="1"]` 为条件。
+ *   ui-shell.js 挂载失败 / 未挂载时该标记不存在 ⇒ 顶栏与侧栏保持 display:none、
+ *   #app 保持既有 flex 单屏、.tabbar 在任何宽度下都留着 ⇒ 形态退化而非崩坏，导航永不消失。
+ * ========================================================================== */
+
+/* —— 壳层骨架默认完全不显示（index.html 声明式提供，等 JS 点亮） —— */
+#shell-topbar, #shell-sidebar { display: none; }
+
+/* —— 顶栏：跨 6 屏常驻。视觉沿用 .nav 的粉色渐变；z-index 5 = 与 .nav 同层，
+      硬上限 <30，绝不遮挡 .search-panel(30) / .xn-modal-mask(80) / #splash(99)（INV-9）。
+      padding-top 沿用 env(safe-area-inset-top) 口径，与 .nav:69 一致（刘海屏不顶头）。 —— */
+#app[data-xn-shell="1"] #shell-topbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px 12px;
+  background: linear-gradient(135deg, #ff8fab, #ff7b9c);
+  color: #fff; box-shadow: 0 2px 12px rgba(242, 92, 130, .25);
+  z-index: 5; flex-shrink: 0;
+}
+.shell-lead { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.shell-title { font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shell-ctx-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.shell-tail { display: flex; align-items: center; gap: 4px; }
+
+/* 对话屏顶栏的名称/状态搬进 .shell-lead 后，标题就与它重复了 ⇒ 对话屏只显示搬来的真节点。 */
+#shell-topbar[data-screen="chat"] .shell-title { display: none; }
+/* 其余 5 屏没有角色名节点可搬，改由 .shell-title 显示屏名；此时隐藏对话屏专属的头像/名称块。 */
+#shell-topbar:not([data-screen="chat"]) .shell-lead .nav-info,
+#shell-topbar:not([data-screen="chat"]) .shell-lead #nav-avatar { display: none; }
+/* 上下文操作（😊 📞 🔊 🔍）只属于对话屏；其它屏收起，避免「离开对话却在控制对话」。
+   纯 CSS 依 JS 写上的 data-screen 判定，无需逐个节点改 style（rollback 只删属性即可复原）。 */
+#shell-topbar:not([data-screen="chat"]) .shell-ctx-actions { display: none; }
+/* #nav-mood 原本靠 margin-left:auto 顶到 .nav 最右；进了 ctx 容器后由容器自己顶右，就地中和。 */
+#shell-ctx-actions #nav-mood { margin-left: 0; }
+/* ⚙ 克隆体保留 .nav-audit 视觉，但会一并继承全局 .tab 的 flex:1/column ⇒ 就地中和。 */
+#shell-tail .tab { flex: 0 0 auto; flex-direction: row; padding: 4px 6px; font-size: 18px; width: auto; }
+
+/* —— 对话屏原顶栏被搬空后只剩 padding + 粉色渐变，会残留一条空色带 ⇒ 收起。
+      由 ui-shell.js 打 data-xn-migrated 标记驱动；rollback 删属性即整条恢复。 —— */
+#page-chat .nav[data-xn-migrated] { display: none; }
+
+/* —— 侧栏（仅 ≥1024px 出现，见下方桌面档） —— */
+.shell-brand { display: flex; align-items: center; gap: 8px; padding: 4px 6px 12px; font-size: 18px; font-weight: 700; color: var(--pink-deep); }
+.shell-brand-ico { font-size: 22px; }
+.shell-nav { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow-y: auto; }
+/* 侧栏项必须带 class="tab"（data-page 契约 C1），因此继承了全局 .tab 的
+   flex:1 / column / center —— 侧栏要的是横向行式条目，全部就地中和。 */
+#shell-nav .tab {
+  flex: 0 0 auto; flex-direction: row; align-items: center; justify-content: flex-start;
+  gap: 10px; width: 100%; padding: 10px 12px; border-radius: 12px;
+  font-size: 14px; text-align: left; position: relative;
+}
+#shell-nav .tab:hover { background: rgba(255, 143, 171, .12); }
+#shell-nav .tab.active { background: rgba(255, 143, 171, .22); color: var(--pink-deep); font-weight: 700; }
+.shell-nav-ico { font-size: 20px; filter: grayscale(80%); transition: filter .2s; }
+#shell-nav .tab.active .shell-nav-ico { filter: none; }
+.shell-nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shell-nav-dot { width: 8px; height: 8px; border-radius: 50%; background: #ff3b6b; margin-left: auto; flex-shrink: 0; }
+.shell-side-foot { margin-top: auto; padding: 10px 8px 4px; border-top: 1px solid #ffe0e9; font-size: 11px; color: var(--text-light); }
+.shell-net { display: flex; align-items: center; gap: 6px; }
+/* 网络三态**文字**镜像的色点：只读订阅 OfflineProbe（ADR-7），不是第二个 OfflineIndicator 实例。 */
+.shell-net-dot { width: 8px; height: 8px; border-radius: 50%; background: #9ccc65; flex-shrink: 0; }
+.shell-net-dot[data-state="degraded"] { background: #ffc107; }
+.shell-net-dot[data-state="offline"] { background: #bdbdbd; }
+.shell-days { margin-top: 4px; }
+
+/* ══ 档 2 · 平板 / 折叠屏（768 – 1023.98px）：底部 Tab 保留、侧栏仍隐藏，只放宽内容宽度。
+      上界用 1023.98px 而非 1023px：缩放 / 非整数 DPR 下 1023↔1024 之间会出现 1px 无人区，
+      两套导航同时消失。 ══ */
+@media (min-width: 768px) and (max-width: 1023.98px) {
+  #app[data-xn-shell="1"] { max-width: 720px; }
+}
+
+/* ══ 档 3 · 桌面（≥1024px）：侧栏出现、底部 Tab 隐藏、解除 560px 锁 ══ */
+@media (min-width: 1024px) {
+  #app[data-xn-shell="1"] {
+    max-width: none;
+    display: grid;
+    /* minmax(0,1fr) 在列与行上都是**必须**的：grid 项默认 min-width/min-height:auto，
+       会被子内容（聊天长消息、#cloud-export textarea、超长存档码）撑破 → 横向滚动条。
+       行方向的 minmax(0,1fr) 同时为 .page{min-height:0} + #chat-body{flex:1;min-height:0}
+       提供确定高度，消解 grid 内高度塌陷。 */
+    grid-template-columns: 240px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas:
+      "sidebar topbar"
+      "sidebar main";
+  }
+  /* 侧栏跨顶栏与内容区两行 —— 这正是桌面用 grid 而非 flex 的理由（flex 做不到不加包裹层，
+     而加包裹层就得重父 6 个 .page，违反 ADR-3）。z-index 6，仍远低于 30。 */
+  #app[data-xn-shell="1"] #shell-sidebar {
+    display: flex; flex-direction: column; grid-area: sidebar; z-index: 6;
+    padding: calc(env(safe-area-inset-top, 0px) + 14px) 12px 12px;
+    background: #fff; border-right: 1px solid #ffe0e9; min-height: 0; overflow: hidden;
+  }
+  #app[data-xn-shell="1"] #shell-topbar { grid-area: topbar; }
+  /* ADR-3：6 个 .page 全部**不重父**，直接落进同名 grid 区。
+     同一时刻只有一个 .page 是 display:flex，其余 display:none 不参与 grid 放置 ⇒ 不冲突。
+     .page{display:none} / .page.active{display:flex} 机制逐字保留、零改动。 */
+  #app[data-xn-shell="1"] .page { grid-area: main; min-width: 0; }
+  #app[data-xn-shell="1"] .tabbar { display: none; }
+  /* 宽屏留白：避免卡片被拉伸失衡 */
+  #app[data-xn-shell="1"] .me-body,
+  #app[data-xn-shell="1"] .her-body,
+  #app[data-xn-shell="1"] .story-body,
+  #app[data-xn-shell="1"] .ltm-body,
+  #app[data-xn-shell="1"] .xn-audit-body { max-width: 860px; margin-inline: auto; }
+  /* 隐私屏 8 分区桌面双列瀑布：**纯 CSS 后代选择器**，privacy-audit.css 零改动、
+     privacy-audit.js 零改动。<1024px 自动回到单列。 */
+  #app[data-xn-shell="1"] #page-privacy .xn-audit-body {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: var(--gap-sm, 10px);
+    align-content: start;
+    max-width: 1200px;
+  }
+}
+
+/* —— 无障碍：屏切换的极简淡入必须尊重系统「减弱动态效果」 —— */
+#app[data-xn-shell="1"] .page.active { animation: shellFadeIn .12s ease-out; }
+@keyframes shellFadeIn { from { opacity: .55; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  #app[data-xn-shell="1"] .page.active { animation: none; }
+  .shell-nav-ico, #shell-nav .tab { transition: none; }
+}

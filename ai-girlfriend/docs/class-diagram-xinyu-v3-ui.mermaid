@@ -1,0 +1,268 @@
+classDiagram
+    direction TB
+
+    %% ============================================================
+    %% 心屿 Xinyu v3 · 候选 D · UI 多界面布局重构 · 组件/类图
+    %% 架构师 高见远(Gao) / AI 女友 小暖(Xiaonuan) 不更名
+    %% L4 新增呈现壳层 → L3 视图层 → L2 能力层 → L1 冻结线(无边)
+    %% ============================================================
+
+    %% ---------- L4 新增：共存呈现壳层（唯一新增层） ----------
+    class UiShell {
+        <<新增 ui-shell.js · window.UiShell · IIFE 零依赖>>
+        +String version
+        +ShellState state
+        +mount() Boolean
+        +go(routeOrPage) void
+        +syncNavActive(page) void
+        -buildTopbar() HTMLElement
+        -buildSidebar() HTMLElement
+        -adoptGlobals() void
+        -retireModalHost() void
+        -bindDelegate() void
+        -initHashRouter() void
+        -runShellHooks(page) void
+        -rollback() void
+    }
+
+    class ShellState {
+        <<只读镜像·非真源>>
+        +String current
+        +String prev
+        +Array~String~ screens
+        +Boolean mounted
+    }
+
+    class ScreenRegistry {
+        <<壳层内屏注册表 SCREENS>>
+        +String page
+        +String containerId
+        +String route
+        +String title
+        +Boolean ctxActions
+        +Function onEnter
+        +resolve(page) ScreenDef
+        +byRoute(hash) ScreenDef
+    }
+
+    class HashRouter {
+        <<零依赖·hash 深链>>
+        +Object ALIAS
+        +parse(hash) String
+        +write(page) void
+        +onHashChange(cb) void
+        +restoreFirstScreen() String
+    }
+
+    class ShellTopbar {
+        <<常驻·跨6屏·z-index 5>>
+        +HTMLElement ledHost
+        +HTMLElement titleEl
+        +HTMLElement ctxActions
+        +HTMLElement privacyEntry
+        +setScreen(page) void
+        +setTitle(text) void
+    }
+
+    class ShellSidebar {
+        <<桌面 1024px 起·z-index 6>>
+        +Array~HTMLElement~ navItems
+        +HTMLElement dotMirror
+        +HTMLElement ledTextMirror
+        +render() void
+        +highlight(page) void
+    }
+
+    class NavDelegate {
+        <<document 级委托·与 bindTabs 时序解耦>>
+        +onClick(ev) void
+        +isShellNode(el) Boolean
+        +forwardToTabbar(page) void
+    }
+
+    %% ---------- 6 主屏（data-page 契约） ----------
+    class ScreenChat {
+        <<data-page=chat · #page-chat>>
+        +既有 #chat-body
+        +既有 .chat-input-bar
+        +浮层 #voice-bar #emoji-panel #search-panel #ltm-corner
+    }
+    class ScreenHer {
+        <<data-page=her · #page-her>>
+        +既有 #her-stage #affection-fill #rel-card
+    }
+    class ScreenStory {
+        <<data-page=story · #page-story>>
+        +既有 #rel-graph #mood-calendar #timeline
+    }
+    class ScreenMemory {
+        <<data-page=ltm-manage · #ltm-manage · 不改名>>
+        +既有 #ltm-manage-body
+        +LTMUI 唯一宿主 INV-2b
+    }
+    class ScreenPrivacy {
+        <<data-page=privacy · #page-privacy · 新增屏>>
+        +新增 #privacy-audit-body-page
+        +PrivacyAudit 唯一宿主 INV-2
+    }
+    class ScreenSettings {
+        <<data-page=me · #page-me · 分组重排>>
+        +既有 #me-search
+        +新分组 语音与朗读(4卡)
+        +瘦身 智能与模型(2卡)
+    }
+
+    %% ---------- L3 既有视图/控制层（零改动） ----------
+    class AppRouter {
+        <<既有 app.js:2986 bindTabs() · 屏切换单真源 INV-1>>
+        +bindTabs() void
+        +解析 page-{data-page} 或 #ltm-manage
+        +切换 .page.active / .tab.active
+        +副作用 chatDot scrollBottom
+        +副作用 refreshStoryUI refreshRecentUI
+        +副作用 LTMUI.renderManagePage bindToggle
+        +副作用 ltmDistill
+    }
+
+    class AppLegacyEntry {
+        <<既有 app.js:4678 · 退役但保留为降级路径>>
+        +bindPrivacyAudit() void
+        +openPrivacyAudit() void
+        +refreshNavStatus() void
+    }
+
+    class PrivacyAudit {
+        <<既有 privacy-audit.js · 单宿主 INV-2>>
+        +render(container) void
+        +refreshMetrics() Promise
+        +exportLogs(format) Promise
+        +clearAll() Promise
+        +getStorageUsage() Promise
+        -q(sel, root) Element
+    }
+
+    class ConsentUI {
+        <<既有 · 完全作用域化·可安全重渲染>>
+        +render(container) void
+    }
+
+    class LocalModelUI {
+        <<既有 · 单宿主 INV-2a · #xn-lm-*>>
+        +render(container) void
+    }
+
+    class LTMUI {
+        <<既有 · 单宿主 INV-2b · #ltm-*>>
+        +renderManagePage(container, subject) void
+        +bindToggle() void
+        +renderRecallBubble(items, anchor) void
+        +renderCornerBadge(count) void
+    }
+
+    class OfflineIndicator {
+        <<既有单例 · 严禁二次 mount INV-3>>
+        +HTMLElement _el
+        +mount(anchor) OfflineIndicator
+        +setState(state) OfflineIndicator
+        +animate() OfflineIndicator
+    }
+
+    class DiagnosticReport {
+        <<既有 · QR 宿主=document.body>>
+        +build() Object
+        +shareLocal(opts) void
+    }
+
+    class PrivacyScore {
+        <<既有>>
+        +compute(metrics) Number
+        +grade(score) String
+    }
+
+    %% ---------- L2 既有能力层（壳层零接触） ----------
+    class OfflineProbe {
+        <<既有 · 壳层只读订阅·绝不 start ADR-7>>
+        +start(interval) void
+        +getState() String
+        +onChange(cb) void
+    }
+    class ConsentStore {
+        <<既有 · 壳层零接触>>
+        +get(key) Boolean
+        +set(key, val) void
+    }
+    class AuditProbe {
+        <<既有 · 壳层零接触>>
+        +proveZeroReporting() Object
+    }
+    class Voice {
+        <<既有 voice.js · 纯函数模块·无自有 DOM>>
+        +speak(text, opts) void
+        +cancelSpeak() void
+        +startListen(cb, h) void
+        +onState(fn) void
+    }
+
+    %% ---------- L1 冻结线（无任何入边/出边） ----------
+    class FrozenLine {
+        <<冻结线·CI 字节闸·L4 无边可达>>
+        +engine.js 251068B
+        +sw.js 13723B
+        +memory.js 13333B
+        +test/baseline.js 2646B
+    }
+
+    %% ---------- 壳层内部组合 ----------
+    UiShell *-- ShellState : 持有只读镜像
+    UiShell *-- ScreenRegistry : 屏定义
+    UiShell *-- HashRouter : 深链
+    UiShell *-- ShellTopbar : 创建
+    UiShell *-- ShellSidebar : 创建
+    UiShell *-- NavDelegate : 创建
+
+    %% ---------- 屏归属 ----------
+    ScreenRegistry o-- ScreenChat : data-page 契约
+    ScreenRegistry o-- ScreenHer : data-page 契约
+    ScreenRegistry o-- ScreenStory : data-page 契约
+    ScreenRegistry o-- ScreenMemory : data-page 契约
+    ScreenRegistry o-- ScreenPrivacy : data-page 契约
+    ScreenRegistry o-- ScreenSettings : data-page 契约
+
+    %% ---------- 核心协作：转发而非重写 ----------
+    NavDelegate ..> AppRouter : 转发 tab.click() 复用既有处理器 INV-1
+    AppRouter --> ScreenChat : 加 .page.active
+    AppRouter --> ScreenHer : 加 .page.active
+    AppRouter --> ScreenStory : 加 .page.active
+    AppRouter --> ScreenMemory : 加 .page.active + LTMUI 渲染
+    AppRouter --> ScreenPrivacy : 加 .page.active(开放映射·无白名单)
+    AppRouter --> ScreenSettings : 加 .page.active
+    AppRouter ..> LTMUI : 记忆屏渲染归 app.js·壳层严禁介入
+
+    %% ---------- 壳层唯一的渲染副作用 ----------
+    UiShell --> PrivacyAudit : 唯一介入点·首次 render + 每次 refreshMetrics
+    PrivacyAudit --> ScreenPrivacy : 注入 8 逻辑分区(7 section + 1 actions)
+    PrivacyAudit --> ConsentUI : 内嵌 #xn-consent-mount
+    PrivacyAudit --> LocalModelUI : 内嵌 #xn-localmodel-mount
+    PrivacyAudit --> DiagnosticReport : 诊断 JSON / 本地二维码
+    PrivacyAudit --> PrivacyScore : 隐私评分
+    PrivacyAudit ..> AuditProbe : 读外发计数
+    PrivacyAudit ..> ConsentStore : 读同意态
+    PrivacyAudit ..> OfflineProbe : 读离线态
+
+    %% ---------- DOM 迁移（移动节点·不重建实例） ----------
+    ShellTopbar ..> OfflineIndicator : 迁移 #nav-offline-led 宿主·实例不重建 INV-3
+    OfflineProbe --> OfflineIndicator : onChange 驱动三态
+    ShellSidebar ..> OfflineProbe : 只读订阅文字态镜像·绝不 start ADR-7
+    ShellTopbar ..> Voice : 仅搬 #btn-tts / #btn-call 节点·不调 API
+    ShellTopbar ..> AppLegacyEntry : clone 换绑 ⚙ 断连 openPrivacyAudit ADR-5
+    UiShell ..> AppLegacyEntry : P2 退役弹窗宿主 id·保留节点作降级 INV-4
+
+    %% ---------- 冻结线隔离 ----------
+    UiShell ..> FrozenLine : 无边·物理零交集
+    ScreenRegistry ..> FrozenLine : 无边·物理零交集
+
+    note for UiShell "职责仅四项: 搭壳 / 搬家 / 转发 / 挂钩 ; 不持业务数据; 不发任何网络请求 INV-7 ; 仅持久化 localStorage['xinyu.ui.lastScreen']"
+    note for AppRouter "app.js 零改动(确定结论): ; 路由为开放映射 $('#page-'+data-page), ; 无 screens 白名单 → 新屏 privacy 自动解析"
+    note for PrivacyAudit "refreshMetrics() 不接收 container, ; render() 不持久化 container, ; setText() → document.querySelector ; → 单宿主是结构性约束 INV-2"
+    note for FrozenLine "engine.js 纯函数库(无 DOM/路由) ; sw.js 仅缓存 key=19(不改清单) ; memory.js 引擎注册(无 UI) ; baseline.js 测试基线(不重置)"
+    note for ScreenPrivacy "去模态化: #privacy-audit-modal 浮层 → 一级屏 ; 与弹窗形态永不并存 INV-4"

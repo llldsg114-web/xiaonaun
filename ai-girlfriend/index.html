@@ -44,6 +44,17 @@
 <!-- ============ 应用主体 ============ -->
 <div id="app" class="hidden">
 
+  <!-- ======= 候选 D · 统一导航壳：全局顶栏（跨 6 屏常驻） =======
+       容器为声明式骨架，内容由 ui-shell.js 在 app.js init() 之后「迁入」既有全局态节点
+       （#nav-offline-led / 头像 / 名称 / 状态 / 心情 / 📞 🔊 🔍 / ⚙），节点移动而非重建，
+       因此 OfflineIndicator 单例与既有监听器全部继续有效。壳层未挂载时本骨架整体不显示。 -->
+  <header class="shell-topbar" id="shell-topbar" data-screen="chat">
+    <div class="shell-lead" id="shell-lead"></div>
+    <div class="shell-title" id="shell-title">对话</div>
+    <div class="shell-ctx-actions" id="shell-ctx-actions"></div>
+    <div class="shell-tail" id="shell-tail"></div>
+  </header>
+
   <!-- ======= Tab 1: 聊天 ======= -->
   <section class="page active" id="page-chat">
     <header class="nav">
@@ -258,58 +269,24 @@
         </div>
       </div>
 
-      <!-- 组 3 · 智能与模型（默认折叠） -->
-      <div class="me-group collapsed" data-group="brain">
+      <!-- 组 3 · 🔊 语音与朗读（候选 D · PRD §4.4 / 决策 D-1：语音不设独立屏，在设置屏提升为一级分组）
+           从原「智能与模型」6 卡混合组**原样搬出** 4 张语音卡（语音开关 / 音色 / 语音输入 / 语音与隐私），
+           让智能组回归其字面语义（大脑 / 模型）。仅重排分组归属与顺序：
+           · 一张卡不删、一个控件 id 不改 —— #tts-enabled / #voice-group / #asr-enabled /
+             #voice-rate / #voice-pitch / #voice-volume / #voice-pref-status / #asr-consent-status /
+             #asr-consent-revoke / #voice-pref-clear 全部逐字保留，voice.js 与 app.js 的
+             bindVoice() / bindAsrConsent() / bindVoicePrivacy() 均按无根 id 查询，换组后照常命中。
+           · initMeGroups()（app.js:4401）按 .me-group-head/.me-group 通用选择器绑折叠 → 本组自动获得折叠能力。
+           · initMeSearch()（app.js:4427+）每次输入重读 .me-card 的 textContent（不缓存索引）→ 搜索自动适配。
+           故本次换组是纯 HTML 重排，app.js 零改动。 -->
+      <div class="me-group collapsed" data-group="voice">
         <div class="me-group-head" role="button" tabindex="0" aria-expanded="false">
-          <span class="me-group-icon">🧠</span>
-          <span class="me-group-name">智能与模型</span>
+          <span class="me-group-icon">🔊</span>
+          <span class="me-group-name">语音与朗读</span>
           <span class="me-group-count">4</span>
           <span class="me-group-arrow" aria-hidden="true"></span>
         </div>
         <div class="me-group-body">
-          <div class="me-card">
-            <div class="me-title">🧠 云端大脑（可选）</div>
-            <div class="me-tip" data-xn-cloud>默认使用本地情感引擎。配置 OpenAI 兼容接口后，小暖将由大模型驱动，对话更自由、更像真人。</div>
-            <div class="me-sub">服务商（选完自动填好地址，只粘 Key）</div>
-            <div class="chip-group" id="provider-group">
-              <button class="chip" data-prov="deepseek">DeepSeek</button>
-              <button class="chip" data-prov="openai">OpenAI</button>
-              <button class="chip" data-prov="custom">自定义</button>
-            </div>
-            <label class="me-switch">
-              <input type="checkbox" id="cloud-enabled">
-              <span>启用云端大模型</span>
-            </label>
-            <input type="text" id="cloud-base" placeholder="Base URL，如 https://api.deepseek.com">
-            <input type="password" id="cloud-key" placeholder="API Key">
-            <input type="text" id="cloud-model" placeholder="模型名，如 deepseek-chat">
-            <label class="me-switch" style="margin-top:8px">
-              <input type="checkbox" id="embed-enabled">
-              <span>启用语义记忆检索（embedding 向量）</span>
-            </label>
-            <input type="text" id="embed-model" placeholder="embedding 模型名，如 text-embedding-3-small" style="margin-top:6px">
-            <div class="me-tip" style="margin-top:6px">开启后，小暖用语义向量（而非关键词）回忆你说过的事，换种说法也能接起。需上方已配置 Base + Key（OpenAI 兼容接口）。向量会本地缓存，不会每条消息都调接口。</div>
-            <button class="me-save" id="save-cloud">保存配置</button>
-            <div class="me-status" id="cloud-status"></div>
-          </div>
-          <div class="me-card">
-            <div class="me-title">📱 端侧模型（离线 AI）</div>
-            <div class="me-tip">开启后，小暖会在你的设备里<b>本地跑一个小模型</b>，<b>无需任何 Key、断网也能聊</b>。首次需联网下载约 0.5GB 模型，之后本地缓存即可离线使用。建议用 WiFi，且设备支持 WebGPU（较新手机/电脑）体验更佳。</div>
-            <label class="me-switch">
-              <input type="checkbox" id="lm-enabled">
-              <span>启用端侧模型（离线 AI）</span>
-            </label>
-            <div class="me-sub">模型（越大越聪明，也越慢）</div>
-            <select id="lm-model" class="me-select">
-              <option value="onnx-community/Qwen2.5-0.5B-Instruct">Qwen2.5-0.5B（推荐·中文快）</option>
-              <option value="onnx-community/Qwen2.5-1.5B-Instruct">Qwen2.5-1.5B（更聪明·更慢）</option>
-              <option value="onnx-community/SmolLM2-1.7B-Instruct">SmolLM2-1.7B（英文更强）</option>
-            </select>
-            <button class="me-save" id="lm-load">下载并加载模型</button>
-            <div class="lm-progress hidden" id="lm-progress"><div class="lm-bar" id="lm-bar"></div></div>
-            <div class="me-status" id="lm-status"></div>
-            <div class="me-tip" id="lm-device"></div>
-          </div>
           <div class="me-card">
             <div class="me-title">🔊 语音（小暖开口说话）</div>
             <div class="me-tip" data-xn-tts>开启后，小暖会用甜甜的声音把回复读出来。纯浏览器本地合成，无需任何 Key。</div>
@@ -362,7 +339,67 @@
         </div>
       </div>
 
-      <!-- 组 4 · 连接与同步（默认折叠） -->
+      <!-- 组 4 · 智能与模型（默认折叠）—— 候选 D 瘦身为 2 卡（云端大脑 / 端侧模型），语音 4 卡已迁至上一组。
+           决策 D-2：端侧模型**双视图单真源** —— 本处这张卡管「下载与加载」（#lm-enabled/#lm-model/#lm-load/
+           #lm-progress/#lm-status/#lm-device，首次约 0.5GB、需 WiFi、WebGPU 检测），属配置动作；
+           隐私屏分区⑥的 LocalModelUI（#xn-localmodel-mount）管「状态与治理」，属隐私论证链的一环。
+           两处读写同一份 S.localModel 与同一个 ReplyRouter/LocalModelAdapter，数据层单真源，
+           故此卡**留在设置屏不迁移**，local-model-ui.js 零改动。 -->
+      <div class="me-group collapsed" data-group="brain">
+        <div class="me-group-head" role="button" tabindex="0" aria-expanded="false">
+          <span class="me-group-icon">🧠</span>
+          <span class="me-group-name">智能与模型</span>
+          <span class="me-group-count">2</span>
+          <span class="me-group-arrow" aria-hidden="true"></span>
+        </div>
+        <div class="me-group-body">
+          <div class="me-card">
+            <div class="me-title">🧠 云端大脑（可选）</div>
+            <div class="me-tip" data-xn-cloud>默认使用本地情感引擎。配置 OpenAI 兼容接口后，小暖将由大模型驱动，对话更自由、更像真人。</div>
+            <div class="me-sub">服务商（选完自动填好地址，只粘 Key）</div>
+            <div class="chip-group" id="provider-group">
+              <button class="chip" data-prov="deepseek">DeepSeek</button>
+              <button class="chip" data-prov="openai">OpenAI</button>
+              <button class="chip" data-prov="custom">自定义</button>
+            </div>
+            <label class="me-switch">
+              <input type="checkbox" id="cloud-enabled">
+              <span>启用云端大模型</span>
+            </label>
+            <input type="text" id="cloud-base" placeholder="Base URL，如 https://api.deepseek.com">
+            <input type="password" id="cloud-key" placeholder="API Key">
+            <input type="text" id="cloud-model" placeholder="模型名，如 deepseek-chat">
+            <label class="me-switch" style="margin-top:8px">
+              <input type="checkbox" id="embed-enabled">
+              <span>启用语义记忆检索（embedding 向量）</span>
+            </label>
+            <input type="text" id="embed-model" placeholder="embedding 模型名，如 text-embedding-3-small" style="margin-top:6px">
+            <div class="me-tip" style="margin-top:6px">开启后，小暖用语义向量（而非关键词）回忆你说过的事，换种说法也能接起。需上方已配置 Base + Key（OpenAI 兼容接口）。向量会本地缓存，不会每条消息都调接口。</div>
+            <button class="me-save" id="save-cloud">保存配置</button>
+            <div class="me-status" id="cloud-status"></div>
+          </div>
+          <div class="me-card">
+            <div class="me-title">📱 端侧模型（离线 AI）</div>
+            <div class="me-tip">开启后，小暖会在你的设备里<b>本地跑一个小模型</b>，<b>无需任何 Key、断网也能聊</b>。首次需联网下载约 0.5GB 模型，之后本地缓存即可离线使用。建议用 WiFi，且设备支持 WebGPU（较新手机/电脑）体验更佳。</div>
+            <label class="me-switch">
+              <input type="checkbox" id="lm-enabled">
+              <span>启用端侧模型（离线 AI）</span>
+            </label>
+            <div class="me-sub">模型（越大越聪明，也越慢）</div>
+            <select id="lm-model" class="me-select">
+              <option value="onnx-community/Qwen2.5-0.5B-Instruct">Qwen2.5-0.5B（推荐·中文快）</option>
+              <option value="onnx-community/Qwen2.5-1.5B-Instruct">Qwen2.5-1.5B（更聪明·更慢）</option>
+              <option value="onnx-community/SmolLM2-1.7B-Instruct">SmolLM2-1.7B（英文更强）</option>
+            </select>
+            <button class="me-save" id="lm-load">下载并加载模型</button>
+            <div class="lm-progress hidden" id="lm-progress"><div class="lm-bar" id="lm-bar"></div></div>
+            <div class="me-status" id="lm-status"></div>
+            <div class="me-tip" id="lm-device"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 组 5 · 连接与同步（默认折叠） -->
       <div class="me-group collapsed" data-group="sync">
         <div class="me-group-head" role="button" tabindex="0" aria-expanded="false">
           <span class="me-group-icon">☁️</span>
@@ -489,7 +526,7 @@
         </div>
       </div>
 
-      <!-- 组 5 · 数据与隐私（默认折叠） -->
+      <!-- 组 6 · 数据与隐私（默认折叠） -->
       <div class="me-group collapsed" data-group="data">
         <div class="me-group-head" role="button" tabindex="0" aria-expanded="false">
           <span class="me-group-icon">🗄</span>
@@ -635,6 +672,19 @@
     <div class="ltm-body" id="ltm-manage-body"></div>
   </section>
 
+  <!-- ======= 候选 D · 屏 5：🔒 隐私（去模态化，PRD §4.5 / 架构 ADR-2） =======
+       声明式提供，与其它 5 屏同级：.page 默认 display:none，壳层挂载失败时「存在但不可达」，零副作用。
+       #privacy-audit-body-page 是 PrivacyAudit 的**唯一**渲染宿主（INV-2 / R1）：
+       privacy-audit.js 的 refreshMetrics() 大量以省略 root 的 document.querySelector 写 #xn-* 节点，
+       故全文档同时只允许存在一个宿主 —— 弹窗内的 #privacy-audit-body 由 ui-shell.js 的 P2 阶段退役。
+       8 个分区（零上报证明/存储占用/同意权限/网络通道/隐私评分/本地模型/诊断报告/操作）全量保留，
+       桌面双列由 style.css 的 `#page-privacy .xn-audit-body` 后代选择器实现，privacy-audit.css 零改动。 -->
+  <section class="page" id="page-privacy">
+    <div class="xn-audit-body" id="privacy-audit-body-page">
+      <!-- 由 PrivacyAudit.getInstance().render() 注入 -->
+    </div>
+  </section>
+
   <!-- ======= 对话唤起：右下角「⌐ 记忆」角标（由 ltm-ui.js 控制显隐/数字） ======= -->
   <div id="ltm-corner" class="hidden">⌐ 记忆</div>
 
@@ -666,13 +716,42 @@
     </div>
   </div>
 
-  <!-- ======= 底部 Tab 栏 ======= -->
+  <!-- ======= 底部 Tab 栏 =======
+       候选 D：由 4 项补齐为 6 项声明式 .tab（顺序＝架构 §4.4 屏注册表）。
+       · `ltm-manage` 改为声明式：app.js:4497 的注入守卫 `!bar.querySelector('[data-page="ltm-manage"]')`
+         因此命中并空转 —— app.js 零改动，且记忆项不再被追加到末尾，顺序由本处决定。
+       · `privacy` 为新增项：app.js:2994 的 `$("#page-" + tab.dataset.page)` 是开放映射（无屏白名单），
+         自动解析到新增的 #page-privacy，同样无需改 app.js。
+       · 这 6 个原生节点是 bindTabs() 的**唯一**绑定面；壳层侧栏/⚙ 的点击一律转发到此处（ADR-4），
+         切屏真源恒为 app.js 的 bindTabs()，壳层不自造切屏逻辑。
+       · <1024px 显示本栏；≥1024px 由 style.css 置 display:none，改走 #shell-sidebar。 -->
   <nav class="tabbar">
     <button class="tab active" data-page="chat"><span class="tab-ico">💬</span>聊天<span class="tab-dot hidden" id="chat-dot"></span></button>
     <button class="tab" data-page="her"><span class="tab-ico">👧</span><span data-xn="name">小暖</span></button>
     <button class="tab" data-page="story"><span class="tab-ico">📖</span>故事</button>
+    <button class="tab" data-page="ltm-manage"><span class="tab-ico">🧠</span>记忆</button>
+    <button class="tab" data-page="privacy"><span class="tab-ico">🔒</span>隐私</button>
     <button class="tab" data-page="me"><span class="tab-ico">⚙️</span>我的</button>
   </nav>
+
+  <!-- ======= 候选 D · 桌面侧栏（≥1024px 由 CSS 显示，<1024px 走底部 Tab） =======
+       6 个导航项由 ui-shell.js 按既有 `class="tab" data-page="<P>"` 契约渲染（契约 C1），
+       点击经 document 级事件委托转发给 .tabbar 原生节点，屏切换真源仍是 app.js 的 bindTabs()。
+
+       ★ 为什么本骨架必须排在 .tabbar **之后**（而非顶栏之后）——这是一处必须靠 DOM 顺序解决的冲突：
+         契约 C1 要求侧栏项带 class="tab"，而 app.js 有两处 **document 级首个匹配** 的取值：
+           · app.js:2871 switchTab()  `document.querySelector('.tab[data-page="X"]').click()`
+           · app.js:4376 搜索结果跳回 `document.querySelector('.tab[data-page="chat"]').classList.add("active")`
+         若侧栏排在 .tabbar 之前，这两处会命中**侧栏项**而不是底部 Tab 原生节点：
+         前者尚可由壳层转发自愈，后者是直接改 class、无法自愈 ⇒ 底部 Tab 会丢失高亮。
+         把侧栏放到 .tabbar 之后，原生节点恒为文档内首个匹配，两处行为逐字不变 ⇒ app.js 零改动。
+       ★ DOM 顺序不影响视觉：桌面端由 `grid-area: sidebar` 显式指派到左侧整列（ADR-3），
+         与它在 DOM 里的位置无关；移动端本骨架 display:none，同样不参与布局。 -->
+  <aside class="shell-sidebar" id="shell-sidebar" aria-label="主导航">
+    <div class="shell-brand"><span class="shell-brand-ico">💗</span><span class="shell-brand-name">心屿</span></div>
+    <nav class="shell-nav" id="shell-nav"></nav>
+    <div class="shell-side-foot" id="shell-side-foot"></div>
+  </aside>
 </div>
 
 <script src="engine.js"></script>
@@ -712,5 +791,12 @@
 <script src="diagnostic-report.js"></script>
 <script src="local-model-ui.js"></script>
 <script src="app.js"></script>
+<!-- 候选 D · 统一导航壳（挂 window.UiShell，IIFE 零依赖）：必须是**最末**一个 script，三个硬理由——
+     ① 要迁移的 #nav-offline-led 已由 app.js:4530 挂上 OfflineIndicator 单例，早于它则搬到空容器；
+     ② 要 clone 换绑的 #btn-privacy-audit 由 app.js:4682 运行时创建，早于它则节点不存在；
+     ③ app.js:4719 以 DOMContentLoaded 注册 init()，本文件在其后注册同类监听器，
+        按注册顺序必然在 init() 之后执行 —— 这是壳层「后到」的机制保证。
+     壳层挂载失败会 rollback 回既有单屏形态（.page/.page.active 机制不依赖壳层），绝不白屏。 -->
+<script src="ui-shell.js"></script>
 </body>
 </html>

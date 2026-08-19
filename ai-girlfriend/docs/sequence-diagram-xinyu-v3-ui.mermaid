@@ -1,0 +1,185 @@
+%% ============================================================
+%% 心屿 Xinyu v3 · 候选 D · UI 多界面布局重构 · 时序图
+%% 架构师 高见远(Gao) / AI 女友 小暖(Xiaonuan) 不更名
+%% 图1 挂载两阶段提交  图2 屏切换与双栏镜像  图3 hash 深链
+%% 图4 隐私屏进入钩子与单宿主  图5 降级回滚
+%% ============================================================
+
+sequenceDiagram
+    autonumber
+    participant DOM as DOMContentLoaded
+    participant App as app.js(既有·零改动)
+    participant Ind as OfflineIndicator(单例)
+    participant Shell as ui-shell.js(window.UiShell)
+    participant Top as ShellTopbar
+    participant Side as ShellSidebar
+    participant Modal as #privacy-audit-modal(降级路径)
+
+    Note over DOM,Shell: 加载顺序契约: index.html:714 app.js → :715 ui-shell.js(最末)
+    DOM->>App: init() 先执行(监听器按注册顺序)
+    App->>App: :4497-4503 注入记忆 Tab → HTML 已声明·幂等守卫命中·空转
+    App->>App: :4505 bindTabs() 绑定 6 个声明式 .tab(屏切换单真源)
+    App->>App: :4512 bindPrivacyAudit() 创建 ⚙(晚于 bindTabs → 委托强制)
+    App->>Ind: :4532 getInstance().mount(#nav-offline-led)
+    Ind-->>App: this._el = span.xn-offline-led(持子元素引用)
+    App->>App: :4536 OfflineProbe.start(30000)
+    App->>App: :4592 #app 解除 .hidden
+
+    DOM->>Shell: UiShell.mount() 后执行
+    rect rgb(232, 245, 233)
+    Note over Shell,Side: 阶段 P1 · 纯增量·全可逆
+    Shell->>Top: P1-1 建 #shell-topbar(z=5) 插为 #app 首子
+    Shell->>Side: P1-1 建 #shell-sidebar(z=6)
+    Shell->>Shell: P1-2 校验 #page-privacy 存在(否则中止·不进 P2)
+    Shell->>Top: P1-3 prepend(#nav-offline-led) 节点移动·实例不重建
+    Note over Top,Ind: this._el 引用与 onChange 闭包继续有效; 严禁二次 mount()
+    Shell->>Top: P1-3 迁移 #nav-avatar #nav-name #nav-status #nav-mood
+    Shell->>Top: P1-3 迁移 ctx: #btn-call #btn-tts #btn-search
+    Shell->>Top: P1-4 ⚙ cloneNode(true) → replaceWith → data-page=privacy
+    Note over Shell,Top: cloneNode 不复制监听器 → openPrivacyAudit 彻底断连
+    Shell->>Side: P1-5 渲染 6 项(角色名走 data-xn=name) + #chat-dot 镜像
+    Shell->>Side: P1-5 LED 文字态镜像: 只读订阅 onChange·绝不 start()
+    Shell->>Shell: P1-6 document 级点击委托 + syncNavActive
+    Shell->>Shell: P1-7 hash 路由初始化(hash > lastScreen > chat)
+    Shell->>Shell: P1-8 注册隐私屏进入钩子
+    end
+    rect rgb(255, 243, 224)
+    Note over Shell,Modal: 阶段 P2 · 破坏性·仅在 P1 全绿后(安全点)
+    Shell->>Modal: P2-1 #privacy-audit-body → id 改名 -retired + innerHTML=''
+    Note over Modal: 改名而非删除: 可逆; 且 render(null) 在 privacy-audit.js:90 安全空转
+    Shell->>Shell: P2-2 state.mounted=true; #app[data-xn-shell=1]
+    end
+    Note over App,Shell: 冻结线 engine.js/sw.js/memory.js/baseline.js 全程零接触
+---
+
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant SideBtn as 侧栏项(data-xn-nav=shell)
+    participant Doc as document(壳层委托)
+    participant TabBtn as .tabbar .tab(持 bindTabs 监听器)
+    participant Router as app.js bindTabs 处理器
+    participant Page as .page 容器
+    participant Shell as UiShell(壳层钩子)
+    participant LTM as LTMUI / longterm-memory
+
+    Note over U,Shell: 桌面端点侧栏「故事」· 壳层节点无 bindTabs 监听器(NEW-4)
+    U->>SideBtn: click
+    SideBtn->>Doc: 事件冒泡至 document
+    Doc->>Doc: closest('.tab[data-page]') 命中; dataset.xnNav === 'shell'
+    Doc->>TabBtn: forwardToTabbar(): peer.click() 转发
+    Note over Doc,TabBtn: 壳层分支立即 return → 钩子不在此路径执行(防双跑)
+    TabBtn->>Router: 触发既有直接监听器(目标节点先于祖先)
+    Router->>Page: 清全部 .page/.tab 的 .active
+    Router->>Page: 解析 #page-story 并加 .active(开放映射·无白名单)
+    Router->>Router: refreshStoryUI() 既有副作用
+    Router->>LTM: ltmDistill() 离开对话即蒸馏(AC-D41 自动成立)
+    TabBtn->>Doc: 合成点击继续冒泡(该节点无 xnNav=shell)
+    Doc->>Shell: runShellHooks('story') 唯一钩子执行点
+    Shell->>Shell: 顶栏 data-screen=story(ctx 操作纯 CSS 显隐)
+    Shell->>Shell: setTitle('我们的故事')
+    Shell->>SideBtn: syncNavActive: 全部 .tab[data-page=story] 加 .active + aria-current
+    Shell->>Shell: history.replaceState → #/story(不污染回退栈)
+    Note over Router,Shell: 屏切换真源恒为 bindTabs; 壳层只转发与镜像 INV-1
+---
+
+sequenceDiagram
+    autonumber
+    participant U as 用户(粘贴 #/memory 或刷新)
+    participant Loc as location.hash
+    participant HR as HashRouter
+    participant Reg as ScreenRegistry
+    participant TabBtn as .tabbar .tab[data-page=ltm-manage]
+    participant Router as app.js bindTabs 处理器
+    participant Shell as UiShell
+    participant LS as localStorage['xinyu.ui.lastScreen']
+
+    Note over U,LS: 深链别名表: memory↔ltm-manage · settings↔me(对内不改名 C5)
+    U->>Loc: 访问 #/memory
+    Loc->>HR: hashchange / 首帧 restoreFirstScreen()
+    HR->>Reg: byRoute('memory')
+    Reg-->>HR: { page:'ltm-manage', containerId:'#ltm-manage' }
+    HR->>TabBtn: 查 .tab[data-page="ltm-manage"] → .click()
+    TabBtn->>Router: 既有处理器
+    Router->>Router: :2992-2995 特判 → getElementById('ltm-manage')
+    Router->>Router: LTMUI.renderManagePage(#ltm-manage-body) + bindToggle()
+    Note over Router: 记忆屏渲染归 app.js; 壳层严禁补钩子(防双渲染 + INV-2b)
+    Router->>Router: ltmDistill()
+    TabBtn->>Shell: 冒泡 → runShellHooks('ltm-manage')
+    Shell->>Shell: setTitle('我的长期记忆'); syncNavActive
+    Shell->>LS: 写入 lastScreen='ltm-manage'(唯一持久化·新命名空间)
+    Note over HR,LS: 优先级 hash > lastScreen > chat(默认对话屏与现状一致)
+    Note over U,LS: 全程零网络请求 INV-7; 不读写 xinyu.consent/ltm/voice
+---
+
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant Entry as ⚙ #btn-privacy-audit(已换绑)
+    participant Doc as document(壳层委托)
+    participant Router as app.js bindTabs 处理器
+    participant Shell as UiShell 进入钩子
+    participant PA as PrivacyAudit
+    participant Root as #privacy-audit-body-page(唯一 root)
+    participant Retired as #privacy-audit-body-retired
+    participant Sub as ConsentUI / LocalModelUI
+    participant Probe as AuditProbe / ConsentStore / OfflineProbe
+
+    U->>Entry: 点击 ⚙(任意屏均可见·顶栏常驻)
+    Entry->>Doc: 冒泡(dataset.xnNav=shell) → 转发 .tabbar[data-page=privacy].click()
+    Doc->>Router: 既有处理器
+    Router->>Router: 解析 #page-privacy 并加 .active; #privacy-audit-modal 保持 hidden
+    Router->>Doc: 合成点击冒泡
+    Doc->>Shell: runShellHooks('privacy')
+    alt 首次进入(childElementCount === 0)
+        Shell->>PA: render(Root) 只调用一次·参数恒为唯一 root
+        PA->>Root: 注入 8 逻辑分区(7 .xn-audit-section + 1 .xn-audit-actions)
+        PA->>Sub: q('#xn-consent-mount', Root).render() 作用域化挂载
+        PA->>Sub: q('#xn-localmodel-mount', Root).render()
+        PA->>PA: :187 末尾自动 refreshMetrics()
+    else 再次进入
+        Shell->>PA: 仅 refreshMetrics()(保留下载进度与滚动位置)
+    end
+    PA->>Probe: proveZeroReporting() / get(tts,asr,ltm,cloudSync) / getState()
+    Probe-->>PA: {zeroReporting, blocked, allowed, consented} + 同意态 + 通道态
+    PA->>PA: getStorageUsage(): IDB 估算 + localStorage + xinyu-edge-v1
+    PA->>Root: setText('#xn-c-*','#xn-store-*','#xn-score-*') 无根 document.querySelector
+    Note over PA,Retired: 关键: refreshMetrics 不接收 container·render 不持久化 container<br/>→ 全文档 #xn-* 必须唯一(INV-2), 否则指标静默停在「…」
+    Note over Retired: P2 已改名退役 → 重复 id 结构上不可能出现(AC-D19 恒成立)
+    Note over Sub: ConsentUI 先 innerHTML='' 再建 → 开关恒 4 个不堆叠(AC-D21)
+    Note over PA,Probe: 壳层对 ConsentStore/AuditProbe 零接触 → 隐私边界零改动
+---
+
+sequenceDiagram
+    autonumber
+    participant Shell as UiShell.mount()
+    participant P1 as 阶段 P1(增量)
+    participant P2 as 阶段 P2(破坏性)
+    participant DOMx as 壳层已建/已迁移节点
+    participant Modal as #privacy-audit-modal
+    participant U as 用户与小暖对话
+
+    Note over Shell,U: 降级三铁律: 绝不白屏 / 绝不影响对话 / 绝不「弹窗已拆·屏未建成」
+    Shell->>P1: 执行 P1-1 … P1-8(全部 try/catch)
+    alt P1 全绿
+        P1-->>Shell: 安全点达成
+        Shell->>P2: 执行退役弹窗宿主
+        alt P2 成功
+            P2-->>Shell: state.mounted = true; #app[data-xn-shell=1]
+            Note over Shell,Modal: 壳层形态: 6 屏导航 + 隐私一级屏; 弹窗宿主已退役(INV-4)
+        else P2 抛错
+            P2->>Modal: id 改回 privacy-audit-body(恢复弹窗可用)
+            Note over Modal: 隐私功能仍可达; 形态互斥不破
+        end
+    else P1 中途抛错
+        P1->>Shell: catch
+        Shell->>DOMx: rollback(): 移除壳层节点
+        Shell->>DOMx: 迁移节点 appendChild 回 #page-chat .nav(LED/头像/状态/📞🔊🔍)
+        Shell->>Shell: 解绑 document 委托 + 移除 hashchange 监听
+        Shell->>Shell: state.mounted = false; 不打 data-xn-shell
+        Note over Shell,Modal: 未进入 P2 → 弹窗宿主完好 → 退回 4+1 Tab + ⚙ 弹窗形态
+    end
+    Note over Shell,U: 特例降级: ⚙ 尚未创建 → rAF 重试 ≤10 次 → 超时仅跳过该步, 不中止整体
+    Note over Shell,U: 特例降级: #nav-offline-led 缺失 → 跳过(app.js:4530 已有兜底选择器)
+    U->>U: 任一降级路径下, 对话/输入/朗读/记忆 全程可用
+    Note over Shell,U: ADR-3 使 .page 完全不重父 → #chat-body 从不被壳层触碰
