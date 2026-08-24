@@ -353,7 +353,8 @@ const defaultState = () => ({
   cloud: { enabled: false, base: "", key: "", model: "", provider: "", embedEnabled: false, embedModel: "text-embedding-3-small" },
   memory: {}, // {userName, likes, events, summary}
   dailyNotes: {}, // 跨会话记忆回写「余温」：{ "YYYY-M-D": { text, t } }
-  persona: { gender: "female", tone: "gentle", theme: "sakura", card: "xiaonuan" },
+  persona: { gender: "female", tone: "playful", theme: "sakura", card: "xiaonuan",
+             warmth: 0.55, proactivity: 0.5, whitespace: 0.5 },  // 候选 E·L4：tone 对齐三态 + 真人感可调参数
   wardrobe: { outfit: "default", hair: "brown" },
   tts: false,
   voiceName: "auto",       // 音色：auto/sweet/sister/cute/boy 或 "__v:真实音色名"
@@ -413,7 +414,7 @@ function load() {
       const s = Object.assign(defaultState(), JSON.parse(raw));
       // 嵌套字段兜底（兼容旧存档）
       s.wardrobe = Object.assign({ outfit: "default", hair: "brown" }, s.wardrobe || {});
-      s.persona = Object.assign({ gender: "female", tone: "gentle", theme: "sakura", card: "xiaonuan" }, s.persona || {});
+      s.persona = Object.assign({ gender: "female", tone: "playful", theme: "sakura", card: "xiaonuan", warmth: 0.55, proactivity: 0.5, whitespace: 0.5 }, s.persona || {});  // 候选 E·L4
       s.datingAnnis = s.datingAnnis || [];
       s.games = Object.assign({ rps: { wins: 0, played: 0 }, truth: 0 }, s.games || {});
       s.games.rps = Object.assign({ wins: 0, played: 0 }, s.games.rps || {});
@@ -1291,7 +1292,7 @@ async function herReply(userText, img) {
     if (S.cloud.enabled && S.cloud.base && S.cloud.key) {
       try {
         if (__replyRouter) {
-          const routed = await __replyRouter.route(text, { ltmFragment: ltmFrag, mode: "reply" });
+          const routed = await __replyRouter.route(text, { ltmFragment: ltmFrag, mode: "reply", tone: S.persona.tone });  // 候选 E·L4：传 tone 供 LocalHeuristic 分流
           if (typeof routed === "string" && routed.trim()) {
             result = { replies: [routed], delta: 3, expression: "normal", via: (__replyRouter.lastVia || "cloud") };
           }
@@ -1344,6 +1345,7 @@ async function herReply(userText, img) {
       } catch (e) {}
       result = {
         replies: r.replies, delta: r.delta, expression: r.expression, moodOverride: r.moodOverride,
+        textured: true,  // 候选 E·L4：本分支经 Engine.mod("texture") 已含微行为加工，告知 L3 跳过重叠维度
         intent: r.intent, intentEx: r.intentEx,
         topic: r.topic, recentReplies: r.recentReplies, ue: r.ue, safety: r.safety,
         moodDay: r.moodDay, self: r.self, inner: r.inner,
@@ -1387,7 +1389,18 @@ async function herReply(userText, img) {
     if (result.intent === "greeting" && Engine.getLevel(S.affection).lv >= 3) waveHello();
 
     for (let i = 0; i < result.replies.length; i++) {
-      await herSay(result.replies[i], result.expression);
+      let reply = result.replies[i];
+      // 候选 E·L3：回复质感编排后处理管道（engine 之外，全 provider 出口统一生效）
+      //   textured 分支（本地引擎已含 texture 微行为）跳过重叠维度，防双加工
+      if (window.ReplyTexture && window.ReplyTexture.orchestrate) {
+        try {
+          reply = window.ReplyTexture.orchestrate(reply, {
+            state: S,
+            ctx: { ue: result.ue, mood: mood, intent: result.intent, textured: !!result.textured }
+          });
+        } catch (e) { /* 任一异常 → 原句直出，绝不静默/白屏 */ }
+      }
+      await herSay(reply, result.expression);
       if (i < result.replies.length - 1) await new Promise(r => setTimeout(r, 500 + Math.random() * 600));
     }
     // 危机帮助卡：在最后一条气泡渲染完成之后追加，流内卡片、不阻断输入

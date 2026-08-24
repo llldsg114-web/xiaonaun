@@ -1,0 +1,138 @@
+{
+  "viewports": [
+    {
+      "viewport": "A-desktop",
+      "checks": [
+        {
+          "name": "首屏引导浮层已关闭(真实用户流程)",
+          "pass": true,
+          "detail": "gender,ltm"
+        },
+        {
+          "name": "发消息获得小暖回复且渲染(不白屏)",
+          "pass": true,
+          "detail": "reply=\"今天有点想发懒，你今天还顺利吗\""
+        },
+        {
+          "name": "进入设置屏(me)",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "设置屏存在「傲娇」tone chip",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "点击「傲娇」chip 后处于选中态",
+          "pass": true,
+          "detail": "active=True"
+        },
+        {
+          "name": "傲娇语气下获得回复",
+          "pass": true,
+          "detail": "reply=\"唔，我挺好的。倒是你，今天过得顺不顺？\""
+        },
+        {
+          "name": "页面无 JS 运行时异常(pageerror)",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "console 报错数==0(或仅无关警告)",
+          "pass": false,
+          "detail": "errs=1 warns=2"
+        },
+        {
+          "name": "视口截图已存",
+          "pass": true,
+          "detail": "/workspace/ai-girlfriend/test/e12_A-desktop.png"
+        }
+      ],
+      "errors": [],
+      "js_errors": [],
+      "evidence": {
+        "default_tone_reply": "今天有点想发懒，你今天还顺利吗",
+        "tsundere_reply": "唔，我挺好的。倒是你，今天过得顺不顺？",
+        "screenshot": "/workspace/ai-girlfriend/test/e12_A-desktop.png"
+      },
+      "console_errors": [
+        "Failed to load resource: the server responded with a status of 404 (File not found)"
+      ],
+      "console_warnings": [
+        "[xinyu-mcp] 授权服务器不可达，心智引擎降级不可用。",
+        "[xinyu-mcp] 授权服务器不可达，心智引擎降级不可用。"
+      ],
+      "console_error_count": 1,
+      "http_4xx": []
+    },
+    {
+      "viewport": "B-mobile",
+      "checks": [
+        {
+          "name": "首屏引导浮层已关闭(真实用户流程)",
+          "pass": true,
+          "detail": "gender,ltm"
+        },
+        {
+          "name": "发消息获得小暖回复且渲染(不白屏)",
+          "pass": true,
+          "detail": "reply=\"这阵子有点想躲起来，你对我真好，我记着\""
+        },
+        {
+          "name": "进入设置屏(me)",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "设置屏存在「傲娇」tone chip",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "点击「傲娇」chip 后处于选中态",
+          "pass": true,
+          "detail": "active=True"
+        },
+        {
+          "name": "傲娇语气下获得回复",
+          "pass": true,
+          "detail": "reply=\"我挺好的。倒是你，今天过得顺不顺？🌿\""
+        },
+        {
+          "name": "页面无 JS 运行时异常(pageerror)",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "console 报错数==0(或仅无关警告)",
+          "pass": true,
+          "detail": "errs=0 warns=2"
+        },
+        {
+          "name": "视口截图已存",
+          "pass": true,
+          "detail": "/workspace/ai-girlfriend/test/e12_B-mobile.png"
+        }
+      ],
+      "errors": [],
+      "js_errors": [],
+      "evidence": {
+        "default_tone_reply": "这阵子有点想躲起来，你对我真好，我记着",
+        "tsundere_reply": "我挺好的。倒是你，今天过得顺不顺？🌿",
+        "screenshot": "/workspace/ai-girlfriend/test/e12_B-mobile.png"
+      },
+      "console_errors": [],
+      "console_warnings": [
+        "[xinyu-mcp] 授权服务器不可达，心智引擎降级不可用。",
+        "[xinyu-mcp] 授权服务器不可达，心智引擎降级不可用。"
+      ],
+      "console_error_count": 0,
+      "http_4xx": []
+    }
+  ],
+  "summary": {
+    "total": 18,
+    "passed": 17
+  }
+}

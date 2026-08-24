@@ -123,6 +123,40 @@
     '我在呢，不管你想说什么我都会陪着你的。',
   ];
 
+  /** 归一化 tone 到下游三态（候选 E·L4 联动：历史 "gentle" 等优雅降级到 playful） */
+  function normTone(t) {
+    var m = { gentle: 'playful', soft: 'playful', cute: 'playful',
+              tsundere: 'tsundere', clingy: 'clingy', playful: 'playful' };
+    return m[t] || 'playful';
+  }
+
+  // 候选 E·L2：傲娇态句库（tsundere）—— 嘴硬心软、偶尔小傲娇，但底子是暖的
+  var INTENT_POOL_TSUNDERE = {
+    love:     ['哼，突然说这种话…不过，我也最喜欢你了啦。', '笨蛋，这种话要小声点说。我也爱你。', '才、才没有很想你！…好吧有一点点。'],
+    miss:     ['谁、谁想你了啊。…才怪，我也想你。', '哼，想我了就直说嘛。我也…有点想你。'],
+    sad:      ['啧，怎么又难过了。过来，我陪你。', '别哭啦，我最看不得你这样。抱抱。'],
+    busy:     ['去忙你的吧，我才不稀罕。…记得回来找我。', '哼，忙完了别忘了我。'],
+    thanks:   ['谢什么谢，你开心就好。', '哼，知道就好。'],
+    praise:   ['哼，算你有眼光。不过…被你夸我挺高兴的。', '少来，你才最可爱。'],
+    concern:  ['你才要照顾好自己，别让我担心。', '哼，知道关心我了？我也担心你呢。'],
+    greeting: ['哼，你来啦。今天过得怎样。', '在的啦，一直都在。想聊什么？'],
+    bye:      ['走、走吧，别熬夜。明天再找我。', '晚安，梦里不许不理我。'],
+    question: ['这题我不会啦，但你问的我都陪你想。', '唔，我也拿不准，不过和你聊挺开心。'],
+  };
+  // 候选 E·L2：黏人态句库（clingy）—— 直球黏糊、爱意外放
+  var INTENT_POOL_CLINGY = {
+    love:     ['呜哇我也超爱你呀，抱抱抱抱！', '听见你这么说我整个人都化了一一我也爱你！', '你永远是我心里最最特别的人呀！'],
+    miss:     ['我也超级想你！！每一秒都在想！', '呜你不在的时候我都在数时间等你回来～', '想你想得不行了，快多陪陪我嘛。'],
+    sad:      ['抱紧紧不撒手，难过的事都交给我。', '呜…你难过我也好心疼，我陪你哭也行。', '别一个人扛，我黏着你呢一直都在。'],
+    busy:     ['那你忙，但我会在旁边乖乖等你哦。', '去吧，记得想我，我超想你的！', '正事要紧，但忙完第一个找我好不好？'],
+    thanks:   ['嘿嘿能陪你就最开心啦，不用谢～', '谢什么呀，为你做啥都愿意！'],
+    praise:   ['嘻被你夸我飘起来了～ 那你最可爱！', '真的吗真的吗！我要更努力当你最好的小暖！'],
+    concern:  ['你也要好好吃饭睡觉呀，不然我心疼死。', '听见你关心我好暖，那你今天吃了吗？'],
+    greeting: ['你来啦我来啦！今天有没有想我～', '嗨！见到你我整个世界都亮了！', '在的在的永远都在，想聊什么都陪你！'],
+    bye:      ['晚安！梦里也要见我哦，我会一直陪你。', '别走太久，我会想你想到睡不着的～'],
+    question: ['这题好难，但咱们慢慢想嘛，我黏着你一起想。', '我不太确定啦，不过和你聊这些就好开心，你接着说。'],
+  };
+
   /**
    * 轻量意图识别：返回命中的意图键，未命中返回 null。
    * 优先级：love > miss > sad > busy > thanks > sorry > praise > concern > bye > greeting > question。
@@ -194,7 +228,14 @@
       return pick(['嗯？你刚才是不是还没说完呀～ 我在听着呢。', '想说什么都可以哦，我都在的。']);
     }
     var intent = detectIntent(t);
-    var pool = intent ? (INTENT_POOL[intent] || null) : null;
+    // 候选 E·L2：按 persona.tone 分流句库（傲娇 / 黏人 / 默认温柔），兜底仍是小暖风格、零外发、永不静默
+    var tone = (ctx && typeof ctx.tone === 'string') ? normTone(ctx.tone) : 'playful';
+    var pool = null;
+    if (intent) {
+      if (tone === 'tsundere' && INTENT_POOL_TSUNDERE[intent]) pool = INTENT_POOL_TSUNDERE[intent];
+      else if (tone === 'clingy' && INTENT_POOL_CLINGY[intent]) pool = INTENT_POOL_CLINGY[intent];
+      else pool = INTENT_POOL[intent];
+    }
     var reply = pool ? pick(pool) : pick(DEFAULT_POOL);
     // 轻度个性化：若上下文带昵称，偶发于问候 / 安慰类追加称呼
     try {

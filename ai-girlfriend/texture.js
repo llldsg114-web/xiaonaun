@@ -9,6 +9,8 @@ const KEY = /[0-9１-９]|[点分秒]|(明天|后天|周[一二三四五六日�
 const TYPO_TABLE = [["什么", "甚么"], ["怎么", "怎末"], ["现在", "现再"], ["知道", "知到"],
  ["一下", "一夏"], ["可以", "可已"], ["这样", "这养"], ["休息", "休戏"]];
 const TIC_TABLE = { soft: ["嗯", "唔", "诶嘿"], tsundere: ["哼", "啧", "才不是"], clingy: ["欸", "呐", "诶呀"] };
+// 情绪维度口头禅（候选 E·L1 情境化）：tone 无对应（如历史 "gentle"）时，按当前情绪选前缀，优雅降级
+const UE_TIC = { tired: "欸", sad: "唔", happy: "嘻", excited: "哇", anxious: "诶" };
 const HES = ["嗯…", "那个…", "唔…", "诶…"], CUT = /[，。！？~…]/;
 const OFF = { ok: false, banTypo: true, ramp: 0, en: 0 };
 
@@ -30,15 +32,29 @@ function textureAllow(state, ctx) {
 
 function build(k, t, st, rng) {
  if (k === "hes") return { text: PW(HES, rng) + t };
- if (k === "tic") return { text: PW(TIC_TABLE[{playful:"tsundere",clingy:"clingy"}[O(st.persona).tone]||"soft"], rng) + "，" + t };
+ if (k === "tic") {
+  const tone = O(O(st).persona).tone;
+  const ueType = O(O(st).ue).type;
+  // 候选 E·L1 情境化：tone 优先（playful→tsundere / clingy→clingy）；tone 无对应（如历史 "gentle"）则按情绪前缀优雅降级
+  const tk = { playful: "tsundere", clingy: "clingy" }[tone] || (UE_TIC[ueType] ? "ue" : "soft");
+  const pool = tk === "ue" ? [UE_TIC[ueType]] : TIC_TABLE[tk];
+  return { text: PW(pool, rng) + "，" + t };
+ }
  if (k === "fix") return { text: t.slice(0, 3) + "…嗯，" + t };
  if (k === "frag") { const i = t.search(CUT);
   return (i > 0 && i < t.length - 2) ? { split: [t.slice(0, i + 1), t.slice(i + 1)] } : null; }
  if (k === "typo") {
   for (const p of TYPO_TABLE) if (t.indexOf(p[0]) >= 0) return { text: t.replace(p[0], p[1]) + "  *" + p[0] };
   return null; }
- if (k === "drift") { const tr = String(O(st.dayLife).trace || "");
-  return tr ? { text: t + "…啊对了，" + tr } : null; }
+ if (k === "drift") {
+  let tr = String(O(st.dayLife).trace || "");
+  // 候选 E·L1：记忆呼应扩展 —— dayLife.trace 为空时，回落到最近一条长期记忆碎片，短期/长期都呼应
+  if (!tr && Array.isArray(O(st).mem) && O(st).mem.length) {
+    const last = O(st).mem[O(st).mem.length - 1];
+    tr = (typeof last === "string") ? last : (last && typeof last.text === "string" ? last.text : "");
+  }
+  return tr ? { text: t + "…啊对了，" + tr } : null;
+ }
  return null;
 }
 
