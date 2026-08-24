@@ -36,6 +36,16 @@ try {
   }
 } catch (e) {}
 
+/* 候选 C（cloudSync 双开关收敛）：订阅 ConsentStore 授权变更。
+ * 撤销 cloudSync 授权（value=false）时强制停机：清功能开关 + token + 定时器，并刷新 UI/推送门控。 */
+try {
+  if (__consentStore && typeof __consentStore.onChange === 'function') {
+    __consentStore.onChange(function (evt) {
+      if (evt && evt.key === 'cloudSync' && !evt.value) disableSyncOnRevoke();
+    });
+  }
+} catch (e) {}
+
 /* 注册用户显式同意的外发端点（仅当对应功能开启）。
  * 同源（syncBase/pushBase 默认 = location.origin）已被 allowlist 放行；
  * 仅当配置了自定义 endpoint（SC.endpoint）或开启了云端大脑（S.cloud.base）时，
@@ -49,13 +59,20 @@ function registerConsentedEndpoints() {
       ap.registerConsented(S.cloud.base.trim());
     }
     // 云同步 / 主动推送：仅当设置了自定义 endpoint（空 = 同源，allowlist 已放行）
-    if (typeof SC !== "undefined" && SC && SC.enabled && SC.endpoint) {
+    if (typeof SC !== "undefined" && SC && SC.enabled && SC.endpoint && isCloudSyncConsented()) {
       ap.registerConsented(SC.endpoint.trim());
     }
-    if (typeof SC !== "undefined" && SC && SC.endpoint && typeof PC !== "undefined" && PC && PC.enabled) {
+    if (typeof SC !== "undefined" && SC && SC.endpoint && typeof PC !== "undefined" && PC && PC.enabled && isCloudSyncConsented()) {
       ap.registerConsented(SC.endpoint.trim());
     }
   } catch (e) {}
+}
+
+/* cloudSync 双开关收敛：授权态判定 helper（ConsentStore.get('cloudSync')）。
+ * 外发闸门（syncReady / scheduleSyncPush / syncPull / registerConsentedEndpoints）须同时满足
+ * 功能开关 SC.enabled 与授权态，避免 #sync-enable 绕过二次确认直接外发。 */
+function isCloudSyncConsented() {
+  try { return !!(window.ConsentStore && window.ConsentStore.get && window.ConsentStore.get('cloudSync')); } catch (e) { return false; }
 }
 
 /* ================= 候选 C（C2 本地模型热切换）共存叠加层 =================
@@ -3401,7 +3418,7 @@ let syncConflict = false;
 let syncBusy = false;
 
 function syncReady() {
-  if (!SC.enabled) { syncSay("请先打开「启用云同步」开关", "err"); return false; }
+  if (!SC.enabled || !isCloudSyncConsented()) { syncSay("请先打开「启用云同步」开关", "err"); return false; }
   if (!SC.token) { SC.token = randToken(); saveSyncCfg(); }
   if (!SC.pass || SC.pass.length < 6) { syncSay("请先设置同步口令（至少 6 位，建议 12 位以上）", "err"); return false; }
   return true;
@@ -3502,9 +3519,30 @@ function friendlySyncErr(e) {
 }
 
 /* ---- 自动同步：进页面拉一次、离开页面推一次 ---- */
+
+// 撤销云同步授权 → 强制停机：清功能开关 + token + 待发定时器，刷新 UI 与推送门控。
+// 由 ConsentStore.onChange 订阅触发（cloudSync 由 true→false 时）。只收紧不放开：
+// 授权一旦撤销，功能开关 SC.enabled / token 立即清零并落盘，待发定时器清空，UI 复位。
+function disableSyncOnRevoke() {
+  try {
+    if (typeof SC !== 'undefined' && SC) {
+      SC.enabled = false; SC.token = '';
+      if (typeof saveSyncCfg === 'function') saveSyncCfg();
+    }
+    if (typeof syncPushTimer !== 'undefined' && syncPushTimer) { clearTimeout(syncPushTimer); syncPushTimer = null; }
+    var en = (typeof $ === 'function') ? $('#sync-enable') : null;
+    if (en) { en.checked = false; var body = $('#sync-body'); if (body) body.classList.add('hidden'); }
+    if (typeof renderSyncMeta === 'function') renderSyncMeta();
+    // 刷新推送门控：gate/refreshGate 为 bindPush 内部局部函数（作用域不可见），
+    // 通过派发 window focus 事件复用其已注册的 refreshGate 监听，避免重复实现。
+    try { if (typeof gate === 'function') gate(); else if (typeof refreshGate === 'function') refreshGate(); } catch (e) {}
+    try { if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event('focus')); } catch (e2) {}
+  } catch (e) {}
+}
+
 let syncPushTimer = null;
 function scheduleSyncPush(delay = 3000) {
-  if (!SC.enabled || !SC.auto || !SC.pass) return;
+  if (!SC.enabled || !SC.auto || !SC.pass || !isCloudSyncConsented()) return;
   clearTimeout(syncPushTimer);
   syncPushTimer = setTimeout(() => syncPush(false, true), delay);
 }
@@ -3523,6 +3561,13 @@ function bindSync() {
   };
 
   if (en) en.addEventListener("change", () => {
+    // cloudSync 双开关收敛：开启功能开关前须先取得授权（防 #sync-enable 绕过二次确认）
+    if (en.checked && !isCloudSyncConsented()) {
+      en.checked = false; SC.enabled = false;
+      if (typeof saveSyncCfg === 'function') saveSyncCfg();
+      if (typeof syncSay === 'function') syncSay('请先在「隐私」设置中开启「云同步」授权，再启用本开关。', 'warn');
+      return;
+    }
     SC.enabled = en.checked;
     if (SC.enabled && !SC.token) SC.token = randToken();
     saveSyncCfg(); refresh();
@@ -3578,7 +3623,7 @@ function bindSync() {
   refresh();
 
   // 开着同步就先静默拉一次（只有云端版本更新才会覆盖）
-  if (SC.enabled && SC.auto !== false && SC.pass) setTimeout(() => syncPull(true), 1500);
+  if (SC.enabled && SC.auto !== false && SC.pass && isCloudSyncConsented()) setTimeout(() => syncPull(true), 1500);
 }
 
 

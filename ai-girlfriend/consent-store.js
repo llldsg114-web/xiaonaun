@@ -46,6 +46,7 @@
     this.asr = DEFAULTS.asr;
     this.ltm = DEFAULTS.ltm;
     this.cloudSync = DEFAULTS.cloudSync;
+    this._listeners = [];                // 观察者列表（onChange 订阅）
     this.version = VERSION;
     this.load();
   }
@@ -101,7 +102,17 @@
     if (KEYS.indexOf(key) === -1) return false;
     this[key] = !!val;
     this.save();
+    // 通知观察者（如 app.js 订阅的「撤销授权即强制停机」）
+    if (this._listeners) this._listeners.forEach(function(l){ try { l({ key: key, value: !!val }); } catch(e){} });
     return true;
+  };
+
+  /**
+   * 订阅同意态变更事件。
+   * @param {function} cb 回调，入参 {key, value}，value 为布尔（已归一化）
+   */
+  ConsentStore.prototype.onChange = function (cb) {
+    if (typeof cb === 'function') this._listeners.push(cb);
   };
 
   /**

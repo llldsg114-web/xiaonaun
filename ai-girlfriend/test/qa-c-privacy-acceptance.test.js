@@ -632,23 +632,45 @@ test("C14-diagnostic-report.js：源码无外发调用形式 / 无外部 URL；b
 // ====================================================================
 // 独立验收 #10 · 接缝独立确认（非阻塞，仅归档风险，不阻断 IS_PASS）
 // ====================================================================
-test("SEAM-app.js 接缝：registerLocalModelConsent 调用 tagConsented 受 typeof 守卫（安全 no-op），不影响零上报/降级", () => {
-  // 行为等价：AuditProbe 无 tagConsented 时，registerLocalModelConsent 不应抛，且 zeroReporting 仍可保持
+test("SEAM-app.js 接缝：tagConsented 已落地，给 consented 日志打人类可读标注且不破零上报", () => {
   const ap = AuditProbe.getInstance();
-  ap.registerConsented("https://cdn.jsdelivr.net");
-  assert.strictEqual(typeof ap.tagConsented, "undefined", "确认审计探针无 tagConsented（工程师接缝说明属实）");
-  // 即使调用（typeof 守卫保护）也不影响 blocked 计数
+  assert.strictEqual(typeof ap.tagConsented, "function", "AuditProbe.tagConsented 现已实现（候选 C 后续批次收尾）");
   const before = ap.proveZeroReporting().blocked;
-  if (typeof ap.tagConsented === "function") ap.tagConsented("https://cdn.jsdelivr.net", "用户自导权重");
-  assert.strictEqual(ap.proveZeroReporting().blocked, before, "tagConsented 不存在时零上报语义不受影响");
+  ap.registerConsented("https://cdn.jsdelivr.net");
+  ap.tagConsented("https://cdn.jsdelivr.net", "用户自导权重");
+  const rep = ap.proveZeroReporting();
+  assert.strictEqual(rep.blocked, before, "tagConsented 不触碰 blocked，零上报语义不受影响");
+  const tagged = ap.getReport().log.filter(e => e.action === 'consented' && e.label === '用户自导权重');
+  assert.ok(tagged.length >= 1, "应存在带「用户自导权重」标注的 consented 日志条目");
 });
 
-test("SEAM-cloudSync 双开关为设计留白：ConsentStore.cloudSync 与 SC.enabled 非单一真相源", () => {
-  // 验收口径：ConsentStore.cloudSync 控制「审计闸门 + D2 徽标」；功能生效仍依赖既有 SC.enabled/#sync-enable。
-  // 二者皆存在且语义独立即符合设计留白（非 Bug）。此处仅确认二者均为受控字段，不要求桥接。
+test("SEAM-cloudSync 双开关已收敛为交集语义：ConsentStore.cloudSync 与 SC.enabled 均为受控字段且经 onChange 桥接", () => {
+  // 验收口径（已收敛）：ConsentStore.cloudSync 控制「审计闸门 + D2 徽标」，
+  // 而功能真正生效还需 SC.enabled/#sync-enable 为真，二者取「交集」语义；
+  // 且撤销授权（set('cloudSync', false)）须经 ConsentStore.onChange 观察者强制停机。
+  // 此处确认二者均为受控字段，且 onChange 观察者机制存在并在撤销时通知。
   const cs = new ConsentStore();
   assert.ok("cloudSync" in cs, "ConsentStore 应存在 cloudSync 字段（审计闸门）");
+  assert.strictEqual(typeof cs.onChange, "function", "ConsentStore.onChange 观察者机制须存在（桥接触发前提）");
   // app.js 中 SC（sync 配置）为既有对象；此处无法直接 require app.js（IIFE 副作用重），
-  // 仅确认接缝说明：ConsentStore.cloudSync 默认 false（需二次确认）即满足默认零上报。
-  assert.strictEqual(cs.get("cloudSync"), false, "cloudSync 默认 false（默认零上报语义保持）");
+  // 仅确认接缝说明：ConsentStore.cloudSync 默认 false（取交集后默认零上报）。
+  assert.strictEqual(cs.get("cloudSync"), false, "cloudSync 默认 false（取交集语义下默认零上报保持）");
+});
+
+test("观察者契约：set('cloudSync', false) 经 ConsentStore.onChange 通知 {key,value:false}（1b 强制停机触发前提）", () => {
+  // 1b 强制停机（disableSyncOnRevoke）由 app.js 订阅 ConsentStore.onChange 触发；
+  // 本测试验证「撤销授权 → 观察者拿到正确的 {key, value}」这一触发前提成立。
+  const cs = new ConsentStore();
+  let got = null;
+  cs.onChange((e) => { got = e; });
+  const ok = cs.set("cloudSync", false);
+  assert.strictEqual(ok, true, "set 应成功写入（白名单内字段）");
+  assert.ok(got && got.key === "cloudSync" && got.value === false,
+    "撤销授权应经 observer 通知 {key:'cloudSync', value:false}");
+  // 再次授权亦应如实通知（正向用例）
+  let got2 = null;
+  cs.onChange((e) => { got2 = e; });
+  cs.set("cloudSync", true);
+  assert.ok(got2 && got2.key === "cloudSync" && got2.value === true,
+    "重新授权应如实通知 {key:'cloudSync', value:true}");
 });

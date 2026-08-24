@@ -356,6 +356,34 @@
   };
 
   /**
+   * 为已 consented 的外发资源打人类可读标注（如「用户自导权重」），增强审计数据模型。
+   * 仅标注/幂等登记，绝不触碰 blocked/allowed 计数（零上报证明语义不受影响）。
+   * @param {string} url 资源地址（与 registerConsented 同口径）
+   * @param {string} [label] 人类可读标注
+   */
+  AuditProbe.prototype.tagConsented = function (url, label) {
+    try {
+      if (!url) return;
+      var u = String(url).trim();
+      if (!u) return;
+      this.registerConsented(u);                 // 幂等登记端点（与既有口径一致）
+      var lbl = (typeof label === 'string' && label) ? label : 'consented';
+      // 标注既有 consented 日志条目（避免重复计数）
+      for (var i = this.probeLog.length - 1; i >= 0; i--) {
+        var e = this.probeLog[i];
+        if (e && e.action === 'consented' && (e.url === u || (e.url && typeof e.url === 'string' && e.url.indexOf(u) === 0))) {
+          e.label = lbl; this._persist(); return;
+        }
+      }
+      // 无既有条目时补登记（独立调用兜底）
+      this.probeLog.push({ t: Date.now(), channel: 'resource', url: (u.length > 512) ? u.slice(0, 512) : u, action: 'consented', label: lbl });
+      if (this.probeLog.length > this._maxLog) this.probeLog = this.probeLog.slice(-this._maxLog);
+      this.consentedCount++;
+      this._persist();
+    } catch (e) {}
+  };
+
+  /**
    * 证明零非授权上报：blocked(疑似上报)==0 即为通过。
    * 先对 voice.js / longterm-memory.js 跑（二者零外部调用，必过），再覆盖全应用。
    * @returns {{zeroReporting:boolean, blocked:number, allowed:number, consented:number, logs:Array}}

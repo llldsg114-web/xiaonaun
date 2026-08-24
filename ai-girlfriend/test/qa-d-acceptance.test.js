@@ -47,6 +47,8 @@ const DECLARED_MODIFIED = [
   "ai-girlfriend/app.js",
   "ai-girlfriend/texture.js",
   "ai-girlfriend/local-heuristic.js",
+  "ai-girlfriend/consent-store.js",   // 候选 #2 backlog：cloudSync 双开关收敛（观察者 + 外发闸门）
+  "ai-girlfriend/audit-probe.js",     // 候选 #2 backlog：AuditProbe.tagConsented 实现
 ];
 const DECLARED_NEW = ["ai-girlfriend/ui-shell.js", "ai-girlfriend/reply-texture-orchestrator.js"];
 
@@ -117,19 +119,24 @@ test("AC-D26 · FROZEN 冻结字节闸：engine.js/sw.js/memory.js/test/baseline
   }
 });
 
-test("AC-D27 · 全仓库零漂移（已修改实现文件）：改动面恰为候选 D∪E 合法集合 {index.html, style.css, app.js, texture.js, local-heuristic.js}", () => {
+test("AC-D27 · 全仓库零漂移（已修改实现文件）：改动面恰为已批准合法集合（D∪E∪backlog#2）{index.html, style.css, app.js, texture.js, local-heuristic.js, consent-store.js, audit-probe.js}", () => {
   // 重 baselining：候选 D/E 已提交于 HEAD，漂移判据前移到「候选 D 之前基线」(BASE_PRE_D)。
   // 仅取「已修改」(M) 的顶层实现文件（*.js/*.html/*.css）；新增文件(ui-shell.js /
   // reply-texture-orchestrator.js)由下方「新增实现文件」测试覆盖；docs/test 不在漂移判据内。
+  // 注：git 的 `*.js` 路径规范会跨 `/` 命中 `ai-girlfriend/test/*.js`，而重 baselining 提交(c161a11)
+  // 改动了 test/ 下若干文件且已落于 HEAD，会被误纳入 `changed`；须显式剔除 test/（与测试自身
+  // 注释「docs/test 不在判据内」本意一致），否则 120 永久失配。
   const changed = git(["diff", "--name-only", "--diff-filter=M", BASE_PRE_D, "HEAD", "--",
       "ai-girlfriend/*.js", "ai-girlfriend/*.html", "ai-girlfriend/*.css"])
-    .split("\n").map((s) => s.trim()).filter(Boolean).sort();
+    .split("\n").map((s) => s.trim()).filter(Boolean)
+    .filter((p) => !p.startsWith("ai-girlfriend/test/"))
+    .sort();
   // 红线护栏：冻结四文件不得被候选触碰（若命中即属真回归，须停手回主理人）。
   // 注：app.js / texture.js / local-heuristic.js 已被候选 E 合法改动，明确列入 DECLARED_MODIFIED，
   //     故不在此红线内；其余既有模块若被改，会在下方 deepStrictEqual 中因不在合法集合而失败。
   for (const [rel] of FROZEN) assert.ok(!changed.includes("ai-girlfriend/" + rel), `${rel} 不得被候选改动（冻结闸）`);
   assert.deepStrictEqual(changed, DECLARED_MODIFIED.slice().sort(),
-    `已修改实现文件应恰为 D∪E 合法集合，实际: ${JSON.stringify(changed)}`);
+    `已修改实现文件应恰为已批准合法集合（D∪E∪backlog#2），实际: ${JSON.stringify(changed)}`);
 });
 
 test("AC-D27 · 全仓库零漂移（新增实现文件）：候选 D∪E 顶层新增恰为 ui-shell.js + reply-texture-orchestrator.js", () => {
