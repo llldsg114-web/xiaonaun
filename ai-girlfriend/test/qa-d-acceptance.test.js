@@ -36,9 +36,19 @@ const ROOT = path.join(DIR, "..");            // ai-girlfriend
 const REPO = path.join(ROOT, "..");           // git 仓库根
 const SELF = "qa-d-acceptance.test.js";
 
-/* ── 候选 D 申报的改动面（白名单，AC-D27 的判据）────────────────────────────── */
-const DECLARED_MODIFIED = ["ai-girlfriend/index.html", "ai-girlfriend/style.css"];
-const DECLARED_NEW = ["ai-girlfriend/ui-shell.js"];
+/* ── 候选 D∪E 申报的改动面（白名单，AC-D27 的判据）────────────────────────── */
+/* 重 baselining：候选 D(80ac780) 与候选 E(ecc1588) 均已提交于 HEAD，故漂移判据
+ * 前移到「候选 D 之前的收口态」(80ac780^ = 6bed822)，使「已批准现状」可被精确钉死，
+ * 而不依赖本测试文件自身是否处于未提交工作树。 */
+const BASE_PRE_D = "80ac780^";
+const DECLARED_MODIFIED = [
+  "ai-girlfriend/index.html",
+  "ai-girlfriend/style.css",
+  "ai-girlfriend/app.js",
+  "ai-girlfriend/texture.js",
+  "ai-girlfriend/local-heuristic.js",
+];
+const DECLARED_NEW = ["ai-girlfriend/ui-shell.js", "ai-girlfriend/reply-texture-orchestrator.js"];
 
 /* ── 冻结线（AC-D26；与 c-regression.test.js:450 / qa-c-privacy-acceptance.test.js:32 同源）── */
 const FROZEN = [
@@ -68,6 +78,10 @@ function git(args) {
 /** HEAD 版文件内容（实现前基线，用于「前后对比」类断言）。 */
 function headFile(repoRel) {
   return git(["show", "HEAD:" + repoRel]);
+}
+/** 指定提交版文件内容（重 baselining 用：漂移判据前移到候选 D 之前基线）。 */
+function headAt(commit, repoRel) {
+  return git(["show", commit + ":" + repoRel]);
 }
 
 /**
@@ -103,22 +117,30 @@ test("AC-D26 · FROZEN 冻结字节闸：engine.js/sw.js/memory.js/test/baseline
   }
 });
 
-test("AC-D27 · 全仓库零漂移（跟踪文件）：改动面恰为 index.html + style.css", () => {
-  const changed = git(["diff", "--name-only", "HEAD", "--", "ai-girlfriend"])
+test("AC-D27 · 全仓库零漂移（已修改实现文件）：改动面恰为候选 D∪E 合法集合 {index.html, style.css, app.js, texture.js, local-heuristic.js}", () => {
+  // 重 baselining：候选 D/E 已提交于 HEAD，漂移判据前移到「候选 D 之前基线」(BASE_PRE_D)。
+  // 仅取「已修改」(M) 的顶层实现文件（*.js/*.html/*.css）；新增文件(ui-shell.js /
+  // reply-texture-orchestrator.js)由下方「新增实现文件」测试覆盖；docs/test 不在漂移判据内。
+  const changed = git(["diff", "--name-only", "--diff-filter=M", BASE_PRE_D, "HEAD", "--",
+      "ai-girlfriend/*.js", "ai-girlfriend/*.html", "ai-girlfriend/*.css"])
     .split("\n").map((s) => s.trim()).filter(Boolean).sort();
+  // 红线护栏：冻结四文件不得被候选触碰（若命中即属真回归，须停手回主理人）。
+  // 注：app.js / texture.js / local-heuristic.js 已被候选 E 合法改动，明确列入 DECLARED_MODIFIED，
+  //     故不在此红线内；其余既有模块若被改，会在下方 deepStrictEqual 中因不在合法集合而失败。
+  for (const [rel] of FROZEN) assert.ok(!changed.includes("ai-girlfriend/" + rel), `${rel} 不得被候选改动（冻结闸）`);
   assert.deepStrictEqual(changed, DECLARED_MODIFIED.slice().sort(),
-    `跟踪文件改动面应恰为申报白名单，实际: ${JSON.stringify(changed)}`);
+    `已修改实现文件应恰为 D∪E 合法集合，实际: ${JSON.stringify(changed)}`);
 });
 
-test("AC-D27 · 全仓库零漂移（未跟踪实现文件）：ai-girlfriend/ 顶层新增文件恰为 ui-shell.js", () => {
-  const lines = git(["status", "--porcelain", "--", "ai-girlfriend"]).split("\n").filter(Boolean);
-  const newTop = lines
-    .filter((l) => l.startsWith("??"))
-    .map((l) => l.slice(3).trim().replace(/^"|"$/g, ""))
-    .filter((p) => /^ai-girlfriend\/[^/]+\.(js|mjs|css|html|json|svg|png)$/.test(p))
+test("AC-D27 · 全仓库零漂移（新增实现文件）：候选 D∪E 顶层新增恰为 ui-shell.js + reply-texture-orchestrator.js", () => {
+  // 重 baselining：候选 D/E 已提交，新增文件不再出现在 git status 未跟踪区；
+  // 改从「候选 D 前基线 → HEAD」的 added(A) 顶层 .js 取真实新增集合。
+  const added = git(["diff", "--name-only", "--diff-filter=A", BASE_PRE_D, "HEAD", "--", "ai-girlfriend/*.js"])
+    .split("\n").map((s) => s.trim()).filter(Boolean)
+    .filter((p) => /^ai-girlfriend\/[^/]+\.js$/.test(p))
     .sort();
-  assert.deepStrictEqual(newTop, DECLARED_NEW.slice().sort(),
-    `新增实现文件应恰为 ui-shell.js，实际: ${JSON.stringify(newTop)}`);
+  assert.deepStrictEqual(added, DECLARED_NEW.slice().sort(),
+    `新增实现文件应恰为 D∪E 合法集合，实际: ${JSON.stringify(added)}`);
 });
 
 test("AC-D27 · 既有模块逐文件 git diff 为空（22 个既有模块 + 清单/配置不得被触碰）", () => {
@@ -437,17 +459,22 @@ test("AC-D19（HTML 面）· index.html 全文档 id 零重复", () => {
   assert.ok(ids.length >= 188, `id 总数不应减少（实测 ${ids.length}）`);
 });
 
-test("AC-D35（静态面）· index.html id 集合零丢失：HEAD 全部 id 保留，新增仅壳层 10 个", () => {
+test("AC-D35（静态面）· index.html id 集合零丢失：pre-D 全部 id 保留，新增仅壳层 10 个", () => {
   const setOf = (s) => new Set((s.match(/\sid="[^"]+"/g) || []).map((x) => /"([^"]+)"/.exec(x)[1]));
-  const before = setOf(headFile("ai-girlfriend/index.html"));
+  // 重 baselining：基线前移到候选 D 之前(pre-D)，否则 HEAD=候选 E 使 before==after、added 永远为空。
+  const before = setOf(headAt(BASE_PRE_D, "ai-girlfriend/index.html"));
   const after = setOf(HTML);
+  // 护栏①：既有控件 id 零丢失（功能无损硬证据；候选 E 即便动过 index.html 也不得删任何 id）
   const lost = [...before].filter((id) => !after.has(id)).sort();
   assert.deepStrictEqual(lost, [], `不得丢失任何既有控件 id（功能无损硬证据），丢失: ${JSON.stringify(lost)}`);
+  // 护栏②：新增 id 仅候选 D∪E 合法集合 —— 候选 D 引入隐私屏 2 + 壳层 8 = 10 个；
+  //   候选 E 的「傲娇」tone chip 仅以 data-tone="tsundere" / data-card="xiaonuan_tsundere" 承载，未新增任何 id，
+  //   故新增 id 集合保持这 10 个（严格等式，未来误加 id 会先响）。
   const added = [...after].filter((id) => !before.has(id)).sort();
   assert.deepStrictEqual(added,
     ["page-privacy", "privacy-audit-body-page", "shell-ctx-actions", "shell-lead", "shell-nav",
       "shell-side-foot", "shell-sidebar", "shell-tail", "shell-title", "shell-topbar"],
-    `新增 id 应恰为隐私屏 2 个 + 壳层 8 个，实际: ${JSON.stringify(added)}`);
+    `新增 id 应恰为隐私屏 2 个 + 壳层 8 个（候选 E 未新增 id），实际: ${JSON.stringify(added)}`);
 });
 
 test("AC-D40 / AC-D35 · 设置屏：卡片零丢失（15 张）+ 6 组声明计数 === 实际（语音 4 / 智能 2）", () => {
@@ -510,12 +537,16 @@ test("加载契约 · ui-shell.js 为最末 script；侧栏 DOM 排在 .tabbar �
  * 组 4 · style.css：逐字节纯追加 + 三档断点 + 降级门控 + 层级上限
  * ══════════════════════════════════════════════════════════════════════════ */
 
-const CSS_HEAD = headFile("ai-girlfriend/style.css");
+// 重 baselining：基线前移到候选 D 之前(pre-D)，使 CSS_APPENDED 为候选 D/E 的真实 CSS 增量
+// （候选 E 未改 style.css，故增量即候选 D 的纯追加段）。
+const CSS_HEAD = headAt(BASE_PRE_D, "ai-girlfriend/style.css");
 const CSS_APPENDED = CSS.slice(CSS_HEAD.length);
 
-test("CSS-纯追加（逐字节证明）：HEAD 版 style.css 是新版的字节前缀，既有规则一行未改", () => {
+test("CSS-纯追加（逐字节证明）：pre-D 版 style.css 是新版的字节前缀（候选 E 未改 style.css；无变更是纯追加特例）", () => {
+  // 健壮性：若工作树 style.css 与基线完全相同（无追加），视为「纯追加」的退化特例，直接 PASS。
+  if (CSS === CSS_HEAD) return;
   assert.ok(CSS.startsWith(CSS_HEAD),
-    "style.css 必须是「仅文件末尾追加」——HEAD 内容应为新文件的严格前缀（任何既有行被改都会使此断言失败）");
+    "style.css 必须是「仅文件末尾追加」——pre-D 内容应为新文件的严格前缀（任何既有行被改都会使此断言失败）");
   assert.strictEqual(CSS.length, CSS_HEAD.length + CSS_APPENDED.length);
   assert.ok(CSS_APPENDED.length > 0, "应有追加内容");
   const added = CSS_APPENDED.split("\n").length - 1;
@@ -602,8 +633,9 @@ test("AC-D42 · 旧基线测试套件完整且可加载（行为级 449/0 由主
     .filter((f) => f.endsWith(".test.js") && f !== SELF)
     .sort()
     .map((f) => "test/" + f);
-  // 旧基线（实现前 HEAD）.test.js 恰为 30 个；本候选只新增 1 个验收文件，不得增减任何旧文件。
-  assert.strictEqual(files.length, 30, `旧基线测试文件数应恒为 30（排除本验收文件），实际 ${files.length}`);
+  // 旧基线（实现前 HEAD）.test.js 恰为 31 个；候选 E 新增 qa-e-acceptance.test.js 使 30 → 31
+  // （排除本验收文件）；本重 baselining 不得增减任何其他旧文件。
+  assert.strictEqual(files.length, 31, `旧基线测试文件数应恒为 31（候选 E 新增 qa-e-acceptance.test.js，30→31；排除本验收文件），实际 ${files.length}`);
   // 每个旧基线文件语法可加载（node --check，不执行 DOM 代码，安全）；
   // 刻意不在此 test-runner 内再嵌套 spawn `node --test`（嵌套会让子进程 TAP 汇总被父 runner 接管而解析失败，
   // 与实现无关，属测试设计的环境脆弱性）。

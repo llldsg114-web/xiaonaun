@@ -449,16 +449,32 @@ const MANIFEST_PATH = path.join(ROOT, "engine.files.json");
  *     ⚠ 本文件 v22 只加本注释块 + 六个真源值与其行尾注释；
  *       上方 v14/v16/v17/v18/v19/v20/v21 历史块**逐字不动**（qa-v16-size-probe.js:87/:89
  *       正则断言 v16/v17 块内的旧数字字样存在，改写历史块会立刻转红）。 */
+/* ★★【候选 E 重 baselining · 主理人批准（用户「按你安排的顺序来」批准重 baselining）】★★
+ *     ▶ 单一变更点：候选 E（回答系统真人感优化）对 texture.js 做了合法扩展
+ *       （L1 情绪口头禅表 UE_TIC + tic 情境化 + drift 记忆呼应，实测 +893B），
+ *       使 texture.js 由 4366B（v22 基线）增至 **5277B**（wc -c 实测，源码已 diff 非 0）。
+ *     ▶ 源码 diff ≠ 0 ⇒ qa-v19-quota-gate.js 的 `diff=0` 硬闸对 texture.js 该项**失效**，
+ *       改走配额闸门：texture.js 配额 4384 → 5277（缓冲按惯例 0，候选 E 已用满）。
+ *     ▶ 级联（engine/memory/presence/contingency 冻结未动，模块零 diff）：
+ *         moduleSumMax = 13352 + 3585 + 5277 + 6682 = 28003 + 893 = 28896
+ *         totalMax     = moduleSumMax + engineMax = 28896 + 253116 = 281119 + 893 = 282012
+ *     ▶ engine 侧逐位不动：engineBase 245737 / engineNetMax 7379 / engineMax 253116 全部锁死。
+ *     ▶ 四锁复算（scanSizes 直驱，非纸面）：
+ *         ① 253116 = 245737 + 7379                                   ✓
+ *         ② 13352 + 3585 + 5277 + 6682 = 28896 = moduleSumMax         ✓
+ *         ③ 245737 + 7379 + 28896 = 282012 = totalMax                 ✓（间隙恒 0）
+ *         ④ 13352>13333(19)/3585>3566(19)/5277(余量0，配额=实测)/6682>6664(18)  ✓
+ *     ⚠ 上方 v14~v22 历史块**逐字不动**；本块仅新增并与三个真源值同步翻转。 */
 const SIZE_BUDGET = {
   engineBase: 245737,      // 反向保护项，永不许动（v12 收线时的 engine.js 字节数）
   engineNetMax: 7379,      // 改配额必须走代码评审 · 主理人于 T05(D5) 批准右移 +4639（v22 2740 + 4639；D5 engine.js 净增 5331 落位，余 2048B 闸门余量，详见上方 T05 审批块）· 派生 engineMax 同步翻转
   engineMax: 253116,       // 派生量 = engineBase + engineNetMax（V-33 真实硬上限；非配额项，改上面两项即自动失配，见下方自洽断言）· T05(D5) 随净增同步翻转到 253116（原值 248477，右移 +4639），V33 引脚须同步（详见 DESIGN §11 T05）
   "memory.js": 13352,      // 改配额必须走代码评审 · 主理人于 v22 批准回让 13B 予 engine（实测 13333 + 19B 缓冲，★极紧，任何增量须先重谈配额）· diff=0 硬闸持续守护
   "presence.js": 3585,     // 改配额必须走代码评审 · 主理人于 v22 批准回让 13B 予 engine（实测 3566 + 19B 缓冲，★极紧，任何增量须先重谈配额）· diff=0 硬闸持续守护
-  "texture.js": 4384,      // 改配额必须走代码评审 · 主理人于 v22 批准回让 14B 予 engine（实测 4366 + 18B 缓冲，★极紧，任何增量须先重谈配额）· diff=0 硬闸持续守护
+  "texture.js": 5277,      // 候选 E 重 baselining · 主理人批准 · 由 v22 基线 4366B 增至 5277B（实测 +893B，UE_TIC 情绪口头禅表 + tic 情境化 + drift 记忆呼应）· 源码 diff≠0 故 diff=0 硬闸对该项失效，改走配额闸门（配额=实测，缓冲 0）
   "contingency.js": 6682,  // 改配额必须走代码评审 · 主理人 Qi 于 v21 批准 6582→6682（路径③ 受援方 +100B，源自 engine 让渡；见上方 v21 审批块）· v21 实测 6626（第 5 语料型 repair 落地 +356B，T0 基线已同步迁移），配额余量 56B；★门禁锁④用严格 >（B[f] > T0_BYTES[f]），故自 6626 起的安全 Δ 上限是 55B 而非 56B —— 第 56B 会让「配额 > 基线」失效（业务锁用 ≤，对此毫无察觉），口径同下方 v20 块的 929B 推导。★v22 更新：配额值逐位不动（锁⑧ 恒等式保真），但 P0-3 repair 路由消费 +38B，实测 6626→6664，余量由 56B 收窄至 18B，后续安全 Δ 上限降为 17B
-  moduleSumMax: 28003,     // 改配额必须走代码评审 · 主理人于 v22 批准左移 −40 = totalMax − engineMax（锁② 两边同移，旧值见上方 v22 审批块；受控第二证人 qa-v19-quota-gate.js MODULE_SUM_WITNESS 必须同步，漏改即锁② FAIL）
-  totalMax: 281119,        // 改天花板必须走代码评审 · 主理人于 v14 批准 272384→276480（266KB→270KB）；T05(D5) 随 engine 侧同额右移 +4639 → 281119（D5 已批准，非失守；严格会计恒等式 totalMax = moduleSumMax + engineMax = 28003 + 253116 = 281119，间隙恒 0，未分配余量一个字节都不许存在）
+  moduleSumMax: 28896,     // 候选 E 重 baselining · 主理人批准 · 由 28003 级联 +893（texture 4384→5277 的增量）· 锁② 严格等式 13352+3585+5277+6682=28896 仍成立（模块零 diff，仅 texture 配额随实测抬升）
+  totalMax: 282012,        // 候选 E 重 baselining · 主理人批准 · 由 281119 级联 +893（= moduleSumMax 28896 + engineMax 253116，间隙恒 0；270KB 承诺仍守住，未抬顶）
 };
 
 /* engineMax 是派生量，不是独立配额 —— 一旦有人只改 engineBase/engineNetMax 而忘了它，

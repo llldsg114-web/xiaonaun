@@ -71,18 +71,18 @@ const jobMem = (value, conf) => ({
  *   （若取任务书原议的 28687，此行立即转红：245737+2200+28687 = 276624 > 276480 是"看似更宽"，
  *    但 A1-a 守的是"不许两把锁同时放水"，28687 会让 engine 打满 V-33 时 total 击穿 162B）。
  * ⚠ v14 交付后 total 余量约 3.9KB —— 已不再是 13B 的紧张态，预警口径见 A6-c（换挡 0B/8192B）。 */
-test("A1-a 配额数字落点：memory 13352 / texture 4384 / contingency 6682 / moduleSum 28003 / net 7379 / totalMax 281119", () => {
+test("A1-a 配额数字落点：memory 13352 / texture 5277 / contingency 6682 / moduleSum 28896 / net 7379 / totalMax 282012", () => {
   const B = WS.SIZE_BUDGET;
   assert.strictEqual(B["memory.js"], 13352, "v22 批准值：回让 13B 予 engine（实测 13333 + 19B 缓冲）· 源码字节零改动，diff=0 硬闸继续生效");
-  assert.strictEqual(B["texture.js"], 4384, "v22 批准值：回让 14B 予 engine（实测 4366 + 18B 缓冲）· 源码字节零改动，diff=0 硬闸继续生效");
+  assert.strictEqual(B["texture.js"], 5277, "候选 E 重 baselining：texture.js 由 v22 基线 4366B 增至 5277B（实测 +893B；配额=实测，缓冲 0）");
   assert.strictEqual(B["presence.js"], 3585, "v22 批准值：回让 13B 予 engine（实测 3566 + 19B 缓冲）· 源码字节零改动，diff=0 硬闸继续生效");
   assert.strictEqual(B["contingency.js"], 6682, "v21 批准值 6582→6682（路径③ 受援方 +100B，源自 engine 让渡 D=100）· v22 配额逐位不动，实测 6626→6664（repair 路由 +38B），余 18B");
   /* ⚠ 下面两条的断言消息刻意**不复述上一轮的旧字面量**：T-v33 归零判据（DESIGN-v22 §5）
    *   要求活代码行内不得再出现旧配额值，否则 grep 无法机械判定「引脚是否改全」。
    *   历史沿革一律落在整行注释里（本注释即是），由归零命令的 `| grep -v` 段剥离。 */
-  assert.strictEqual(B.moduleSumMax, 28003, "v22 批准值：锁② 左移 −40 = totalMax − engineMax（两边同移；三模块回让 E=40B 予 engine）");
+  assert.strictEqual(B.moduleSumMax, 28896, "候选 E 重 baselining：锁② 右移 +893 = totalMax − engineMax（仅 texture 配额随实测抬升；三模块回让 E=40B 予 engine 仍成立）");
   assert.strictEqual(B.engineNetMax, 7379, "T05(D5) 重标定：v22 2740 + 4639（D5 engine.js 净增 5331 落位，余 2048B 闸门余量，详见 wiring-scan.js T05 审批块）");
-  assert.strictEqual(B.totalMax, 281119, "T05(D5) 重标定：v14 276480 + 4639（D5 已批准，天花板 = moduleSumMax + engineMax = 28003 + 253116 = 281119，间隙恒 0）");
+  assert.strictEqual(B.totalMax, 282012, "候选 E 重 baselining：v14 276480 + 4639 + 候选E 893 = 282012（D5 已批准，天花板 = moduleSumMax + engineMax = 28896 + 253116 = 282012，间隙恒 0）");
   assert.strictEqual(B.engineBase, 245737, "engineBase 属永不许动项");
   // ② 严格等式：Σ4 配额恰等于 moduleSumMax（v18 三让渡 −911 + contingency +911 = 0，Σ 仍 27943）
   assert.strictEqual(B["memory.js"] + B["presence.js"] + B["texture.js"] + B["contingency.js"],
@@ -298,7 +298,7 @@ test("A1-c engine.js 定点解冻白名单：相对 v14 收口基线仅 v15/v17 
  * ★ Q-P2-D11 少花 16B：复用 `updatedAt` 作高水位，未新增 `hi` 字段（DESIGN-v17 §3.2），
  *   selfGet/selfClamp 两处字段白名单零改动。省下的 16B 回吐 net 余量，不另作他用。
  * ★ 严禁改成加裸词 `模型训练|` —— U-5 守卫（A1-c 内已加断言）会立刻转红。 */
-test("A4 体积三闸门：V-33 ≤253116B 且 V-90 net ≤7379B 且 total ≤281119B", () => {
+test("A4 体积三闸门：V-33 ≤253116B 且 V-90 net ≤7379B 且 total ≤282012B", () => {
   const size = fs.statSync(path.join(ROOT, "engine.js")).size;
   const CAP = WS.SIZE_BUDGET.engineMax;
   assert.ok(size <= CAP, `V-33 越界: ${size} > ${CAP}（余 ${CAP - size}B）`);

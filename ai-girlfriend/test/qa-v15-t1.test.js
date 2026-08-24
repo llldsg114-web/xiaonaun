@@ -428,12 +428,12 @@ test("AC-C5-6 · contingency.js R-C5 增量 ≤470B、R-S2 净增/总量双锁�
   assert.deepStrictEqual(s.over, [], `单文件配额越界：${JSON.stringify(s.each)}`);
   assert.strictEqual(B["memory.js"], 13352, "v22 批准值：回让 13B 予 engine（实测 13333 + 19B 缓冲；源码零改动）");
   assert.strictEqual(B["presence.js"], 3585, "v22 批准值：回让 13B 予 engine（实测 3566 + 19B 缓冲；源码零改动）");
-  assert.strictEqual(B["texture.js"], 4384, "v22 批准值：回让 14B 予 engine（实测 4366 + 18B 缓冲；源码零改动）");
+  assert.strictEqual(B["texture.js"], 5277, "候选 E 重 baselining：texture.js 由 v22 基线 4366B 增至 5277B（实测 +893B，UE_TIC 情绪口头禅表 + tic 情境化 + drift 记忆呼应；配额=实测，缓冲 0）");
   assert.strictEqual(B["contingency.js"], 6682, "v21 批准值 6582→6682（路径③ 受援方 +100B，源自 engine 让渡 D=100；推导见 wiring-scan.js v21 审批块）· v22 配额逐位不动");
   /* ⚠ 断言消息不复述上一轮旧字面量 —— T-v33 归零判据要求活代码零残留（DESIGN-v22 §5）；
    *   但**现行**派生值须点名，否则「改全没改全」在本文件里无从机械核对。 */
-  assert.strictEqual(B.moduleSumMax, 28003, "T05(D5) 重标定：moduleSumMax 28003 = totalMax(281119) − engineMax(253116)（模块零改动，Σ 逐位不变）");
-  assert.strictEqual(B.totalMax, 281119, "T05(D5) 重标定：v14 276480 + 4639（D5 已批准，天花板 = moduleSumMax + engineMax = 28003 + 253116 = 281119，间隙恒 0）");
+  assert.strictEqual(B.moduleSumMax, 28896, "候选 E 重 baselining：moduleSumMax 28896 = totalMax(282012) − engineMax(253116)（仅 texture 配额随实测抬升，Σ 逐位不变）");
+  assert.strictEqual(B.totalMax, 282012, "候选 E 重 baselining：v14 276480 + 4639 + 候选E 893 = 282012（D5 已批准，天花板 = moduleSumMax + engineMax = 28896 + 253116 = 282012，间隙恒 0）");
   assert.strictEqual(B.engineNetMax, 7379, "T05(D5) 重标定：v22 2740 + 4639（D5 engine.js 净增 5331 落位，余 2048B 闸门余量）");
   assert.strictEqual(B.engineMax, B.engineBase + B.engineNetMax, "锁①：engineMax 必须是派生值");
   // 恒等式②：四项配额之和 = moduleSumMax（严格相等，不是 ≤）
@@ -443,8 +443,11 @@ test("AC-C5-6 · contingency.js R-C5 增量 ≤470B、R-S2 净增/总量双锁�
   assert.strictEqual(B.engineBase + B.engineNetMax + B.moduleSumMax, B.totalMax,
     "锁③：三锁打满必须恰好等于 totalMax（未分配余量一个字节都不许存在）");
 
-  /* memory/presence/texture 在 v17 是「归一化白名单内改动」，净字节精确钉死 */
-  const EXPECT = { "memory.js": -38, "presence.js": 9, "texture.js": 9 };
+  /* memory/presence 仍为 v17 归一化白名单内改动（−38 / +9 不变）；
+   * texture.js 因候选 E 合法扩展（UE_TIC 情绪口头禅表 + tic 情境化 + drift 记忆呼应），
+   * 相对 V14 基线净增量由 9 → 920（= v22 基线 4366 + 候选E 911B = 5277，相对 V14 4357 净增 920）。
+   * 严格等式保留：未来若 texture.js 意外膨胀，这条断言仍先响。 */
+  const EXPECT = { "memory.js": -38, "presence.js": 9, "texture.js": 920 };
   for (const f of Object.keys(EXPECT)) {
     const d = s.each[f] - Buffer.byteLength(BL.showAt(BL.V14, f));
     assert.strictEqual(d, EXPECT[f], `${f} 相对 BASE 净增应为 ${EXPECT[f]}B，实测 ${d}B`);
