@@ -640,9 +640,9 @@ test("AC-D42 · 旧基线测试套件完整且可加载（行为级 449/0 由主
     .filter((f) => f.endsWith(".test.js") && f !== SELF)
     .sort()
     .map((f) => "test/" + f);
-  // 旧基线（实现前 HEAD）.test.js 恰为 31 个；候选 E 新增 qa-e-acceptance.test.js 使 30 → 31
-  // （排除本验收文件）；本重 baselining 不得增减任何其他旧文件。
-  assert.strictEqual(files.length, 31, `旧基线测试文件数应恒为 31（候选 E 新增 qa-e-acceptance.test.js，30→31；排除本验收文件），实际 ${files.length}`);
+  // 旧基线（实现前 HEAD）.test.js 恰为 32 个；候选 E 新增 qa-e-acceptance.test.js 使 30 → 31，
+  // 候选 F 新增 qa-f-acceptance.test.js 使 31 → 32（排除本验收文件）；本重 baselining 不得增减任何其他旧文件。
+  assert.strictEqual(files.length, 32, `旧基线测试文件数应恒为 32（候选 E 30→31，候选 F 31→32；排除本验收文件），实际 ${files.length}`);
   // 每个旧基线文件语法可加载（node --check，不执行 DOM 代码，安全）；
   // 刻意不在此 test-runner 内再嵌套 spawn `node --test`（嵌套会让子进程 TAP 汇总被父 runner 接管而解析失败，
   // 与实现无关，属测试设计的环境脆弱性）。

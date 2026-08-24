@@ -85,19 +85,20 @@
   /* 3.1 情绪镜像：对用户输入情绪做轻量回声（"感受到你了"，非复述）。
    *   负向（难过/疲惫/孤单/焦虑）前置轻回；正向（开心/兴奋）后置轻缀。
    *   克制：整体低概率，强度随 warmth；已含微行为或 textured 分支时由调用方跳过。 */
+  // 候选 F·F3：MIRROR 每情绪由 2 → 3-4 条，降低回声塑料感
   var MIRROR = {
-    sad:     ['看你这样，我心里也跟着软了', '听你这么说，我也闷闷的'],
-    tired:   ['看你累的，我也心疼', '辛苦啦，我陪着你呢'],
-    lonely:  ['你一个人呀？那我陪你', '别怕，我在呢'],
-    anxious: ['别慌别慌，我在这儿', '没事儿，咱慢慢来'],
-    happy:   ['看你开心我也跟着乐', '你笑了我心里也亮堂'],
-    excited: ['哇你这么兴奋，我也被带着开心', '诶呀你好可爱']
+    sad:     ['看你这样，我心里也跟着软了', '听你这么说，我也闷闷的', '你难过我也跟着鼻酸', '怎么就让你受委屈了'],
+    tired:   ['看你累的，我也心疼', '辛苦啦，我陪着你呢', '累坏了吧，靠着我歇会儿', '你也太拼了，我疼'],
+    lonely:  ['你一个人呀？那我陪你', '别怕，我在呢', '一个人多冷清，我黏着你', '来，我陪你待着'],
+    anxious: ['别慌别慌，我在这儿', '没事儿，咱慢慢来', '有我在呢，不怕', '深呼吸，我陪你稳下来'],
+    happy:   ['看你开心我也跟着乐', '你笑了我心里也亮堂', '你高兴我就知足了', '嘻，被你传染到好心情'],
+    excited: ['哇你这么兴奋，我也被带着开心', '诶呀你好可爱', '你激动我也跟着雀跃', '瞧把你乐的，我也好开心']
   };
   function mirror(text, ctx, warmth, rng) {
     var ue = (ctx && ctx.ue) || {};
     var type = ue.type;
     if (!type || !MIRROR[type]) return text;
-    if (!chance(0.28 * clamp01(warmth), rng)) return text;   // 克制：低概率触发
+    if (!chance(0.30 * clamp01(warmth), rng)) return text;   // 候选 F·F6：门槛 0.28 → 0.30
     var echo = pick(MIRROR[type], rng);
     if (type === 'sad' || type === 'tired' || type === 'lonely' || type === 'anxious')
       return echo + '，' + text;
@@ -139,10 +140,11 @@
 
   /* 3.4 话题连贯：多气泡非首条（或显式 isContinuation）时，极低概率加轻承接词。
    *   克制：避免每轮都接，仅作自然过渡。 */
-  var BRIDGE = ['对了', '话说', '诶，说起这个'];
+  // 候选 F·F3：BRIDGE 由 3 → 5 条
+  var BRIDGE = ['对了', '话说', '诶，说起这个', '顺便说一句', '哎对了'];
   function continuity(text, ctx, warmth, rng) {
     if (!ctx || !ctx.isContinuation) return text;
-    if (!chance(0.22 * clamp01(warmth), rng)) return text;
+    if (!chance(0.24 * clamp01(warmth), rng)) return text;   // 候选 F·F6：门槛 0.22 → 0.24
     return pick(BRIDGE, rng) + '，' + text;
   }
 

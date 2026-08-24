@@ -29,8 +29,8 @@ const chk = (name, cond, detail) => {
 //   ★ 本 TRUTH 表仍是独立副本（不 require 预算表），漏改它 = 6 条红（本轮实测）。
 const TRUTH = {
   engineBase: 245737, engineNetMax: 2740, engineMax: 248477,
-  "memory.js": 13352, "presence.js": 3585, "texture.js": 5277, "contingency.js": 6682,
-  moduleSumMax: 28896, totalMax: 282012,
+  "memory.js": 13352, "presence.js": 3585, "texture.js": 5850, "contingency.js": 6682,
+  moduleSumMax: 29469, totalMax: 282585,
 };
 
 console.log("=== QA-v17 独立体积探针（严过关）===\n");

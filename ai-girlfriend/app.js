@@ -371,7 +371,7 @@ const defaultState = () => ({
   memory: {}, // {userName, likes, events, summary}
   dailyNotes: {}, // 跨会话记忆回写「余温」：{ "YYYY-M-D": { text, t } }
   persona: { gender: "female", tone: "playful", theme: "sakura", card: "xiaonuan",
-             warmth: 0.55, proactivity: 0.5, whitespace: 0.5 },  // 候选 E·L4：tone 对齐三态 + 真人感可调参数
+             warmth: 0.6, proactivity: 0.45, whitespace: 0.5 },  // 候选 F·F7：warmth 0.55→0.6（更暖更自然）、proactivity 0.5→0.45（克制记忆引用，防监控感）；tone 仍 playful，不新增 tone
   wardrobe: { outfit: "default", hair: "brown" },
   tts: false,
   voiceName: "auto",       // 音色：auto/sweet/sister/cute/boy 或 "__v:真实音色名"
@@ -431,7 +431,7 @@ function load() {
       const s = Object.assign(defaultState(), JSON.parse(raw));
       // 嵌套字段兜底（兼容旧存档）
       s.wardrobe = Object.assign({ outfit: "default", hair: "brown" }, s.wardrobe || {});
-      s.persona = Object.assign({ gender: "female", tone: "playful", theme: "sakura", card: "xiaonuan", warmth: 0.55, proactivity: 0.5, whitespace: 0.5 }, s.persona || {});  // 候选 E·L4
+      s.persona = Object.assign({ gender: "female", tone: "playful", theme: "sakura", card: "xiaonuan", warmth: 0.6, proactivity: 0.45, whitespace: 0.5 }, s.persona || {});  // 候选 F·F7：warmth 0.6 / proactivity 0.45（候选 E 0.55/0.5 精调）
       s.datingAnnis = s.datingAnnis || [];
       s.games = Object.assign({ rps: { wins: 0, played: 0 }, truth: 0 }, s.games || {});
       s.games.rps = Object.assign({ wins: 0, played: 0 }, s.games.rps || {});
@@ -1309,7 +1309,7 @@ async function herReply(userText, img) {
     if (S.cloud.enabled && S.cloud.base && S.cloud.key) {
       try {
         if (__replyRouter) {
-          const routed = await __replyRouter.route(text, { ltmFragment: ltmFrag, mode: "reply", tone: S.persona.tone });  // 候选 E·L4：传 tone 供 LocalHeuristic 分流
+          const routed = await __replyRouter.route(text, { ltmFragment: ltmFrag, mode: "reply", tone: S.persona.tone, affection: S.affection });  // 候选 E·L4 传 tone 分流 · 候选 F·F9 传 affection 供情境分桶（只读）
           if (typeof routed === "string" && routed.trim()) {
             result = { replies: [routed], delta: 3, expression: "normal", via: (__replyRouter.lastVia || "cloud") };
           }
