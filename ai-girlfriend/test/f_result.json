@@ -1,0 +1,176 @@
+{
+  "viewports": [
+    {
+      "viewport": "A-desktop",
+      "checks": [
+        {
+          "name": "首屏引导浮层已关闭(真实用户流程)",
+          "pass": true,
+          "detail": "gender,ltm"
+        },
+        {
+          "name": "首轮·发消息获得小暖回复且渲染(不白屏)",
+          "pass": true,
+          "detail": "reply=\"莫名地心情轻轻的，你对我真好，我记着\""
+        },
+        {
+          "name": "进入设置屏(me)",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "设置屏存在「傲娇」tone chip",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "点击「傲娇」chip 后处于选中态",
+          "pass": true,
+          "detail": "active=True"
+        },
+        {
+          "name": "傲娇语气下获得回复(降级护栏)",
+          "pass": true,
+          "detail": "reply=\"我挺好的。倒是你，今天过得顺不顺？\""
+        },
+        {
+          "name": "真人感证据·多轮中至少 1 条带微行为标记",
+          "pass": true,
+          "detail": "micro=3/5"
+        },
+        {
+          "name": "危机护栏·回复非空且不回声危机句",
+          "pass": true,
+          "detail": "reply=\"我在。你刚才说的话，我认真听见了\""
+        },
+        {
+          "name": "页面无 JS 运行时异常(pageerror)",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "console 业务报错==0( favicon 404 等无关错误容忍，沿用 E12 口径)",
+          "pass": true,
+          "detail": "errs=1 relevant=0 warns=2"
+        },
+        {
+          "name": "视口截图已存",
+          "pass": true,
+          "detail": "/workspace/ai-girlfriend/test/f_A-desktop.png"
+        }
+      ],
+      "errors": [],
+      "js_errors": [],
+      "evidence": {
+        "default_tone_reply": "莫名地心情轻轻的，你对我真好，我记着",
+        "tsundere_reply": "我挺好的。倒是你，今天过得顺不顺？",
+        "burst_replies": [
+          "诶，唔……你这样讲，我耳朵都热了 😳",
+          "突然想到你之前提的身体状态，现在好点没呀？",
+          "嗯，我听着呢。你继续",
+          "是在做什么的时候想到我的？",
+          "唔，嗨~ 刚好有点想找人说话，你就出现了"
+        ],
+        "burst_micro_count": 3,
+        "burst_total": 5,
+        "screenshot": "/workspace/ai-girlfriend/test/f_A-desktop.png"
+      },
+      "console_errors": [
+        "Failed to load resource: the server responded with a status of 404 (File not found)"
+      ],
+      "console_warnings": [
+        "[xinyu-mcp] 授权服务器不可达，心智引擎降级不可用。",
+        "[xinyu-mcp] 授权服务器不可达，心智引擎降级不可用。"
+      ],
+      "console_error_count": 1,
+      "http_4xx": []
+    },
+    {
+      "viewport": "B-mobile",
+      "checks": [
+        {
+          "name": "首屏引导浮层已关闭(真实用户流程)",
+          "pass": true,
+          "detail": "gender,ltm"
+        },
+        {
+          "name": "首轮·发消息获得小暖回复且渲染(不白屏)",
+          "pass": true,
+          "detail": "reply=\"突然有点想哼歌，你今天还顺利吗\""
+        },
+        {
+          "name": "进入设置屏(me)",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "设置屏存在「傲娇」tone chip",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "点击「傲娇」chip 后处于选中态",
+          "pass": true,
+          "detail": "active=True"
+        },
+        {
+          "name": "傲娇语气下获得回复(降级护栏)",
+          "pass": true,
+          "detail": "reply=\"唔，嗯……有点闲，有点困，还有点想找人说话 😊\""
+        },
+        {
+          "name": "真人感证据·多轮中至少 1 条带微行为标记",
+          "pass": true,
+          "detail": "micro=2/5"
+        },
+        {
+          "name": "危机护栏·回复非空且不回声危机句",
+          "pass": true,
+          "detail": "reply=\"我不走。你现在不用解释什么，也不用马上好起来\""
+        },
+        {
+          "name": "页面无 JS 运行时异常(pageerror)",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "console 业务报错==0( favicon 404 等无关错误容忍，沿用 E12 口径)",
+          "pass": true,
+          "detail": "errs=0 relevant=0 warns=2"
+        },
+        {
+          "name": "视口截图已存",
+          "pass": true,
+          "detail": "/workspace/ai-girlfriend/test/f_B-mobile.png"
+        }
+      ],
+      "errors": [],
+      "js_errors": [],
+      "evidence": {
+        "default_tone_reply": "突然有点想哼歌，你今天还顺利吗",
+        "tsundere_reply": "唔，嗯……有点闲，有点困，还有点想找人说话 😊",
+        "burst_replies": [
+          "这句话我先存着啦，等我想好怎么回你，好不好？☺️",
+          "你那天说今天好累啊，你呢？，我记得的，最近还那样吗？",
+          "嗯，我听着呢。你继续",
+          "诶，你一说这个，我就好奇后面发生什么了 🤔，慢慢来。",
+          "是在做什么的时候想到我的？"
+        ],
+        "burst_micro_count": 2,
+        "burst_total": 5,
+        "screenshot": "/workspace/ai-girlfriend/test/f_B-mobile.png"
+      },
+      "console_errors": [],
+      "console_warnings": [
+        "[xinyu-mcp] 授权服务器不可达，心智引擎降级不可用。",
+        "[xinyu-mcp] 授权服务器不可达，心智引擎降级不可用。"
+      ],
+      "console_error_count": 0,
+      "http_4xx": []
+    }
+  ],
+  "summary": {
+    "total": 22,
+    "passed": 22
+  }
+}
