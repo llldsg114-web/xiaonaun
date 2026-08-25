@@ -165,19 +165,20 @@ test('V4-G6 · 防双加工：textured 跳过 mirror/recall + v4.1 钩子不重�
 });
 
 /* ── 守门：改动面仅 6 文件 + 装载序 ── */
-test('V4-guard · 改动面与装载序：3 模块在 index.html 已装载、不进 engine.files.json order', () => {
+test('V4-guard · 改动面与装载序：6 模块(index.html 已装载 + 进 engine.files.json order，位于 app.js 之前)', () => {
   const HTML = read('index.html');
-  for (const f of ['dialogue-core.js', 'emotion-core.js', 'persona-core.js']) {
+  const CORES = ['dialogue-core.js', 'emotion-core.js', 'persona-core.js', 'face-sense.js', 'voice-sense.js', 'sense-core.js'];
+  for (const f of CORES) {
     assert.ok(HTML.includes(`<script src="${f}"></script>`), `index.html 应装载 ${f}`);
   }
-  // v4.1 模块必须位于 app.js 之前（herReply 才能消费）
-  const atCore = HTML.indexOf('<script src="emotion-core.js"></script>');
+  // v4.1/v4.2 模块必须位于 app.js 之前（herReply / senseCore 才能消费）
+  const atLast = Math.max(...CORES.map(f => HTML.indexOf(`<script src="${f}"></script>`)));
   const atApp = HTML.indexOf('<script src="app.js"></script>');
-  assert.ok(atCore >= 0 && atApp >= 0 && atCore < atApp, 'v4.1 模块必须在 app.js 之前装载');
-  // 不进 engine.files.json order（避免 WR-13 missingAssets 误报）
+  assert.ok(atLast >= 0 && atApp >= 0 && atLast < atApp, 'v4.1/v4.2 模块必须在 app.js 之前装载');
+  // v4.2 起 6 模块进 engine.files.json order（sw.js 重 baselining 后需 precache；WR-13 对齐）
   const man = JSON.parse(read('engine.files.json'));
-  for (const f of ['dialogue-core.js', 'emotion-core.js', 'persona-core.js']) {
-    assert.ok(!man.order.includes(f), `${f} 不应进 engine.files.json order（v4.1 不触发 sw ASSETS）`);
+  for (const f of CORES) {
+    assert.ok(man.order.includes(f), `${f} 应进 engine.files.json order（v4.2 sw 重 baselining 后 precache）`);
   }
 });
 

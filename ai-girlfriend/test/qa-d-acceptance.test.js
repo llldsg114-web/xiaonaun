@@ -49,6 +49,7 @@ const DECLARED_MODIFIED = [
   "ai-girlfriend/local-heuristic.js",
   "ai-girlfriend/consent-store.js",   // 候选 #2 backlog：cloudSync 双开关收敛（观察者 + 外发闸门）
   "ai-girlfriend/audit-probe.js",     // 候选 #2 backlog：AuditProbe.tagConsented 实现
+  "ai-girlfriend/sw.js",              // 心屿 v4.2 · 主理人一次性重 baselining(13723→13894，申报 13900 上限)
 ];
 const DECLARED_NEW = [
   "ai-girlfriend/ui-shell.js",
@@ -143,7 +144,12 @@ test("AC-D27 · 全仓库零漂移（已修改实现文件）：改动面恰为�
   // 红线护栏：冻结四文件不得被候选触碰（若命中即属真回归，须停手回主理人）。
   // 注：app.js / texture.js / local-heuristic.js 已被候选 E 合法改动，明确列入 DECLARED_MODIFIED，
   //     故不在此红线内；其余既有模块若被改，会在下方 deepStrictEqual 中因不在合法集合而失败。
-  for (const [rel] of FROZEN) assert.ok(!changed.includes("ai-girlfriend/" + rel), `${rel} 不得被候选改动（冻结闸）`);
+  // 主理人 v4.2 一次性重 baselining：sw.js 经主理人批准合法改动（13723→13894），其余冻结文件仍零容忍
+  const REBASELINED = ["ai-girlfriend/sw.js"];
+  for (const [rel] of FROZEN) {
+    if (REBASELINED.includes("ai-girlfriend/" + rel)) continue;
+    assert.ok(!changed.includes("ai-girlfriend/" + rel), `${rel} 不得被候选改动（冻结闸）`);
+  }
   assert.deepStrictEqual(changed, DECLARED_MODIFIED.slice().sort(),
     `已修改实现文件应恰为已批准合法集合（D∪E∪backlog#2），实际: ${JSON.stringify(changed)}`);
 });
@@ -488,9 +494,11 @@ test("AC-D35（静态面）· index.html id 集合零丢失：pre-D 全部 id �
   //   故新增 id 集合保持这 10 个（严格等式，未来误加 id 会先响）。
   const added = [...after].filter((id) => !before.has(id)).sort();
   assert.deepStrictEqual(added,
-    ["page-privacy", "privacy-audit-body-page", "shell-ctx-actions", "shell-lead", "shell-nav",
-      "shell-side-foot", "shell-sidebar", "shell-tail", "shell-title", "shell-topbar"],
-    `新增 id 应恰为隐私屏 2 个 + 壳层 8 个（候选 E 未新增 id），实际: ${JSON.stringify(added)}`);
+    ["page-privacy", "privacy-audit-body-page", "sense-camera-enabled", "sense-camera-revoke",
+      "sense-camera-status", "sense-marker", "sense-mic-enabled", "sense-mic-revoke", "sense-mic-status",
+      "shell-ctx-actions", "shell-lead", "shell-nav", "shell-side-foot", "shell-sidebar",
+      "shell-tail", "shell-title", "shell-topbar"],
+    `新增 id 应恰为隐私屏 2 个 + 壳层 8 个 + v4.2 五官 7 个（候选 E 未新增 id），实际: ${JSON.stringify(added)}`);
 });
 
 test("AC-D40 / AC-D35 · 设置屏：卡片零丢失（15 张）+ 6 组声明计数 === 实际（语音 4 / 智能 2）", () => {
@@ -509,15 +517,15 @@ test("AC-D40 / AC-D35 · 设置屏：卡片零丢失（15 张）+ 6 组声明计
   const after = groups(HTML);
   const sum = (a) => a.reduce((n, x) => n + x.cards, 0);
   assert.strictEqual(sum(after), sum(before), `设置屏卡片总数不得变化（HEAD=${sum(before)}，实=${sum(after)}）`);
-  assert.strictEqual(sum(after), 15, "设置屏应共 15 张卡（仅重排分组归属，不删卡）");
+  assert.strictEqual(sum(after), 16, "设置屏应共 16 张卡（候选 D 15 + v4.2 五官 1，仅重排分组归属，不删卡）");
   assert.strictEqual(countOf(/class="me-card/g, HTML), countOf(/class="me-card/g, headFile("ai-girlfriend/index.html")),
     "me-card 节点数逐一保留");
   const voice = after.find((g) => g.group === "voice");
   const brain = after.find((g) => g.group === "brain");
   assert.ok(voice, "应新增「语音与朗读」一级分组（决策 D-1：语音不设独立屏）");
   assert.strictEqual(voice.name, "语音与朗读");
-  assert.strictEqual(voice.declared, "4", "AC-D40：语音与朗读声明计数应为 4");
-  assert.strictEqual(voice.cards, 4, "语音组实际卡片应为 4（语音开关 / 音色 / 语音输入 / 语音与隐私）");
+  assert.strictEqual(voice.declared, "5", "AC-D40：语音与朗读声明计数应为 5（含 v4.2 五官 1 卡）");
+  assert.strictEqual(voice.cards, 5, "语音组实际卡片应为 5（语音开关 / 音色 / 语音输入 / 语音与隐私 + v4.2 五官 1）");
   assert.strictEqual(brain.declared, "2", "AC-D40：智能与模型声明计数应为 2");
   assert.strictEqual(brain.cards, 2, "智能组实际卡片应为 2（云端大脑 / 端侧模型）");
   for (const g of after) {

@@ -190,8 +190,8 @@ test("WR-13 三模块装载拓扑：engine.files.json / index.html / sw.js 三�
   assert.ok(L.manifest, "engine.files.json 缺失（装载真相源丢了）");
   assert.strictEqual(L.manifest.order[0], "engine.js", "engine.js 必须排在 order 首位");
   assert.deepStrictEqual(
-    L.manifest.order, ["engine.js", "memory.js", "presence.js", "texture.js"],
-    "order 与 DESIGN §1 约定不符",
+    L.manifest.order, ["engine.js","memory.js","presence.js","texture.js","dialogue-core.js","emotion-core.js","persona-core.js","face-sense.js","voice-sense.js","sense-core.js"],
+    "order 与 DESIGN §1 + v4.2 约定不符",
   );
 
   // 2) 清单声明的文件必须真的在盘上（否则浏览器 404、Node 静默跳过 → 半更新态）
