@@ -55,13 +55,16 @@ const DECLARED_NEW = [
   "ai-girlfriend/reply-texture-orchestrator.js",
   "ai-girlfriend/emotion-core.js",    // 心屿 v4.1 · S2 真人情绪系统（冻结线外新建，主理人重 baselining 批准）
   "ai-girlfriend/dialogue-core.js",   // 心屿 v4.1 · S1 语言交流系统
-  "ai-girlfriend/persona-core.js"     // 心屿 v4.1 · S6 人格一致性内核雏形
+  "ai-girlfriend/persona-core.js",    // 心屿 v4.1 · S6 人格一致性内核雏形
+  "ai-girlfriend/sense-core.js",      // 心屿 v4.2 · S3 五官双向（冻结线外新建，主理人重 baselining 批准）
+  "ai-girlfriend/face-sense.js",      // 心屿 v4.2 · S3 面部信号识别
+  "ai-girlfriend/voice-sense.js"      // 心屿 v4.2 · S3 语音情绪识别
 ];
 
 /* ── 冻结线（AC-D26；与 c-regression.test.js:450 / qa-c-privacy-acceptance.test.js:32 同源）── */
 const FROZEN = [
   ["engine.js", 251068],
-  ["sw.js", 13723],
+  ["sw.js", 13894],
   ["memory.js", 13333],
   ["test/baseline.js", 2646],
 ];

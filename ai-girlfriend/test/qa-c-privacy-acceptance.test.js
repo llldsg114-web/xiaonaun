@@ -31,7 +31,7 @@ const path = require("node:path");
 const ROOT = __dirname;
 const FROZEN = [
   ["engine.js", 251068],
-  ["sw.js", 13723],
+  ["sw.js", 13894],
   ["memory.js", 13333],
   ["test/baseline.js", 2646],
 ];

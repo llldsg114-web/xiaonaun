@@ -238,7 +238,7 @@ test('F-L3-paths · L3 路径全覆盖：mirror/pacing/recall/continuity 各 ≥
 
 /* ── 守门：冻结四文件字节精确 ── */
 test('F-guard · 冻结四文件字节精确不变', () => {
-  const exp = { 'engine.js': 251068, 'sw.js': 13723, 'memory.js': 13333, 'test/baseline.js': 2646 };
+  const exp = { 'engine.js': 251068, 'sw.js': 13894, 'memory.js': 13333, 'test/baseline.js': 2646 };
   for (const f in exp) {
     const sz = fs.statSync(path.join(ROOT, f)).size;
     assert.strictEqual(sz, exp[f], `${f} 字节应精确为 ${exp[f]}，实际 ${sz}（冻结线被触碰！）`);

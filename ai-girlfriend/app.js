@@ -306,15 +306,20 @@ function pickTts() {
   return { voice: zh, rate: p.rate, pitch: p.pitch, lang: zh ? zh.lang : "zh-CN" };
 }
 
-function speak(text) {
+function speak(text, opts) {
   // 去掉 emoji / 控制符，避免部分合成器报错
   const clean = (text || "").replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu, "").replace(/\s+/g, " ").trim();
   if (!clean) return;
   // 候选 B：优先经 window.Voice 本地零上报朗读（叠加层，不破坏文字对话）。
   // Voice 作为朗读的唯一管理者；接管后不再回落既有 speechSynthesis 路径，避免重复朗读。
+  // v4.2（S3-B）：opts 合并 moodToTTS 的语速/音调档位（小暖情绪→语调）。
   if (window.Voice && typeof Voice.isSupported === "function" && typeof Voice.isEnabled === "function") {
     if (Voice.isSupported().tts && Voice.isEnabled("tts") && S.tts) {
-      try { Voice.speak(clean); } catch (e) {}   // 失败静默降级，绝不阻塞对话
+      try {
+        const ttsOpts = (opts && (opts.rate != null || opts.pitch != null || opts.volume != null))
+          ? { rate: opts.rate, pitch: opts.pitch, volume: opts.volume } : null;
+        Voice.speak(clean, ttsOpts);   // 合并情绪语调档位（零上报）
+      } catch (e) {}   // 失败静默降级，绝不阻塞对话
       return;
     }
     // Voice 已加载但 TTS 关闭 / 不支持 → 纯文字降级（不动既有 speechSynthesis）
@@ -328,9 +333,26 @@ function speak(text) {
     const u = new SpeechSynthesisUtterance(clean);
     u.voice = cfg.voice || null;
     u.lang = cfg.lang;
-    u.rate = cfg.rate; u.pitch = cfg.pitch; u.volume = 1;
+    u.rate = (opts && typeof opts.rate === "number") ? opts.rate : cfg.rate;
+    u.pitch = (opts && typeof opts.pitch === "number") ? opts.pitch : cfg.pitch;
+    u.volume = 1;
     speechSynthesis.speak(u);
   } catch (e) {}
+}
+
+/* v4.2（S3-B）· 轻量 emoji 通道：把小暖当前情绪七态映射成一个 emoji 指示，
+ * 作为 SVG 神态之外的「轻量文本通道」（降级路径下同样可见，绝不白屏）。 */
+const MOOD_EMOJI = { neutral: "😊", joy: "😊", anger: "😠", sad: "😢", coquettish: "😊", jealous: "😒", longing: "🥺", peaceful: "😌" };
+function applyMoodEmoji(key) {
+  const el = document.getElementById("nav-mood");
+  if (!el) return;
+  el.textContent = MOOD_EMOJI[key] || "😊";
+}
+
+/* v4.2（S3-A）· 安全读取用户情绪增强信号：降级安全，SenseCore 缺席/抛错 → 返回 null。 */
+function safeSenseRead(t) {
+  try { if (window.SenseCore && typeof window.SenseCore.readUserEmotion === "function") return window.SenseCore.readUserEmotion({ text: t }); } catch (e) {}
+  return null;
 }
 
 /* ================= OS 系统通知（跨会话主动推送） ================= */
@@ -1106,11 +1128,23 @@ async function herSay(text, expr = null, opts = null) {
   if (S.messages.length > 300) S.messages = S.messages.slice(-300);
   save();
 
+  // v4.2（S3-B）· 小暖情绪态 → 语调档位（语速/音调），与 SVG 神态双轨呈现。
+  // 同时用轻量 emoji 通道标注其情绪（降级路径下同样可见）。
+  let senseTts = null, senseMoodKey = null;
+  try {
+    if (window.SenseCore && window.EmotionCore) {
+      const ms = window.EmotionCore.currentMoodState(S);
+      senseMoodKey = ms.key;
+      senseTts = window.SenseCore.moodToTTS(ms);
+    }
+  } catch (e) {}
+  if (senseMoodKey) { try { applyMoodEmoji(senseMoodKey); } catch (e) {} }
+
   // 页面不可见时（切到后台/其他 App），把想念/回复转成系统通知，实现跨会话推送
   if (document.hidden && S.notify) {
     notifyOS(currentChar().name + "想你了 💕", text);
   } else {
-    speak(text);
+    speak(text, senseTts);   // 合并情绪语调档位（joy 轻快上扬 / sad 放缓变柔 …）
   }
   // 不在聊天页时亮红点
   if (!$("#page-chat").classList.contains("active")) $("#chat-dot").classList.remove("hidden");
@@ -1288,6 +1322,9 @@ async function herReply(userText, img) {
   while (pendingQueue.length) {
     const text = pendingQueue.length > 1 ? pendingQueue.join("；") : pendingQueue[0];
     pendingQueue = [];
+    // v4.2（S3-A）· 用户输入侧先经 SenseCore 读取增强 ue（文本默认，camera/mic 仅增强、需同意）。
+    // 降级：SenseCore 缺席/未授权 → null，退纯文本推断（emotion-core 仍按文本 ue 推进 moodState）。
+    const senseUe = (text) ? safeSenseRead(text) : null;
 
     // 特殊仪式感意图（表白 / 纪念日 / 游戏）需要读取或改写状态
     const intent = Engine.detect(text);
@@ -1433,6 +1470,10 @@ async function herReply(userText, img) {
     save();
 
     if (result.moodOverride) { mood = result.moodOverride; S.moodKey = mood.key; save(); refreshAffectionUI(); }
+
+    // v4.2（S3-A）· 用户情绪增强信号（camera/mic 经同意门控的本地推断）覆盖 result.ue，
+    // 驱动下方共情态推进（inferMoodEvent）与对话情境呼应。降级安全：SenseCore 缺席即 null。
+    if (senseUe) { try { result.ue = senseUe; } catch (e) {} }
 
     // 情绪状态机：用本轮回合的意图/好感度更新连续情绪，再决定表情（覆盖无表情的行）
     // v11：把用户情绪 result.ue 作为第 4 参传入，只调制输入侧冲量，V-A 模型本身不变
@@ -2373,6 +2414,54 @@ function bindVoicePrivacy() {
     if (st) { st.textContent = "已清除本地语音偏好，恢复默认音色/语速。"; st.className = "me-status ok"; }
   });
   refreshAsrConsentStatus();
+}
+
+/* v4.2（S3-A）· 本地五官识别同意面板接线：sense.camera / sense.mic 独立授权项。
+ * 仅写入 ConsentStore；SenseCore.init 已订阅 onChange，撤销即自动停机适配器并释放媒体流。 */
+function bindSenseConsent() {
+  const cs = (window.ConsentStore && window.ConsentStore.getInstance)
+    ? window.ConsentStore.getInstance() : (window.ConsentStore || null);
+  const cam = $("#sense-camera-enabled"), mic = $("#sense-mic-enabled");
+  const camStatus = $("#sense-camera-status"), micStatus = $("#sense-mic-status");
+  const setStatus = () => {
+    try { if (camStatus && cs) camStatus.textContent = cs.get('sense.camera') ? "已同意" : "未同意"; } catch (e) {}
+    try { if (micStatus && cs) micStatus.textContent = cs.get('sense.mic') ? "已同意" : "未同意"; } catch (e) {}
+  };
+  // 初始化勾选态（持久化同意时默认勾上）
+  try { if (cam && cs) cam.checked = !!cs.get('sense.camera'); } catch (e) {}
+  try { if (mic && cs) mic.checked = !!cs.get('sense.mic'); } catch (e) {}
+  if (cam) cam.addEventListener("change", () => {
+    const on = cam.checked;
+    if (cs) { try { cs.set('sense.camera', on); } catch (e) {} }   // 写同意态 → SenseCore 自动启停
+    setStatus(); try { updateSenseMarker(); } catch (e) {}
+  });
+  if (mic) mic.addEventListener("change", () => {
+    const on = mic.checked;
+    if (cs) { try { cs.set('sense.mic', on); } catch (e) {} }
+    setStatus(); try { updateSenseMarker(); } catch (e) {}
+  });
+  // 撤回按钮：写回 false 并取消勾选
+  const camRevoke = $("#sense-camera-revoke"), micRevoke = $("#sense-mic-revoke");
+  if (camRevoke) camRevoke.addEventListener("click", () => {
+    if (cs) { try { cs.set('sense.camera', false); } catch (e) {} }
+    if (cam) cam.checked = false; setStatus(); try { updateSenseMarker(); } catch (e) {}
+  });
+  if (micRevoke) micRevoke.addEventListener("click", () => {
+    if (cs) { try { cs.set('sense.mic', false); } catch (e) {} }
+    if (mic) mic.checked = false; setStatus(); try { updateSenseMarker(); } catch (e) {}
+  });
+  setStatus();
+}
+
+/* v4.2（S3）· 🔒 本地识别常驻标记：仅当 sense.camera / sense.mic 任一已同意时显示。 */
+function updateSenseMarker() {
+  const el = $("#sense-marker");
+  if (!el) return;
+  const cs = (window.ConsentStore && window.ConsentStore.getInstance)
+    ? window.ConsentStore.getInstance() : (window.ConsentStore || null);
+  let on = false;
+  try { if (cs) on = !!cs.get('sense.camera') || !!cs.get('sense.mic'); } catch (e) {}
+  if (on) el.classList.remove("hidden"); else el.classList.add("hidden");
 }
 
 /* 候选 B · 对话页朗读条（状态指示 + 波形 + 暂停/静音） */
@@ -4630,6 +4719,10 @@ function init() {
   try { bindVoicePrivacy(); } catch (e) {}
   try { bindVoiceBar(); } catch (e) {}
   try { bindPrivacyAudit(); } catch (e) {}  // 候选 C（C-E3）：顶栏「⚙ 隐私审计」入口 + 面板开关
+  // v4.2（S3 五官双向）· 门控挂载 + 同意面板接线 + 常驻标记
+  try { if (window.SenseCore) window.SenseCore.init(window.ConsentStore, window.AuditProbe); } catch (e) {}
+  try { bindSenseConsent(); } catch (e) {}
+  try { updateSenseMarker(); } catch (e) {}
 
   /* ================= 候选 C · 隐私共存启动 =================
    * 仅叠加，不改动 B 逻辑：

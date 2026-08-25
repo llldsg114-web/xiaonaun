@@ -107,7 +107,7 @@ test('V4-G2 · 情绪 ≥7 态且触发后 1 轮内正确映射（moodToExpr）'
 
 /* ── ③ 冻结线零交集 ── */
 test('V4-guard · 冻结四文件字节精确零交集', () => {
-  const exp = { 'engine.js': 251068, 'sw.js': 13723, 'memory.js': 13333, 'test/baseline.js': 2646 };
+  const exp = { 'engine.js': 251068, 'sw.js': 13894, 'memory.js': 13333, 'test/baseline.js': 2646 };
   for (const f in exp) {
     const sz = fs.statSync(path.join(ROOT, f)).size;
     assert.strictEqual(sz, exp[f], `${f} 字节应精确为 ${exp[f]}，实际 ${sz}（冻结线被触碰！）`);

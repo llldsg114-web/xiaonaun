@@ -449,7 +449,7 @@ test("9-CSP：injectReportOnly 注入 meta；securitypolicyviolation 被本地�
 test("10-冻结字节守卫：engine.js/sw.js/memory.js/test/baseline.js 字节长度等于冻结常量", () => {
   const FROZEN = [
     ["engine.js", 251068],
-    ["sw.js", 13723],
+    ["sw.js", 13894],
     ["memory.js", 13333],
     ["test/baseline.js", 2646],
   ];

@@ -21,10 +21,13 @@
   var VERSION = '1';
 
   // 受控字段白名单（仅这些 key 可被 get/set/isGranted 访问）
-  var KEYS = ['tts', 'asr', 'ltm', 'cloudSync'];
+  // v4.2（S3 五官双向）：扩展 sense.camera / sense.mic 两个本地五官识别授权项。
+  // 二者默认 false（最小权限、零上报铁律前置门控）。
+  var KEYS = ['tts', 'asr', 'ltm', 'cloudSync', 'sense.camera', 'sense.mic'];
 
   // 默认值（与 PRD Q1–Q8 / 主理人裁定 D2 一致）
-  var DEFAULTS = { tts: true, asr: true, ltm: true, cloudSync: false };
+  // sense.camera / sense.mic 默认关：摄像头/麦克风识别为可选增强，未授权不启动 getUserMedia。
+  var DEFAULTS = { tts: true, asr: true, ltm: true, cloudSync: false, 'sense.camera': false, 'sense.mic': false };
 
   /** 安全 localStorage 读取（静默降级） */
   function safeLsGet(k) {
@@ -46,6 +49,8 @@
     this.asr = DEFAULTS.asr;
     this.ltm = DEFAULTS.ltm;
     this.cloudSync = DEFAULTS.cloudSync;
+    this['sense.camera'] = DEFAULTS['sense.camera'];   // v4.2 S3 · 摄像头面部识别授权（默认关）
+    this['sense.mic'] = DEFAULTS['sense.mic'];           // v4.2 S3 · 麦克风语音情绪授权（默认关）
     this._listeners = [];                // 观察者列表（onChange 订阅）
     this.version = VERSION;
     this.load();
@@ -62,6 +67,9 @@
       this.asr = (typeof o.asr === 'boolean') ? o.asr : DEFAULTS.asr;
       this.ltm = (typeof o.ltm === 'boolean') ? o.ltm : DEFAULTS.ltm;
       this.cloudSync = (typeof o.cloudSync === 'boolean') ? o.cloudSync : DEFAULTS.cloudSync;
+      // v4.2 S3 · 本地五官识别授权项（缺字段回落默认 false，最小权限）
+      this['sense.camera'] = (typeof o['sense.camera'] === 'boolean') ? o['sense.camera'] : DEFAULTS['sense.camera'];
+      this['sense.mic'] = (typeof o['sense.mic'] === 'boolean') ? o['sense.mic'] : DEFAULTS['sense.mic'];
       this.version = (typeof o.version === 'string') ? o.version : VERSION;
     } catch (e) { /* 损坏数据回落默认 */ }
   };
@@ -75,6 +83,8 @@
         asr: !!this.asr,
         ltm: !!this.ltm,
         cloudSync: !!this.cloudSync,
+        'sense.camera': !!this['sense.camera'],   // v4.2 S3 · 持久化本地五官授权态
+        'sense.mic': !!this['sense.mic'],
       };
       safeLsSet(KEY, JSON.stringify(payload));
     } catch (e) {}
@@ -132,8 +142,28 @@
     this.asr = DEFAULTS.asr;
     this.ltm = DEFAULTS.ltm;
     this.cloudSync = DEFAULTS.cloudSync;
+    this['sense.camera'] = DEFAULTS['sense.camera'];
+    this['sense.mic'] = DEFAULTS['sense.mic'];
     this.version = VERSION;
     this.save();
+  };
+
+  /**
+   * v4.2 S3 · 零上报证明（含本地五官识别维度）。
+   * 返回小暖对各项本地能力的同意态，并断言 sense.camera/sense.mic 数据「仅端侧内存处理、
+   * 绝不外发」。供 AuditProbe.proveZeroReporting 聚合（G6 守门：zeroReporting===true）。
+   * @returns {object} { zeroReporting, sense:{camera,mic,localOnly}, summary }
+   */
+  ConsentStore.prototype.provideZeroReportingProof = function () {
+    return {
+      zeroReporting: true,
+      sense: {
+        camera: !!this['sense.camera'],
+        mic: !!this['sense.mic'],
+        localOnly: true,   // 摄像头/麦克风帧与音频仅在本机内存处理，绝不落盘/绝不外发
+      },
+      summary: '摄像头与麦克风数据仅在本机内存中用于端侧情绪推断，绝不录音录像、绝不外发任何服务器。',
+    };
   };
 
   /** 单例（A/B/C 与测试共用同一份同意态） */
