@@ -384,6 +384,12 @@ const defaultState = () => ({
   story: [],               // 我们的故事时间线
   affHistory: {},          // 情感曲线：{ "YYYY-M-D": 当日好感 }
   emotion: { v: 0.22, a: 0.08 },  // 连续情绪坐标 Valence×Arousal
+  // —— v4.1 · 情绪七态 moodState（优先级高于 V-A；吃醋/撒娇等 V-A 九区未覆盖态由 moodState 承载）——
+  moodState: { key: 'neutral', intensity: 0, since: 0, source: 'init' },
+  // —— v4.1 · 关系阶段（v4.3 独立化；当前由 affection/dating 派生 stage）——
+  relationship: { stage: 'stranger', since: 0 },
+  // —— v4.1 · bond-memory 载体（v4.3 落地 bond-memory.js；v4.1 仅占位，绝不写 memory.js）——
+  bond: { warmth: 0, shards: [] },
   emotionLog: {},          // 情绪晴雨表：{ "YYYY-M-D": [{v,a}...] }
   diaryEntries: {},        // AI 日记：{ "YYYY-M-D": { text, t, mood } }
   lastDiaryPrompt: "",     // 上次问日记的日期，防重复
@@ -439,6 +445,10 @@ function load() {
       s.affHistory = s.affHistory || {};
       s.emotion = Object.assign({ v: 0.22, a: 0.08 }, s.emotion || {});
       s.emotionLog = s.emotionLog || {};
+      // —— v4.1 · 新字段嵌套兜底（老存档缺字段时回落，绝不白屏）——
+      s.moodState = Object.assign({ key: 'neutral', intensity: 0, since: 0, source: 'init' }, s.moodState || {});
+      s.relationship = Object.assign({ stage: 'stranger', since: 0 }, s.relationship || {});
+      s.bond = Object.assign({ warmth: 0, shards: [] }, s.bond || {});
       s.diaryEntries = s.diaryEntries || {};
       s.weeklySummary = s.weeklySummary || {};
       s.lastDiaryPrompt = s.lastDiaryPrompt || "";
@@ -607,11 +617,19 @@ const EXPR_MAP = {
   think:  { eyes: "eyes-think", brows: "brows-normal", mouth: "mouth-think", blush: "blush-normal" },
   kiss:   { eyes: "eyes-happy", brows: "brows-normal", mouth: "mouth-kiss", blush: "blush-shy" },
   wink:   { eyes: "eyes-wink", brows: "brows-normal", mouth: "mouth-smile", blush: "blush-normal" },
+  // —— v4.1 · 情绪七态对应表情（复用既有 SVG 部件，确保离线渲染不破；专属微表情 SVG 部件留 T1.7）——
+  jealous:     { eyes: "eyes-open", brows: "brows-angry", mouth: "mouth-shy", blush: "blush-shy" },
+  coquettish:  { eyes: "eyes-happy", brows: "brows-normal", mouth: "mouth-shy", blush: "blush-shy" },
+  longing:     { eyes: "eyes-open", brows: "brows-normal", mouth: "mouth-smile", blush: "blush-shy" },
+  peaceful:    { eyes: "eyes-closed", brows: "brows-normal", mouth: "mouth-smile", blush: "blush-normal" },
+  surprised:   { eyes: "eyes-open", brows: "brows-normal", mouth: "mouth-happy", blush: "blush-normal" },
 };
 const FACE_PARTS = ["eyes-open","eyes-happy","eyes-closed","eyes-cry","eyes-think","eyes-wink",
+  "eyes-look-away","eyes-soft",
   "brows-normal","brows-angry","brows-sad",
   "mouth-smile","mouth-happy","mouth-shy","mouth-angry","mouth-sad","mouth-sleepy","mouth-cry","mouth-think","mouth-kiss",
-  "blush-normal","blush-shy"];
+  "mouth-jealous","mouth-coquettish","mouth-longing","mouth-peaceful","mouth-surprised",
+  "blush-normal","blush-shy","blush-deep"];
 
 function setExpression(name, holdMs = 0) {
   const cfg = EXPR_MAP[name] || EXPR_MAP.normal;
@@ -667,6 +685,19 @@ function updateAura() {
     light = light - k * 4;
     intensity = Math.max(0.2, intensity - k * 0.1);
   }
+  // —— v4.1 · moodState 联动：情绪七态微调光晕色相/强度（不覆盖 V-A 主线，仅叠加情绪语义层）——
+  try {
+    const ms = (S && S.moodState) || null;
+    if (ms && ms.key && ms.key !== 'neutral') {
+      const mk = Math.max(0, Math.min(1, ms.intensity || 0));
+      if (ms.key === 'jealous') { hue = Math.round(hue - 18 * mk); sat = Math.round(sat - 6 * mk); }       // 醋→冷调回盯
+      else if (ms.key === 'longing') { hue = Math.round(hue + 8 * mk); light = Math.round(light + 4 * mk); } // 念→柔光
+      else if (ms.key === 'peaceful') { sat = Math.round(sat - 10 * mk); light = Math.round(light + 6 * mk); } // 安→暖柔
+      else if (ms.key === 'sad') { hue = Math.round(hue - 12 * mk); }                                        // 哀→微冷
+      else if (ms.key === 'joy' || ms.key === 'coquettish') { hue = Math.round(hue + 10 * mk); light = Math.round(light + 3 * mk); } // 喜/娇→暖亮
+      else if (ms.key === 'angry') { hue = Math.round(hue - 6 * mk); sat = Math.round(sat + 6 * mk); }        // 怒→略炽
+    }
+  } catch (e) {}
   el.style.background = `radial-gradient(circle at 50% 50%, hsla(${hue}, ${sat}%, ${light}%, .95) 0%, hsla(${hue}, ${sat}%, ${light - 6}%, .45) 38%, transparent 66%)`;
   el.style.opacity = intensity.toFixed(2);
   el.style.transform = `translate(-50%, -50%) scale(${scale.toFixed(3)})`;
@@ -679,6 +710,11 @@ function tickEmotion() {
   const BASE = { v: 0.22, a: 0.08 };
   S.emotion.v += (BASE.v - S.emotion.v) * 0.06;
   S.emotion.a += (BASE.a - S.emotion.a) * 0.06;
+  // —— v4.1 · moodState 空闲衰减（每 ~3.4s 回落一点；moodState 自然回归 neutral）——
+  try {
+    const em = (Engine.mod && Engine.mod("emotionCore")) || (typeof window !== 'undefined' && window.EmotionCore);
+    if (em && S.moodState) S.moodState = em.decay(S.moodState, 3400) || S.moodState;
+  } catch (e) {}
   updateAura();
   if (++_auraTick % 6 === 0) save(); // 每 ~60s 落盘一次，避免频繁写盘
 }
@@ -1403,6 +1439,18 @@ async function herReply(userText, img) {
     const z = applyEmotion(intent, result.delta, result.ue);
     if (!result.expression || result.expression === "normal") result.expression = z.expr;
 
+    // —— v4.1 · emotionCore 钩子：事件驱动推进 7 态 moodState，并覆盖表情（moodState 优先级高于 V-A）——
+    try {
+      const em = (Engine.mod && Engine.mod("emotionCore")) || (typeof window !== 'undefined' && window.EmotionCore);
+      if (em) {
+        const evt = em.inferMoodEvent(text, intent, result.ue) || null;
+        const ticked = em.moodTick(evt, S.emotion, S.relationship);
+        if (ticked) S.moodState = ticked;                       // 写回 moodState（仅追加字段，不动 V-A）
+        else if (S.moodState) S.moodState = em.decay(S.moodState, 0) || S.moodState;
+        result.expression = em.moodToExpr(S.moodState, result.expression);  // moodState 优先映射 EXPR_MAP
+      }
+    } catch (e) { /* 任一异常 → 保留既有 result.expression，绝不白屏/静默 */ }
+
     if (result.intent === "greeting" && Engine.getLevel(S.affection).lv >= 3) waveHello();
 
     for (let i = 0; i < result.replies.length; i++) {
@@ -1417,6 +1465,20 @@ async function herReply(userText, img) {
           });
         } catch (e) { /* 任一异常 → 原句直出，绝不静默/白屏 */ }
       }
+      // —— v4.1 · dialogueCore 钩子：不机械去重 + 情境呼应占位（LRU，不写 S）——
+      try {
+        const dc = (Engine.mod && Engine.mod("dialogueCore")) || (typeof window !== 'undefined' && window.DialogueCore);
+        if (dc && typeof dc.dialogueWeave === 'function') {
+          reply = dc.dialogueWeave(reply, { ue: result.ue, moodState: S.moodState, bondMem: (S.bond || null), S: S });
+        }
+      } catch (e) { /* 任一异常 → 保留编排后文本，绝不静默 */ }
+      // —— v4.1 · personaCore 钩子：复用危机/破墙护栏；不通过 → 回退原句（绝不放行 break-wall）——
+      try {
+        const pc = (Engine.mod && Engine.mod("personaCore")) || (typeof window !== 'undefined' && window.PersonaCore);
+        if (pc && typeof pc.safetyGuard === 'function' && !pc.safetyGuard(reply)) {
+          reply = result.replies[i];   // 回落原句（对话前文本），确保不破墙、绝不白屏
+        }
+      } catch (e) { /* 任一异常 → 保留编织后文本 */ }
       await herSay(reply, result.expression);
       if (i < result.replies.length - 1) await new Promise(r => setTimeout(r, 500 + Math.random() * 600));
     }

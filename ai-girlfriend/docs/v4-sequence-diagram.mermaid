@@ -1,0 +1,35 @@
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant SN as sense-core.js(本地端侧·v4.2)
+    participant APP as app.js(herReply)
+    participant ENG as engine.js(冻结)
+    participant EM as emotion-core.js
+    participant BM as bond-memory.js(·v4.3)
+    participant DC as dialogue-core.js
+    participant RT as ReplyTexture.orchestrate
+    participant PC as persona-core.js
+    participant HS as app.js(herSay/setExpression)
+    participant AU as AuditProbe/ConsentStore
+
+    U->>SN: 文本/可选摄像头/麦克风输入
+    SN->>SN: 仅本地端侧识别用户情绪/微表情
+    SN-->>APP: S.ue(增强: 微表情/眼神/gaze/valence)
+    Note over SN,AU: 原始帧/音频绝不外发；未授权 SN 不启动（Consent 门控）
+    APP->>BM: bondRecall(S, ctx)（v4.3）
+    BM-->>APP: 关系级记忆碎片(克制引用)
+    APP->>ENG: Engine.reply(text, est{ue, moodState, bondMem…})
+    ENG->>ENG: E.detectUserEmotion / rich-rule（冻结，只调用）
+    ENG-->>APP: result{replies, ue, delta, expression}
+    APP->>EM: moodTick(userEvent, S.emotion, S.relationship)
+    EM->>EM: 7态推进(喜/怒/哀/娇/醋/念/安)+衰减
+    EM-->>APP: 更新 S.moodState + moodToExpr(覆盖 expr)
+    APP->>DC: dialogueWeave(reply, {ue, moodState, bondMem, S})
+    DC-->>APP: 不机械·情境呼应后文本
+    APP->>RT: orchestrate(reply, ctx)（既有 L3）
+    RT-->>APP: 质感编排后文本
+    APP->>PC: safetyGuard(reply)（复用 crisis/break-wall）
+    PC-->>APP: 通过(否则回落原句)
+    APP->>HS: herSay(reply, exprFromMoodState)
+    HS->>HS: setExpression(扩展 EXPR_MAP) + updateAura(moodState) + 打字节奏(presence.pacingOf)
+    HS-->>U: 小暖神态+语气+文字(像真人恋人)

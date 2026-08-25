@@ -1,0 +1,79 @@
+classDiagram
+    class EngineMod {
+        <<既有契约 E.use/Engine.mod>>
+    }
+    class DialogueCore {
+        +dialogueWeave(text, ctx) string
+        +consistencyGuard(state) bool
+        +situationRecall(state, mem) string
+    }
+    class EmotionCore {
+        +STATES = EMOTIONS
+        +moodTick(evt, emotion, rel) Object
+        +decay(moodState, dt) Object
+        +currentMoodState(S) Object
+        +moodToExpr(moodState, fallback) string
+    }
+    class SenseCore {
+        +adapters = {text, face, voice}
+        +init(ConsentStore, AuditProbe)
+        +readUserEmotion(input) ue
+        +isConsented() bool
+    }
+    class FaceSense {
+        +infer(frame) ue
+    }
+    class VoiceSense {
+        +infer(analyser) ue
+    }
+    class BondMemory {
+        +bondRecall(state, ctx) Object
+        +warmthDeepen(dailyNote) void
+        +relationshipGraph(S) Object
+    }
+    class ProactivityCore {
+        +planByRelationship(S, stage) Object
+        +warmthCurve(S) number
+        +shouldProactive(S) bool
+    }
+    class PersonaCore {
+        +validateVoice(state) bool
+        +safetyGuard(text) bool
+    }
+    class ConsentStore {
+        +KEYS = [...,'sense.camera','sense.mic']
+        +get(key) bool
+        +set(key, val) bool
+    }
+    class AuditProbe {
+        +proveZeroReporting() Object
+        +registerConsented(url) void
+    }
+    class AppState {
+        +emotion Object
+        +moodState Object
+        +ue Object
+        +relationship Object
+        +bond Object
+        +persona Object
+        +affection number
+        +dating Object
+    }
+
+    EngineMod <|.. DialogueCore
+    EngineMod <|.. EmotionCore
+    EngineMod <|.. SenseCore
+    EngineMod <|.. BondMemory
+    EngineMod <|.. ProactivityCore
+    EngineMod <|.. PersonaCore
+    SenseCore *-- FaceSense : 可选适配器
+    SenseCore *-- VoiceSense : 可选适配器
+    SenseCore ..> ConsentStore : 授权门控
+    SenseCore ..> AuditProbe : 零上报护栏
+    EmotionCore ..> BondMemory : 记忆驱动情绪
+    DialogueCore ..> BondMemory : 情境呼应取碎片
+    ProactivityCore ..> EmotionCore : 关系阶段/升温
+    PersonaCore ..> AuditProbe : 复用 crisis 护栏
+    AppState <.. EmotionCore : 写 moodState
+    AppState <.. DialogueCore : 读 ue/moodState
+    AppState <.. ProactivityCore : 读 affection/dating

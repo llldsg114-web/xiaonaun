@@ -50,7 +50,13 @@ const DECLARED_MODIFIED = [
   "ai-girlfriend/consent-store.js",   // 候选 #2 backlog：cloudSync 双开关收敛（观察者 + 外发闸门）
   "ai-girlfriend/audit-probe.js",     // 候选 #2 backlog：AuditProbe.tagConsented 实现
 ];
-const DECLARED_NEW = ["ai-girlfriend/ui-shell.js", "ai-girlfriend/reply-texture-orchestrator.js"];
+const DECLARED_NEW = [
+  "ai-girlfriend/ui-shell.js",
+  "ai-girlfriend/reply-texture-orchestrator.js",
+  "ai-girlfriend/emotion-core.js",    // 心屿 v4.1 · S2 真人情绪系统（冻结线外新建，主理人重 baselining 批准）
+  "ai-girlfriend/dialogue-core.js",   // 心屿 v4.1 · S1 语言交流系统
+  "ai-girlfriend/persona-core.js"     // 心屿 v4.1 · S6 人格一致性内核雏形
+];
 
 /* ── 冻结线（AC-D26；与 c-regression.test.js:450 / qa-c-privacy-acceptance.test.js:32 同源）── */
 const FROZEN = [
@@ -641,8 +647,9 @@ test("AC-D42 · 旧基线测试套件完整且可加载（行为级 449/0 由主
     .sort()
     .map((f) => "test/" + f);
   // 旧基线（实现前 HEAD）.test.js 恰为 32 个；候选 E 新增 qa-e-acceptance.test.js 使 30 → 31，
-  // 候选 F 新增 qa-f-acceptance.test.js 使 31 → 32（排除本验收文件）；本重 baselining 不得增减任何其他旧文件。
-  assert.strictEqual(files.length, 32, `旧基线测试文件数应恒为 32（候选 E 30→31，候选 F 31→32；排除本验收文件），实际 ${files.length}`);
+  // 候选 F 新增 qa-f-acceptance.test.js 使 31 → 32；心屿 v4.1 新增 qa-v4-1-acceptance.test.js 使 32 → 33
+  // （排除本验收文件）；本重 baselining 不得增减任何其他旧文件。
+  assert.strictEqual(files.length, 33, `旧基线测试文件数应恒为 33（候选 E 30→31，候选 F 31→32，v4.1 32→33；排除本验收文件），实际 ${files.length}`);
   // 每个旧基线文件语法可加载（node --check，不执行 DOM 代码，安全）；
   // 刻意不在此 test-runner 内再嵌套 spawn `node --test`（嵌套会让子进程 TAP 汇总被父 runner 接管而解析失败，
   // 与实现无关，属测试设计的环境脆弱性）。
