@@ -408,10 +408,10 @@ const defaultState = () => ({
   emotion: { v: 0.22, a: 0.08 },  // 连续情绪坐标 Valence×Arousal
   // —— v4.1 · 情绪七态 moodState（优先级高于 V-A；吃醋/撒娇等 V-A 九区未覆盖态由 moodState 承载）——
   moodState: { key: 'neutral', intensity: 0, since: 0, source: 'init' },
-  // —— v4.1 · 关系阶段（v4.3 独立化；当前由 affection/dating 派生 stage）——
-  relationship: { stage: 'stranger', since: 0 },
+  // —— v4.1 · 关系阶段（v4.3 由 affection/dating 派生 stage，不独立状态机）——
+  relationship: { stage: 'stranger', stageName: '初识', warmth: 0, since: 0, updatedAt: 0, proact: { day: '', count: 0, lastAt: 0 } },
   // —— v4.1 · bond-memory 载体（v4.3 落地 bond-memory.js；v4.1 仅占位，绝不写 memory.js）——
-  bond: { warmth: 0, shards: [] },
+  bond: { warmth: 0, shards: [], milestones: [], lastChatAt: 0, streak: 0 },
   emotionLog: {},          // 情绪晴雨表：{ "YYYY-M-D": [{v,a}...] }
   diaryEntries: {},        // AI 日记：{ "YYYY-M-D": { text, t, mood } }
   lastDiaryPrompt: "",     // 上次问日记的日期，防重复
@@ -469,8 +469,8 @@ function load() {
       s.emotionLog = s.emotionLog || {};
       // —— v4.1 · 新字段嵌套兜底（老存档缺字段时回落，绝不白屏）——
       s.moodState = Object.assign({ key: 'neutral', intensity: 0, since: 0, source: 'init' }, s.moodState || {});
-      s.relationship = Object.assign({ stage: 'stranger', since: 0 }, s.relationship || {});
-      s.bond = Object.assign({ warmth: 0, shards: [] }, s.bond || {});
+      s.relationship = Object.assign({ stage: 'stranger', stageName: '初识', warmth: 0, since: 0, updatedAt: 0, proact: { day: '', count: 0, lastAt: 0 } }, s.relationship || {});
+      s.bond = Object.assign({ warmth: 0, shards: [], milestones: [], lastChatAt: 0, streak: 0 }, s.bond || {});
       s.diaryEntries = s.diaryEntries || {};
       s.weeklySummary = s.weeklySummary || {};
       s.lastDiaryPrompt = s.lastDiaryPrompt || "";
@@ -916,6 +916,12 @@ async function generateDailyNote() {
   }
   S.dailyNotes[today] = { text: note, t: Date.now() };
   save();
+  // v4.3（P1-a）· 余温自动深化：每日 dailyNote 落库后 → 自动沉淀为 kind:'warmth' 关系记忆 shard
+  try {
+    if (window.BondMemory && typeof window.BondMemory.warmthDeepen === 'function') {
+      window.BondMemory.warmthDeepen(S, { text: note, key: today });
+    }
+  } catch (e) {}
 }
 
 /* 记忆摘要（借鉴 chatnest-ui 的 memory summary）：把零散喜好/事件压成常驻档案 */
@@ -1307,6 +1313,7 @@ function applyEmotion(intent, delta, ue) {
 
 async function herReply(userText, img) {
   herBusy = true;
+  try { window.__xnBusy = true; } catch (e) {}   // v4.3 · 标记对话进行中（不打扰守门⑤读此位，避免误杀 checkProactive/interval 路径）
   // 候选 A · 长期记忆：捕获本轮召回条目（send 阶段已检索），供引擎/模型分支注入
   const ltmRecall = __ltmRecallItems; __ltmRecallItems = null;
   // 构建长期记忆片段（供云端/端侧模型分支注入 prompt；本地冻结引擎忽略该字段）
@@ -1492,6 +1499,15 @@ async function herReply(userText, img) {
       }
     } catch (e) { /* 任一异常 → 保留既有 result.expression，绝不白屏/静默 */ }
 
+    // v4.3（S4）· 关系级记忆碎片召回（输入侧钩子，≤1 条/轮、stage 概率门控、72h 防重复）。
+    // 降级：BondMemory 缺席/抛错 → bondFrag 为 null，dialogueWeave 退 v4.1 占位、绝不白屏。
+    var bondFrag = null;
+    try {
+      if (S.firstMeet && window.BondMemory && typeof window.BondMemory.bondRecall === 'function') {
+        bondFrag = window.BondMemory.bondRecall(S, { text: text, ue: result.ue, intent: intent });
+      }
+    } catch (e) { bondFrag = null; }
+
     if (result.intent === "greeting" && Engine.getLevel(S.affection).lv >= 3) waveHello();
 
     for (let i = 0; i < result.replies.length; i++) {
@@ -1520,6 +1536,18 @@ async function herReply(userText, img) {
           reply = result.replies[i];   // 回落原句（对话前文本），确保不破墙、绝不白屏
         }
       } catch (e) { /* 任一异常 → 保留编织后文本 */ }
+      // v4.3（S4）· 克制拼接关系记忆呼应（≤1 条/轮、仅末条气泡、safetyGuard 已校验原句；
+      // 拼接后若被护栏拦截则回退原句，确保不破墙、绝不白屏、绝不喧宾夺主）
+      if (i === result.replies.length - 1 && bondFrag && bondFrag.echo) {
+        try {
+          if (!/记得|我们之前|上次你|聊过/.test(reply)) {   // 避免与引擎 reply 重复引用
+            var _echo = reply + (/\s$/.test(reply) ? '' : ' ') + bondFrag.echo;
+            var _ok = true;
+            try { var _pc2 = (Engine.mod && Engine.mod("personaCore")) || window.PersonaCore; if (_pc2 && _pc2.safetyGuard && !_pc2.safetyGuard(_echo)) _ok = false; } catch (e2) {}
+            if (_ok) reply = _echo;
+          }
+        } catch (e) { /* 异常 → 保留原句 */ }
+      }
       await herSay(reply, result.expression);
       if (i < result.replies.length - 1) await new Promise(r => setTimeout(r, 500 + Math.random() * 600));
     }
@@ -1532,6 +1560,56 @@ async function herReply(userText, img) {
     refreshNavStatus();
     refreshRecentUI();
     addAffection(result.delta);
+
+    // v4.3（REL/S5）· 关系升温曲线回合收口（降级：proactivity-core 缺席 → 原流程直出，绝不白屏）
+    try {
+      if (S.firstMeet && window.ProactivityCore && typeof window.ProactivityCore.applyRelationshipDelta === 'function') {
+        // 「被回应」检测：上一轮主动消息后 30min 内用户回来 → 升温加权（仅计一次）
+        var _responded = false;
+        try {
+          if (S.lastProactive && typeof S.lastProactive.at === 'number') {
+            if (Date.now() - S.lastProactive.at < 30 * 60000) _responded = true;
+            S.lastProactive = null;
+          }
+        } catch (e) { S.lastProactive = null; }
+        // 冲突检测：危机护栏命中 或 用户负向高唤醒 → 平缓降温
+        var _conflict = false;
+        try {
+          if (typeof Engine !== 'undefined' && Engine.detectCrisis) {
+            var _c = Engine.detectCrisis(text);
+            if (_c && _c.level && _c.level !== 'none') _conflict = true;
+          }
+          if (result.ue && result.ue.polarity < -0.6 && result.ue.intensity > 0.6) _conflict = true;
+        } catch (e) {}
+        var _d = { frequency: 1 };
+        if (result.delta && result.delta >= 4) _d.quality = 1;
+        if (text && text.length > 60) _d.depth = 1;
+        if (intent === 'love' || intent === 'miss' || intent === 'concern' || intent === 'thanks' || intent === 'praise') _d.quality = 1;
+        if (_responded) _d.responded = 1;
+        if (_conflict) _d.conflict = true;
+        var _snap = window.ProactivityCore.applyRelationshipDelta(S, _d);
+        // 阶段跃迁 → 出 toast + pushStory（复用既有范式）
+        if (_snap && _snap.jumped) {
+          try {
+            pushStory("stage", "💞", `关系升级到「${_snap.name}」`);
+            var _toast = document.createElement("div");
+            _toast.className = "levelup-toast";
+            _toast.innerHTML = `💞 我们的关系升温啦 💞<br>「${_snap.name}」`;
+            document.body.appendChild(_toast);
+            setTimeout(function () { try { _toast.remove(); } catch (e) {} }, 2800);
+          } catch (e) {}
+        }
+        // 关系等级驱动 persona 临时调温（非持久化，v4.1 L5 范式）
+        try {
+          if (window.ProactivityCore.stageTone) {
+            var _tone = window.ProactivityCore.stageTone(S);
+            if (_tone && _tone.warmthAdd && S.persona) S.persona._bondWarmthAdd = _tone.warmthAdd;
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    // v4.3（G4）· 人格漂移评分（persona-core 运行时注入 validateVoice；persona-core.js 文件零字节改动）
+    try { if (window.PersonaCore && typeof window.PersonaCore.validateVoice === 'function') window.PersonaCore.validateVoice(S); } catch (e) {}
   }
 
   // 图片：让小暖"看见"用户发来的图，再回应（三层管线在 understandImage 内）
@@ -1571,6 +1649,7 @@ async function herReply(userText, img) {
   while (pendingMemStores.length) { try { pendingMemStores.shift()(); } catch (e) {} }
   if (inCall) callStartListen(); // 通话中聊天回复完，恢复聆听
   herBusy = false;
+  try { window.__xnBusy = false; } catch (e) {}   // v4.3 · 解除对话进行中标记（不打扰守门⑤）
 }
 
 /* ================= 多模态：用户发图，小暖"看见" =================
@@ -2092,6 +2171,15 @@ async function checkProactive() {
   // v11 · 主动消息优先级重排（T07）：剧情线 > 记忆召回 > 时段问候 > 随机池。
   // 上面的初次相遇 / 久别重逢 / 时段问候 / 纪念日四段既有前置行为一字未动（零回归），
   // 这里只是把"她主动找你"的后半段交给编排器，让消息有理由而不是掷骰子。
+
+  // v4.3（REL）· 冷落降温叠加（不改动既有久别重逢文案，仅写关系状态）：连续 >3 天无对话 → 平缓降温。
+  try {
+    if (window.ProactivityCore && typeof window.ProactivityCore.applyRelationshipDelta === 'function' && S.firstMeet) {
+      var _gap = Math.floor((Date.now() - (S.lastVisit || 0)) / 86400000);
+      if (_gap > 3) window.ProactivityCore.applyRelationshipDelta(S, { cold: true, coldDays: _gap - 3 });
+    }
+  } catch (e) {}
+
   if (!S.caredTopics) S.caredTopics = [];
   dispatchProactive({ delay: 3000 });
 
@@ -2114,7 +2202,24 @@ function dispatchProactive(opts = {}) {
   const lastMsg = S.messages[S.messages.length - 1];
   const idleMs = typeof opts.idleMs === "number" ? opts.idleMs : (now - (lastMsg ? lastMsg.t : 0));
   let plan = [];
-  try { plan = Engine.proactivePlan(S, { now, hour, idleMs }) || []; } catch (e) { plan = []; }
+  let usedPlanByRel = false;
+  // v4.3（S5）· 包装 planByRelationship（复用 Engine.proactivePlan 既有池，零新增文案）；
+  // 降级：proactivity-core 缺席 → 退 Engine.proactivePlan 原样直出。
+  try {
+    if (window.ProactivityCore && typeof window.ProactivityCore.planByRelationship === 'function') {
+      plan = window.ProactivityCore.planByRelationship(S, { now, hour, idleMs }) || [];
+      usedPlanByRel = true;
+    } else {
+      plan = Engine.proactivePlan(S, { now, hour, idleMs }) || [];
+    }
+  } catch (e) { plan = []; }
+  // v4.3（M5）· 不打扰守门五重（proactivity-core 缺席 → 跳过门控，退 Engine.proactivePlan 原样）
+  if (usedPlanByRel && window.ProactivityCore && typeof window.ProactivityCore.shouldProactive === 'function') {
+    try {
+      const gate = window.ProactivityCore.shouldProactive(S);
+      if (!gate.ok) return null;
+    } catch (e) {}
+  }
   if (opts.kinds) plan = plan.filter(p => opts.kinds.includes(p.kind));
   if (!plan.length) return null;
   const p = plan[0];
@@ -2147,13 +2252,29 @@ function dispatchProactive(opts = {}) {
   S.usedProactive[Engine.hashStr(p.text)] = now;
   save();
 
+  // v4.3（M4/M5）· 主动计数落库 + 记录本轮主动（供「被回应」检测）+ 撤回即停 timer 持有
+  try { if (window.ProactivityCore && window.ProactivityCore.noteProactive) window.ProactivityCore.noteProactive(S, now); } catch (e) {}
+  S.lastProactive = { kind: p.kind, at: now };
+
+  // v4.3（S5）· 主动文本过 dialogueWeave（语气一致+去重）；降级若 weave 缺席则原文本
+  let sayText = p.text;
+  try {
+    const dc = (Engine.mod && Engine.mod("dialogueCore")) || (typeof window !== 'undefined' && window.DialogueCore);
+    if (dc && typeof dc.dialogueWeave === 'function') {
+      sayText = dc.dialogueWeave(p.text, { ue: S.ue, moodState: S.moodState, bondMem: S.bond, S: S });
+    }
+  } catch (e) {}
+
   const say = () => {
     const meta = p.kind === "story"
       ? { story: { lineId: p.meta.lineId, label: p.meta.label, icon: p.meta.icon } }
       : null;
-    herSay(p.text, p.expression, meta).then(() => { refreshRecentUI(); refreshStoryUI(); });
+    herSay(sayText, p.expression, meta).then(() => { refreshRecentUI(); refreshStoryUI(); });
   };
-  if (delay > 0) setTimeout(say, delay); else say();
+  // 撤销即停：挂起 say 的 timer 引用挂全局，onChange(proactive=false) 清之（Arch §3.7）
+  if (delay > 0) {
+    try { if (typeof window !== 'undefined') window.__proactiveSayTimer = setTimeout(say, delay); } catch (e) { setTimeout(say, delay); }
+  } else say();
   return p;
 }
 
@@ -2462,6 +2583,78 @@ function updateSenseMarker() {
   let on = false;
   try { if (cs) on = !!cs.get('sense.camera') || !!cs.get('sense.mic'); } catch (e) {}
   if (on) el.classList.remove("hidden"); else el.classList.add("hidden");
+}
+
+/* v4.3（S5）· 主动关心同意面板接线 + 关系记忆清除：读/写 ConsentStore.proactive（默认 true、可撤销）。
+ * 仅写 ConsentStore；撤销即停由 init 订阅 ConsentStore.onChange 触发（清挂起 say 定时器）。 */
+function bindProactiveConsent() {
+  const cs = (window.ConsentStore && window.ConsentStore.getInstance)
+    ? window.ConsentStore.getInstance() : (window.ConsentStore || null);
+  const chk = $("#proactive-enabled");
+  const status = $("#proactive-status");
+  const revoke = $("#proactive-revoke");
+  const clear = $("#bond-clear");
+  // 初始化勾选态与状态文案（持久化同意时默认勾上）
+  try {
+    if (cs && chk) chk.checked = !!cs.get('proactive');
+    if (status) status.textContent = (cs && cs.get('proactive')) ? "已开启" : "已关闭";
+  } catch (e) {}
+  if (chk) chk.addEventListener("change", () => {
+    const on = chk.checked;
+    if (cs) { try { cs.set('proactive', on); } catch (e) {} }   // 写同意态（零上报守门，撤销即停主动发起）
+    if (status) status.textContent = on ? "已开启" : "已关闭";
+  });
+  if (revoke) revoke.addEventListener("click", () => {
+    if (cs) { try { cs.set('proactive', false); } catch (e) {} }
+    if (chk) chk.checked = false;
+    if (status) status.textContent = "已关闭";
+  });
+  // 清除关系记忆：S.bond 归零重建（清除即不残留，纯本地、无外发）
+  if (clear) clear.addEventListener("click", () => {
+    try {
+      if (window.BondMemory && typeof window.BondMemory.reset === 'function') window.BondMemory.reset(S);
+      save();
+    } catch (e) {}
+  });
+}
+
+/* v4.3（G4）· 运行时注入人格漂移评分（persona-core.js 零字节改动）。
+ * 简单规则：5 − 罚分，≥4.0 达标（①破墙/危机词命中 ②亲密度越阶 ③语气密度偏离）。
+ * 签名演化为 { ok, score }（无既有调用方，演化零风险）；同一 api 引用注入后各消费方同步生效。 */
+function injectValidateVoice() {
+  const api = (typeof window !== 'undefined' && window.PersonaCore) ? window.PersonaCore
+    : (typeof PersonaCore !== 'undefined' ? PersonaCore : null);
+  if (!api || typeof api.validateVoice === 'function' && api._v43Injected) return;
+  api._v43Injected = true;
+  api.validateVoice = function (state) {
+    try {
+      state = state || S;
+      let score = 5;
+      const replies = (Array.isArray(S.recentReplies) ? S.recentReplies : []).slice(-24);
+      // ① 破墙/危机词命中（复用护栏判定逻辑），每次 −1.5
+      try {
+        let crash = 0;
+        for (let i = 0; i < replies.length; i++) {
+          const rr = replies[i] || '';
+          if (typeof Engine !== 'undefined' && Engine.PERSONA_BREAK_RE
+            && Engine.PERSONA_BREAK_RE.test(typeof Engine.pnorm === 'function' ? Engine.pnorm(rr) : rr)) crash++;
+        }
+        score -= crash * 1.5;
+      } catch (e) {}
+      // ② 亲密度越阶（L0/L1 出现「老公/宝贝/亲爱的」级称呼）→ −0.5/项
+      let lv = 1;
+      try { if (typeof Engine !== 'undefined' && Engine.getLevel) lv = Engine.getLevel(S.affection).lv; } catch (e) {}
+      if (lv <= 1) {
+        let over = 0;
+        for (let j = 0; j < replies.length; j++) { if (/(老公|宝贝|亲爱的)/.test(replies[j] || '')) over++; }
+        score -= over * 0.5;
+      }
+      score = Math.max(0, Math.min(5, score));
+      return { ok: score >= 4.0, score: Math.round(score * 100) / 100 };
+    } catch (e) { return { ok: true, score: 5 }; }
+  };
+  // 同步 PersonaCore 模块级引用（persona-core.js 文件零字节改动，仅运行时换函数）
+  try { if (typeof PersonaCore !== 'undefined') PersonaCore.validateVoice = api.validateVoice; } catch (e) {}
 }
 
 /* 候选 B · 对话页朗读条（状态指示 + 波形 + 暂停/静音） */
@@ -4723,6 +4916,41 @@ function init() {
   try { if (window.SenseCore) window.SenseCore.init(window.ConsentStore, window.AuditProbe); } catch (e) {}
   try { bindSenseConsent(); } catch (e) {}
   try { updateSenseMarker(); } catch (e) {}
+
+  // v4.3（S4/S5）· 关系记忆 + 主动性 挂载与初始化
+  // ① 衰减巡检（惰性线性衰减，纯读派生）
+  try { if (window.BondMemory) window.BondMemory.decayShards(S, Date.now()); } catch (e) {}
+  // ② 关系等级派生刷新快照（不独立状态机，覆写 S.relationship）
+  try { if (window.ProactivityCore && window.ProactivityCore.relationshipLevel) window.ProactivityCore.relationshipLevel(S); } catch (e) {}
+  // ③ 纪念日临近 → 记忆驱动情绪（anniversaryScan → EmotionCore.moodTick）
+  try {
+    if (window.BondMemory && window.BondMemory.anniversaryScan && window.EmotionCore && window.EmotionCore.moodTick) {
+      var _ann = window.BondMemory.anniversaryScan(S, Date.now());
+      if (_ann) {
+        var _tick = window.EmotionCore.moodTick({ type: _ann.type, intensity: _ann.intensity }, S.emotion, S.relationship);
+        if (_tick) S.moodState = _tick;
+      }
+    }
+  } catch (e) {}
+  // ④ 漂移评分运行时注入 PersonaCore（persona-core.js 文件零字节改动）
+  try { injectValidateVoice(); } catch (e) {}
+  // ⑤ 主动关心同意面板接线
+  try { if (typeof bindProactiveConsent === 'function') bindProactiveConsent(); } catch (e) {}
+  // ⑥ 撤销即停：订阅 proactive 关闭 → 清挂起 say 定时器（ConsentStore.onChange）
+  try {
+    if (window.ConsentStore && typeof window.ConsentStore.getInstance === 'function') {
+      var _cs = window.ConsentStore.getInstance();
+      if (_cs && typeof _cs.onChange === 'function') {
+        _cs.onChange(function (evt) {
+          try {
+            if (evt && evt.key === 'proactive' && evt.value === false) {
+              if (typeof window !== 'undefined' && window.__proactiveSayTimer) clearTimeout(window.__proactiveSayTimer);
+            }
+          } catch (e2) {}
+        });
+      }
+    }
+  } catch (e) {}
 
   /* ================= 候选 C · 隐私共存启动 =================
    * 仅叠加，不改动 B 逻辑：

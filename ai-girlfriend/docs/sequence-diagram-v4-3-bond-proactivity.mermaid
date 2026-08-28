@@ -1,0 +1,81 @@
+# 心屿 v4.3 · 时序图（交互回合 + 主动触发）
+# 源：docs/ARCH-xinyu-v4-3-bond-proactivity.md §4
+
+## 图 A · 交互回合：bond 记录 → 关系派生 → persona 调参
+
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant APP as app.js(herReply)
+    participant BM as bond-memory.js(v4.3)
+    participant MM as memory.js(冻结·只读)
+    participant ENG as engine.js(冻结)
+    participant EM as emotion-core.js
+    participant RT as ReplyTexture
+    participant DC as dialogue-core.js
+    participant PC as persona-core.js
+    participant PR as proactivity-core.js(v4.3)
+    participant HS as herSay/TTS
+
+    U->>APP: 输入文本
+    APP->>APP: senseUe(v4.2 既有) + Engine.detect(intent)
+    APP->>BM: bondRecall(S, {text, ue, intent})（v4.3 输入侧钩子）
+    BM->>MM: retrieveFacts(text, S, 2)（只读二次筛选）
+    MM-->>BM: 相关事实(带 conf)
+    BM-->>APP: frag|null（stage 概率门控·≤1条/轮·vague 泛化）
+    APP->>ENG: Engine.reply(text, est)
+    ENG-->>APP: result{replies, delta, ue, expression}
+    APP->>EM: inferMoodEvent → moodTick（既有 v4.1 钩子）
+    EM-->>APP: S.moodState + moodToExpr
+    APP->>RT: orchestrate(reply)（既有 L3 质感）
+    APP->>DC: dialogueWeave(reply, {ue, moodState, bondMem: frag, S})
+    DC-->>APP: 去重后文本
+    APP->>APP: 末条回复克制拼接 frag.echo（v4.3·safetyGuard 前）
+    APP->>PC: safetyGuard(reply)（echo 一并过护栏，不过则回退原句）
+    PC-->>APP: 通过
+    APP->>HS: herSay(reply, expr) → moodToTTS 呈现
+    HS-->>U: 神态+语调+文字
+    APP->>PR: applyRelationshipDelta(S, {quality, frequency, depth})
+    PR->>PR: warmth 派生 + 单调不退化约束
+    PR->>BM: noteMilestone(S, {type:'stage'})（仅跃迁时）
+    PR-->>APP: S.relationship 快照（跃迁→toast+pushStory）
+    APP->>BM: bondWrite(S, {text, gist, intent, delta})
+    BM-->>APP: S.bond.shards 追加(≤40·惰性衰减)
+    APP->>PC: validateVoice(S)（v4.3 注入漂移评分·G4 观测）
+    APP->>APP: save()（全量落 localStorage·零外发）
+
+## 图 B · 主动触发：节律判定 → 不打扰守门 → 主动发起 → 呈现
+
+sequenceDiagram
+    autonumber
+    participant TM as 定时器(90s)/checkProactive
+    participant APP as app.js(dispatchProactive)
+    participant PR as proactivity-core.js(v4.3)
+    participant CS as ConsentStore
+    participant ENG as Engine.proactivePlan(冻结)
+    participant DC as dialogue-core.js
+    participant HS as herSay/TTS
+    participant U as 用户
+
+    TM->>APP: dispatchProactive({idleMs})
+    APP->>PR: shouldProactive(S)
+    PR->>CS: get('proactive')
+    CS-->>PR: true / false（撤销即停）
+    PR->>PR: ①日上限(stage 分档 L0≤2..L3≤8) ②间隔下限(L3≥20min)
+    PR->>PR: ③深夜降频(23-01 减半) / 静默(01-06 仅纪念日例外) ④herBusy 抑制
+    PR-->>APP: {ok, why}
+    alt ok = false
+        APP-->>TM: 抑制返回（绝不白屏/静默，下一 tick 重判）
+    else ok = true
+        APP->>PR: planByRelationship(S, {now, hour, idleMs})
+        PR->>ENG: Engine.proactivePlan(S, ctx)（只调用不重写）
+        ENG-->>PR: base 候选(story/miss/care/slot/random…)
+        PR->>PR: stage 白名单 + 权重重排 + reason 标注(P1-b) + 情境感知(P1-c)
+        PR-->>APP: plan[]（首条 p 含 reason·与引擎同构）
+        APP->>DC: dialogueWeave(p.text, {moodState, bondMem: S.bond, S})（语气一致+去重）
+        DC-->>APP: 编织后文本
+        APP->>PR: noteProactive(S, now)（day 换日清零/count++/lastAt）
+        APP->>HS: herSay(text, expression)（延迟 delay 后）
+        HS-->>U: 主动消息（神态+TTS+文字）
+    end
+    Note over APP,CS: 撤销即停：onChange(proactive=false) → clearTimeout(挂起 say)；<br/>checkProactive 既有「久别重逢」前置段一字不动，冷落降温仅作叠加状态写

@@ -23,11 +23,13 @@
   // 受控字段白名单（仅这些 key 可被 get/set/isGranted 访问）
   // v4.2（S3 五官双向）：扩展 sense.camera / sense.mic 两个本地五官识别授权项。
   // 二者默认 false（最小权限、零上报铁律前置门控）。
-  var KEYS = ['tts', 'asr', 'ltm', 'cloudSync', 'sense.camera', 'sense.mic'];
+  // v4.3（S5 主动性）：扩 'proactive' —— 小暖主动关心/撒娇/想念开关，默认开、可撤销。
+  var KEYS = ['tts', 'asr', 'ltm', 'cloudSync', 'sense.camera', 'sense.mic', 'proactive'];
 
   // 默认值（与 PRD Q1–Q8 / 主理人裁定 D2 一致）
   // sense.camera / sense.mic 默认关：摄像头/麦克风识别为可选增强，未授权不启动 getUserMedia。
-  var DEFAULTS = { tts: true, asr: true, ltm: true, cloudSync: false, 'sense.camera': false, 'sense.mic': false };
+  // proactive 默认开：主动关心为体验核心，但可随时撤销（零上报守门，撤销即停）。
+  var DEFAULTS = { tts: true, asr: true, ltm: true, cloudSync: false, 'sense.camera': false, 'sense.mic': false, proactive: true };
 
   /** 安全 localStorage 读取（静默降级） */
   function safeLsGet(k) {
@@ -51,6 +53,7 @@
     this.cloudSync = DEFAULTS.cloudSync;
     this['sense.camera'] = DEFAULTS['sense.camera'];   // v4.2 S3 · 摄像头面部识别授权（默认关）
     this['sense.mic'] = DEFAULTS['sense.mic'];           // v4.2 S3 · 麦克风语音情绪授权（默认关）
+    this.proactive = DEFAULTS.proactive;                 // v4.3 S5 · 主动关心开关（默认开、可撤销）
     this._listeners = [];                // 观察者列表（onChange 订阅）
     this.version = VERSION;
     this.load();
@@ -70,6 +73,8 @@
       // v4.2 S3 · 本地五官识别授权项（缺字段回落默认 false，最小权限）
       this['sense.camera'] = (typeof o['sense.camera'] === 'boolean') ? o['sense.camera'] : DEFAULTS['sense.camera'];
       this['sense.mic'] = (typeof o['sense.mic'] === 'boolean') ? o['sense.mic'] : DEFAULTS['sense.mic'];
+      // v4.3 S5 · 主动关心开关（缺字段回落默认 true，功能可用但可撤销）
+      this.proactive = (typeof o.proactive === 'boolean') ? o.proactive : DEFAULTS.proactive;
       this.version = (typeof o.version === 'string') ? o.version : VERSION;
     } catch (e) { /* 损坏数据回落默认 */ }
   };
@@ -85,6 +90,7 @@
         cloudSync: !!this.cloudSync,
         'sense.camera': !!this['sense.camera'],   // v4.2 S3 · 持久化本地五官授权态
         'sense.mic': !!this['sense.mic'],
+        'proactive': !!this.proactive,            // v4.3 S5 · 持久化主动关心开关态
       };
       safeLsSet(KEY, JSON.stringify(payload));
     } catch (e) {}
@@ -144,6 +150,7 @@
     this.cloudSync = DEFAULTS.cloudSync;
     this['sense.camera'] = DEFAULTS['sense.camera'];
     this['sense.mic'] = DEFAULTS['sense.mic'];
+    this.proactive = DEFAULTS.proactive;
     this.version = VERSION;
     this.save();
   };

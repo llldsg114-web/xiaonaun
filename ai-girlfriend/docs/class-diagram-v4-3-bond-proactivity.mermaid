@@ -1,0 +1,85 @@
+# 心屿 v4.3 · 类图（bond-memory + proactivity-core + 接口衔接）
+# 源：docs/ARCH-xinyu-v4-3-bond-proactivity.md §3.1
+
+classDiagram
+    class EngineMod {
+        <<既有契约 Engine.use / E.mod>>
+        +proactivePlan(state, ctx) plan[]
+        +proactive(kind, state, extra) text
+        +getLevel(affection) {lv,name,progress}
+        +detectCrisis(text) {level}
+    }
+    class MemoryMod {
+        <<memory.js·冻结·只读消费>>
+        +retrieveFacts(query, state, k) [{fact,score}]
+        +recallV2(text, state, ctx) line|null
+        +listFacts(s) [{id,label,tone,text}]
+    }
+    class BondMemory {
+        +version = 'v4.3'
+        +bondRecall(S, ctx) frag|null
+        +bondWrite(S, turn) void
+        +warmthDeepen(S, note) void
+        +decayShards(S, now) void
+        +relationshipGraph(S) graph
+        +anniversaryScan(S, now) evt|null
+        +noteMilestone(S, m) void
+        +reset(S) void
+    }
+    class ProactivityCore {
+        +version = 'v4.3'
+        +STAGES = {L0,L1,L2,L3}
+        +relationshipLevel(S) {lv,name,warmth,nextWarmth}
+        +applyRelationshipDelta(S, d) snapshot
+        +planByRelationship(S, ctx) plan[]
+        +shouldProactive(S) {ok,why}
+        +noteProactive(S, now) void
+        +stageTone(S) {warmthAdd, tts}
+    }
+    class ConsentStore {
+        +KEYS = ['tts','asr','ltm','cloudSync','sense.camera','sense.mic','proactive']
+        +DEFAULTS = {..., proactive:true}
+        +get(key) bool
+        +set(key, val) bool
+        +onChange(cb) void
+    }
+    class DialogueCore {
+        +dialogueWeave(text, ctx) string
+    }
+    class EmotionCore {
+        +moodTick(evt, emotion, rel) state|null
+        +moodToExpr(moodState, fallback) string
+    }
+    class PersonaCore {
+        +safetyGuard(text) bool
+        +validateVoice(state) {ok,score}
+    }
+    class AppState {
+        +bond {warmth, shards[], milestones[], lastChatAt, streak}
+        +relationship {stage, stageName, warmth, since, updatedAt, proact{day,count,lastAt}}
+        +affection number
+        +dating Object
+        +moodState Object
+        +ue Object
+        +usedProactive Object
+    }
+    class App {
+        +herReply(text)
+        +checkProactive()
+        +dispatchProactive(opts)
+        +init()
+    }
+
+    EngineMod <|.. BondMemory : use("bondMemory")
+    EngineMod <|.. ProactivityCore : use("proactivityCore")
+    BondMemory ..> MemoryMod : 只读 retrieveFacts/listFacts（绝不 applyPatch）
+    BondMemory ..> EmotionCore : 纪念日临近→longing 事件
+    ProactivityCore ..> EngineMod : 包装 proactivePlan（只调用不重写）
+    ProactivityCore ..> ConsentStore : proactive 守门
+    ProactivityCore ..> BondMemory : noteMilestone / 读 S.bond.warmth
+    ProactivityCore ..> DialogueCore : 主动文本语气一致
+    App ..> BondMemory : try/catch 消费
+    App ..> ProactivityCore : try/catch 消费
+    App ..> PersonaCore : safetyGuard + validateVoice（运行时注入）
+    AppState <.. BondMemory : 写 S.bond
+    AppState <.. ProactivityCore : 写 S.relationship

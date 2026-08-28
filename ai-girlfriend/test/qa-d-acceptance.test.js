@@ -59,7 +59,9 @@ const DECLARED_NEW = [
   "ai-girlfriend/persona-core.js",    // 心屿 v4.1 · S6 人格一致性内核雏形
   "ai-girlfriend/sense-core.js",      // 心屿 v4.2 · S3 五官双向（冻结线外新建，主理人重 baselining 批准）
   "ai-girlfriend/face-sense.js",      // 心屿 v4.2 · S3 面部信号识别
-  "ai-girlfriend/voice-sense.js"      // 心屿 v4.2 · S3 语音情绪识别
+  "ai-girlfriend/voice-sense.js",     // 心屿 v4.2 · S3 语音情绪识别
+  "ai-girlfriend/bond-memory.js",     // 心屿 v4.3 · S4 关系记忆内核（只读消费 memory.js，绝不改写；冻结线外新建，主理人重 baselining 批准）
+  "ai-girlfriend/proactivity-core.js" // 心屿 v4.3 · S5 主动性内核（五重不打扰守门 + 关系等级派生）
 ];
 
 /* ── 冻结线（AC-D26；与 c-regression.test.js:450 / qa-c-privacy-acceptance.test.js:32 同源）── */
@@ -494,14 +496,15 @@ test("AC-D35（静态面）· index.html id 集合零丢失：pre-D 全部 id �
   //   故新增 id 集合保持这 10 个（严格等式，未来误加 id 会先响）。
   const added = [...after].filter((id) => !before.has(id)).sort();
   assert.deepStrictEqual(added,
-    ["page-privacy", "privacy-audit-body-page", "sense-camera-enabled", "sense-camera-revoke",
-      "sense-camera-status", "sense-marker", "sense-mic-enabled", "sense-mic-revoke", "sense-mic-status",
+    ["bond-clear", "page-privacy", "privacy-audit-body-page", "proactive-enabled", "proactive-revoke",
+      "proactive-status", "sense-camera-enabled", "sense-camera-revoke", "sense-camera-status",
+      "sense-marker", "sense-mic-enabled", "sense-mic-revoke", "sense-mic-status",
       "shell-ctx-actions", "shell-lead", "shell-nav", "shell-side-foot", "shell-sidebar",
       "shell-tail", "shell-title", "shell-topbar"],
-    `新增 id 应恰为隐私屏 2 个 + 壳层 8 个 + v4.2 五官 7 个（候选 E 未新增 id），实际: ${JSON.stringify(added)}`);
+    `新增 id 应恰为：隐私屏 2 + 壳层 8 + v4.2 五官 7 + v4.3 关系/主动 4（bond-clear/proactive-{enabled,revoke,status}），实际: ${JSON.stringify(added)}`);
 });
 
-test("AC-D40 / AC-D35 · 设置屏：卡片零丢失（15 张）+ 6 组声明计数 === 实际（语音 4 / 智能 2）", () => {
+test("AC-D40 / AC-D35 · 设置屏：卡片零丢失 + 6 组声明计数 === 实际（语音 6 / 智能 2）", () => {
   const groups = (src) => {
     const out = [];
     const parts = src.split(/<div class="me-group[^"]*" data-group="([^"]+)">/);
@@ -517,15 +520,15 @@ test("AC-D40 / AC-D35 · 设置屏：卡片零丢失（15 张）+ 6 组声明计
   const after = groups(HTML);
   const sum = (a) => a.reduce((n, x) => n + x.cards, 0);
   assert.strictEqual(sum(after), sum(before), `设置屏卡片总数不得变化（HEAD=${sum(before)}，实=${sum(after)}）`);
-  assert.strictEqual(sum(after), 16, "设置屏应共 16 张卡（候选 D 15 + v4.2 五官 1，仅重排分组归属，不删卡）");
+  assert.strictEqual(sum(after), 17, "设置屏应共 17 张卡（候选 D 15 + v4.2 五官 1 + v4.3 主动关心 1，仅重排分组归属，不删卡）");
   assert.strictEqual(countOf(/class="me-card/g, HTML), countOf(/class="me-card/g, headFile("ai-girlfriend/index.html")),
     "me-card 节点数逐一保留");
   const voice = after.find((g) => g.group === "voice");
   const brain = after.find((g) => g.group === "brain");
   assert.ok(voice, "应新增「语音与朗读」一级分组（决策 D-1：语音不设独立屏）");
   assert.strictEqual(voice.name, "语音与朗读");
-  assert.strictEqual(voice.declared, "5", "AC-D40：语音与朗读声明计数应为 5（含 v4.2 五官 1 卡）");
-  assert.strictEqual(voice.cards, 5, "语音组实际卡片应为 5（语音开关 / 音色 / 语音输入 / 语音与隐私 + v4.2 五官 1）");
+  assert.strictEqual(voice.declared, "6", "AC-D40：语音与朗读声明计数应为 6（含 v4.2 五官 1 卡 + v4.3 主动关心 1 卡，均在语音组 DOM 内）");
+  assert.strictEqual(voice.cards, 6, "语音组实际卡片应为 6（语音开关 / 音色 / 语音输入 / 语音与隐私 / 五官识别 + v4.3 主动关心）");
   assert.strictEqual(brain.declared, "2", "AC-D40：智能与模型声明计数应为 2");
   assert.strictEqual(brain.cards, 2, "智能组实际卡片应为 2（云端大脑 / 端侧模型）");
   for (const g of after) {
