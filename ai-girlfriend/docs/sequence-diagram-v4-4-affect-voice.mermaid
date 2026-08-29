@@ -1,0 +1,98 @@
+sequenceDiagram
+    autonumber
+    actor U as 用户
+    participant APP as app.js<br/>(herReply · 1314)
+    participant EM as EmotionCore<br/>(零改动)
+    participant AFS as AffectState<br/>(v4.4 新建)
+    participant BM as BondMemory<br/>(零改动)
+    participant AV as AffectVoice<br/>(v4.4 编排器)
+    participant VS as VoiceStyle<br/>(v4.4)
+    participant TR as TurnRhythm<br/>(v4.4 参数层)
+    participant EF as EmpathyFront<br/>(v4.4)
+    participant DC as DialogueCore<br/>(零改动)
+    participant PC as PersonaCore<br/>(零改动)
+    participant SC as SenseCore<br/>(零改动)
+
+    Note over APP: ══ 阶段 A · 回复生成（Engine.reply 冻结，输出后加工）══
+    U->>APP: 输入文本 text
+    APP->>APP: Engine.detect → ue ／ handleSpecialIntent ／ semanticRecall
+    APP->>APP: 三路路由 [cloud / local / Engine.reply]<br/>本地分支置 result.textured = true (app.js:1445)
+    APP->>APP: 慢层六字段回写 → save() (1477)
+    APP->>APP: applyEmotion(V-A) (1487)
+
+    Note over APP,AFS: ══ 阶段 B · 情绪推进（挂载点 M4 · app.js:1491-1500）══
+    APP->>EM: inferMoodEvent(text, intent, ue)
+    EM-->>APP: evt { type, intensity } | null
+    APP->>AFS: advance(S.affect, evt, { ue, S, now, stage })
+    Note right of AFS: ① normalizeStage(S)：'stranger'/undefined → 'L0'<br/>② STABILIZE 门控（pol ≤ −0.7 ∧ i ≥ 0.7）<br/>　→ target := peaceful(0.40)，α := 0.75<br/>③ target := onehot(evt) + MIRROR_GAIN×STAGE_GAIN×ue 冲量<br/>④ 极性冲突 → target := peaceful(0.5)，记 _transition<br/>⑤ 强事件（≥0.80 ∧ 24h < 2）→ α := 0.75，dom 当轮强制切换<br/>⑥ 平静起跳（i < 0.25）→ α := 0.70<br/>⑦ d := (target − vec)×α → L1 步长闸(0.35/0.60) → MAX_STEP 保险
+    AFS-->>APP: 新 S.affect { vec, dom, intensity, momentum, _prevDom }
+    APP->>AFS: toMoodState(S.affect)
+    AFS-->>APP: S.moodState { key, intensity, since, source, blend, prev }
+    APP->>EM: moodToExpr(S.moodState, result.expression)
+    EM-->>APP: result.expression（零改动）
+
+    Note over APP,BM: ══ 阶段 C · 关系记忆召回（挂载点 · app.js:1502-1509）══
+    APP->>BM: bondRecall(S, { text, ue, intent })
+    BM-->>APP: bondFrag | null
+
+    Note over APP,SC: ══ 阶段 D · 逐条气泡后处理（for i in result.replies）══
+    loop 每条气泡 i
+        APP->>APP: reply = result.replies[i]
+        Note over APP: ReplyTexture.orchestrate (1517) —— 浏览器内恒 false，不接线（Q1=A）
+        APP->>DC: dialogueWeave(reply, { ue, moodState, bondMem, S })
+        Note right of DC: LRU 去重存**未改写**原句，<br/>口径与 v4.3 逐字一致
+        DC-->>APP: reply'
+
+        rect rgb(235, 244, 255)
+        Note over APP,AV: ★ 挂载点 M5 · 插入于 app.js:1531 与 1532 之间（dialogueWeave 之后、safetyGuard 之前）
+        APP->>AV: orchestrate(reply', { state: S, ctx: { ue, mood, intent, textured, moodState, stage, turnIdx: i, totalTurns, hasBondEcho } })
+        AV->>VS: ① profileFor(dom, intensity, stage, blend)
+        Note right of VS: styleIntensity = 0.35 + 0.65×intensity（STYLE_FLOOR）<br/>以 neutral 为基线线性插值 + 余韵混合(w ≤ 0.35)
+        VS-->>AV: profile0（10 维）
+        AV->>TR: ② modulate(profile0, { dom, intensity, stage, turnIdx, totalTurns })
+        Note right of TR: 纯参数变换、无随机、不碰文本<br/>低情绪(sad/longing)→短句/多停顿/少反问<br/>高情绪(joy/coquettish)→长句/感叹/开话题
+        TR-->>AV: profile1
+        AV->>EF: ③ shouldFront(ctx) / front(text, ctx, rng)
+        Note right of EF: 以引擎真实 7 类 ue.type 为键（F4 修正）<br/>ue.polarity < −0.4 ∧ i ≥ 0.35 ∧ turnIdx === 0<br/>∧ !hasBondEcho ∧ !已含共情前缀<br/>STABILIZE → 托底档（强制，不抽样）
+        EF-->>AV: text'
+        AV->>AV: ④ 判据：skipDims := (textured && hasMicroBehavior(text')) ? ['particles','endPunct'] : []
+        Note right of AV: ★ F5 修正：textured 无条件为 true，<br/>须与文本级微行为探测**同时**成立才让位
+        AV->>VS: ④ applyStyle(text', profile1, rng, { skipDims })
+        Note right of VS: 保守档（Q7=A）：标点/语气词/句长/停顿/称呼<br/>禁止调语序、换句式、增删事实<br/>★ 反问率只降不升
+        VS-->>AV: { text'', trace }
+        AV->>AV: ⑤ guard + describe(trace)
+        AV-->>APP: reply''（异常 → 逐步跳过，全失败 → 返回入参）
+        end
+
+        APP->>PC: safetyGuard(reply'')
+        Note right of PC: 护栏位于编排**之后**，<br/>校验最终文本（破墙风险不上升）
+        alt 护栏不通过
+            PC-->>APP: false → 回落原句 result.replies[i]
+        else 通过
+            PC-->>APP: true
+            opt i === 末条 ∧ bondFrag.echo
+                APP->>APP: 拼接 bondFrag.echo（与共情前置互斥，AC-4③）
+            end
+        end
+        APP->>SC: herSay → moodToTTS(S.moodState)（消费兼容结构，零改动）
+        SC-->>APP: { speed, pitch, pause }
+        APP-->>U: 气泡呈现
+    end
+    APP->>APP: save() (1558) —— S.affect 随回合末落盘
+
+    Note over APP,AFS: ══ 阶段 E · 空闲衰减（挂载点 M3 · app.js:735-738，每 ~3.4s）══
+    APP->>AFS: decay(S.affect, 3400)
+    Note right of AFS: drop = dt/60000 × 0.06（与 emotion-core 同速率）<br/>非 neutral 分量等比缩回 neutral
+    AFS-->>APP: S.affect
+    APP->>AFS: toMoodState(S.affect) → S.moodState
+    Note over APP: AffectState 缺席 → 回落 em.decay(S.moodState, 3400)，逐字等同 v4.3
+
+    Note over APP,AFS: ══ 阶段 F · 启动段纪念日（挂载点 M6 · app.js:4926-4933）══
+    APP->>BM: anniversaryScan(S, now)
+    BM-->>APP: _ann | null
+    opt _ann 存在
+        APP->>AFS: advance(S.affect, { type: _ann.type, intensity: _ann.intensity }, { ... })
+        AFS-->>APP: S.affect
+        APP->>AFS: toMoodState(S.affect) → S.moodState
+        Note over APP: ★ 消除第 5 处 emotion-core 直写，<br/>保证 affect-state 是情绪推进的单一真源（Q5）
+    end

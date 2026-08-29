@@ -832,6 +832,16 @@
          不进 engine.files.json order / 不进 sw.js ASSETS（WR-13 零风险，离线由 fetch 兜底）。 -->
     <script src="bond-memory.js"></script>
     <script src="proactivity-core.js"></script>
+    <!-- v4.4（Affect-Voice）· 情绪动力学 + 文风耦合 + 共情前置 + 话轮节奏 + 统一编排。
+         须先于 app.js（app.js 经 window.AffectState / window.AffectVoice 消费）。
+         顺序硬约束：affect-voice-orchestrator.js 必须最后（它依赖其余四者的 window 全局）。
+         零上报、零新增依赖；缺任一文件则该层不生效，回复逐字等同 v4.3，绝不白屏。
+         ⚠️ 上线闸：这 5 行是 F0（修复"编排器从未上线"）的唯一手段，缺一行即 v4.4 未上线。 -->
+    <script src="affect-state.js"></script>
+    <script src="voice-style.js"></script>
+    <script src="empathy-front.js"></script>
+    <script src="turn-rhythm.js"></script>
+    <script src="affect-voice-orchestrator.js"></script>
     <script src="app.js"></script>
 <!-- 候选 D · 统一导航壳（挂 window.UiShell，IIFE 零依赖）：必须是**最末**一个 script，三个硬理由——
      ① 要迁移的 #nav-offline-led 已由 app.js:4530 挂上 OfflineIndicator 单例，早于它则搬到空容器；

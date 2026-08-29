@@ -1,0 +1,232 @@
+classDiagram
+    direction LR
+
+    %% ══════════════════════════════════════════════════════════
+    %% 心屿 v4.4（Affect-Voice）· 情感情绪驱动的真人对话系统
+    %% 冻结线：engine.js / sw.js / memory.js / test/baseline.js（零字节改动）
+    %% 零改动：emotion-core.js / reply-texture-orchestrator.js / dialogue-core.js
+    %% ══════════════════════════════════════════════════════════
+
+    class AffectState {
+        <<module · affect-state.js · P0>>
+        +CONST: Object
+        +NEUTRAL_AFFECT: Affect
+        +advance(prev, evt, ctx) Affect
+        +decay(state, dt) Affect
+        +toMoodState(affect) MoodState
+        +readState(S) Affect
+        +normalizeStage(S) string
+        +l1(a, b) number
+        -_targetOf(evt, ue, stage, prev) Vec8
+        -_isStrong(evt, affect, now) bool
+        -_conflict(prevDom, targetDom) bool
+    }
+
+    class VoiceStyle {
+        <<module · voice-style.js · P0>>
+        +PROFILES: Object
+        +CONST: Object
+        +profileFor(dom, intensity, stage, blend) Profile
+        +applyStyle(text, profile, rng, opts) Result
+        +splitSentences(text) Array
+        -_interp(a, b, k) number
+        -_blendSecond(p, second, w) Profile
+    }
+
+    class EmpathyFront {
+        <<module · empathy-front.js · P0>>
+        +EMPATHY_POOL: Object
+        +CONST: Object
+        +shouldFront(ctx) bool
+        +front(text, ctx, rng) Result
+        -_pick(type, stage, rng) string
+        -_lruSeen(s) bool
+        -_lruPush(s) void
+    }
+
+    class TurnRhythm {
+        <<module · turn-rhythm.js · P0>>
+        +CONST: Object
+        +modulate(profile, ctx) Profile
+        -_ramp(intensity) number
+    }
+
+    class AffectVoiceOrchestrator {
+        <<module · affect-voice-orchestrator.js · P0>>
+        +orchestrate(text, opts) string
+        +setConfig(c) Object
+        +getConfig() Object
+        +describe(trace) string
+        -_hasMicroBehavior(text) bool
+        -_guard(out, trace) string
+    }
+
+    class Affect {
+        <<state · S.affect>>
+        +vec: Vec8
+        +dom: string
+        +intensity: number
+        +momentum: number
+        +since: number
+        +source: string
+        +strongAt: Array
+        +day: string
+        +_prevDom: string
+        +_transition: Object
+    }
+
+    class Vec8 {
+        <<simplex · Σ = 1>>
+        +neutral: number
+        +joy: number
+        +anger: number
+        +sad: number
+        +coquettish: number
+        +jealous: number
+        +longing: number
+        +peaceful: number
+    }
+
+    class Profile {
+        <<10 维文风参数>>
+        +lenMean: number
+        +lenJitter: number
+        +particles: ParticlePool
+        +endPunct: PunctDist
+        +rhetoricalRate: number
+        +ellipsisRate: number
+        +exclaimRate: number
+        +pauseRate: number
+        +topicInitRate: number
+        +selfDiscloseRate: number
+        +address: AddressPool
+    }
+
+    class MoodState {
+        <<兼容 v4.1 契约>>
+        +key: string
+        +intensity: number
+        +since: number
+        +source: string
+        +blend: Object
+        +prev: string
+    }
+
+    class EmotionCore {
+        <<既有 · emotion-core.js · 零字节改动>>
+        +inferMoodEvent(text, intent, ue) Event
+        +moodTick(evt, emotion, rel) MoodState
+        +decay(moodState, dt) MoodState
+        +moodToExpr(moodState, fallback) string
+        +currentMoodState(S) MoodState
+    }
+
+    class DialogueCore {
+        <<既有 · dialogue-core.js · 零改动>>
+        +dialogueWeave(text, ctx) string
+        +situationRecall(state, mem) string
+        +consistencyGuard(state) bool
+    }
+
+    class PersonaCore {
+        <<既有 · persona-core.js · 零改动>>
+        +safetyGuard(text) bool
+        +validateVoice(state) bool
+    }
+
+    class BondMemory {
+        <<既有 · bond-memory.js · 零改动>>
+        +bondRecall(S, ctx) BondFrag
+        +bondWrite(S, evt) void
+        +anniversaryScan(S, now) Object
+        +relationshipGraph(S) Object
+    }
+
+    class ProactivityCore {
+        <<既有 · proactivity-core.js · 零改动>>
+        +relationshipLevel(S) Snapshot
+        +applyRelationshipDelta(S, d) Snapshot
+        +stageTone(S) Object
+    }
+
+    class SenseCore {
+        <<既有 · sense-core.js · 零改动>>
+        +moodToTTS(moodState) TTSProfile
+        +fuseUe(base, add) Ue
+    }
+
+    class ReplyTexture {
+        <<既有 · 未接线 · 零字节改动 · Q1=A>>
+        +orchestrate(text, opts) string
+        -mirror(text, ctx, warmth, rng) string
+        -pacing(text, ws, rng) string
+        -recall(text, state, p, rng) string
+        -continuity(text, ctx, w, rng) string
+    }
+
+    class Engine {
+        <<冻结 · engine.js · 零字节改动>>
+        +reply(text, state) Result
+        +detect(text) Ue
+        +use(name, api) void
+        +mod(name) Object
+        +UE_POLARITY: Object
+    }
+
+    class AppHost {
+        <<app.js · 6 处挂载 M1-M6>>
+        +defaultState() S
+        +load() S
+        +tickEmotion() void
+        +herReply(text) void
+        +bootInit() void
+    }
+
+    %% ── 关系 ──────────────────────────────────────────────────
+    AffectState ..> Affect : 产出（不可变）
+    Affect *-- Vec8 : 8 维 simplex
+    AffectState ..> MoodState : toMoodState() 兼容输出
+    AffectState ..> EmotionCore : 消费 inferMoodEvent()（零改动）
+    AffectState ..> ProactivityCore : normalizeStage() 读入 stage
+
+    VoiceStyle ..> Profile : 产出 / 消费
+    TurnRhythm ..> Profile : 纯参数变换（不碰文本）
+    VoiceStyle <.. TurnRhythm : profile0 → profile1
+
+    AffectVoiceOrchestrator ..> VoiceStyle : ①profileFor ④applyStyle
+    AffectVoiceOrchestrator ..> TurnRhythm : ②modulate
+    AffectVoiceOrchestrator ..> EmpathyFront : ③front
+    AffectVoiceOrchestrator ..> ReplyTexture : 吸收 mirror/pacing/continuity 意图（不调用）
+
+    AppHost ..> AffectState : M3/M4/M6 推进情绪
+    AppHost ..> AffectVoiceOrchestrator : M5 文风编排
+    AppHost ..> EmotionCore : moodToExpr（零改动）
+    AppHost ..> PersonaCore : safetyGuard（位于编排之后）
+    AppHost ..> DialogueCore : dialogueWeave（位于编排之前）
+    AppHost ..> BondMemory : bondRecall → hasBondEcho 互斥
+    AppHost ..> SenseCore : moodToTTS（消费兼容 MoodState）
+    AppHost ..> Engine : Engine.reply()（冻结，输出后加工）
+
+    Profile o-- ParticlePool : 封闭词池（句首/句中/句末）
+    Profile o-- PunctDist : 句末标点分布
+    Profile o-- AddressPool : 称呼封闭池
+
+    class ParticlePool {
+        <<封闭词池 · 保守档>>
+        +head: Array
+        +mid: Array
+        +tail: Array
+    }
+    class PunctDist {
+        <<Σ = 1>>
+        +period: number
+        +excl: number
+        +question: number
+        +tilde: number
+        +ellipsis: number
+    }
+    class AddressPool {
+        <<封闭池>>
+        +forms: Array
+        +allowOmit: bool
+    }

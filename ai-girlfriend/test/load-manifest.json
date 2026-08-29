@@ -1,0 +1,37 @@
+{
+  "//": "v4.4 装载清单真源。用途：让『模块上线』成为机器可断言的事实，杜绝幽灵模块。G-1…G-6 六道闸的唯一判据来源。",
+  "version": "v4.4",
+  "wired": [
+    { "file": "affect-state.js",             "global": "AffectState",    "offline": false, "since": "v4.4" },
+    { "file": "voice-style.js",              "global": "VoiceStyle",     "offline": false, "since": "v4.4" },
+    { "file": "empathy-front.js",            "global": "EmpathyFront",   "offline": false, "since": "v4.4" },
+    { "file": "turn-rhythm.js",              "global": "TurnRhythm",     "offline": false, "since": "v4.4" },
+    { "file": "affect-voice-orchestrator.js","global": "AffectVoice",    "offline": false, "since": "v4.4" },
+    { "file": "bond-memory.js",              "global": "BondMemory",     "offline": false, "since": "v4.3" },
+    { "file": "proactivity-core.js",         "global": "ProactivityCore","offline": false, "since": "v4.3" }
+  ],
+  "knownUnwired": [
+    { "file": "reply-texture-orchestrator.js",
+      "reason": "Q1=A 主理人裁定：它在 index.html 零 script 加载、从未在真实浏览器执行（v4.4 调研新发现 A），接线等于引入未经真实验证的行为突变。v4.4 全量接管，其 mirror/pacing/recall/continuity 四维由 empathy-front.js / turn-rhythm.js / affect-voice-orchestrator.js 重新实现（并修正 ue.type 键集仅 3/7 匹配的错配 F4）。本体零字节改动，qa-f 测试继续直接 require 覆盖。",
+      "owner": "齐活林", "since": "v4.4" }
+  ],
+  "volumeExempt": [
+    { "file": "voice-style.js",
+      "measuredBytes": 31727,
+      "newCeilingBytes": 32768,
+      "reason": "Q8 主理人复核豁免（非静默放行）。裁定依据：① 职责单一（8 态 × 12 维 VoiceProfile 矩阵 + 形式层改写），最大函数 profileFor 仅 63 行、无臃肿；② 字节被中文注释放大——UTF-8 每汉字 3 字节，本文件约 52 B/行，与已交付的 bond-memory.js（54 B/行）同密度，603 行的体量属实；③ 拆分会为凑体积而割裂内聚的 profile 矩阵，无功能增益。",
+      "boundary": "超过 32768 B 即强制拆分为 voice-style-profiles.js（数据）+ voice-style.js（逻辑），不得再抬上限。",
+      "owner": "齐活林", "since": "v4.4" }
+  ],
+  "ignore": [
+    { "file": "sw.js",        "reason": "经 navigator.serviceWorker.register 装载，非 <script> 标签" },
+    { "file": "server.js",    "reason": "Node 后端，不在浏览器装载" },
+    { "file": "mcp-client.js","reason": "Node/桥接侧" },
+    { "file": "openclaw.js",  "reason": "Node/桥接侧" },
+    { "file": "schedule.js",  "reason": "Node 侧" },
+    { "file": "notify.js",    "reason": "Node 侧" },
+    { "file": "pkce.js",      "reason": "鉴权工具库，由其他模块动态引用" },
+    { "file": "token-store.js","reason": "鉴权工具库" },
+    { "file": "wecom_crypto.js","reason": "Node 侧" }
+  ]
+}

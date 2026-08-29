@@ -412,6 +412,9 @@ const defaultState = () => ({
   relationship: { stage: 'stranger', stageName: '初识', warmth: 0, since: 0, updatedAt: 0, proact: { day: '', count: 0, lastAt: 0 } },
   // —— v4.1 · bond-memory 载体（v4.3 落地 bond-memory.js；v4.1 仅占位，绝不写 memory.js）——
   bond: { warmth: 0, shards: [], milestones: [], lastChatAt: 0, streak: 0 },
+  // —— v4.4（Affect-Voice）· 8 维情绪向量：Σ=1，intensity=1−vec.neutral，dom=7 非 neutral 分量 argmax
+  // 仅追加，不删改任何既有字段；与 moodState 并存（moodState 由 toMoodState 派生，仍是表情单一真源）
+  affect: { vec: { neutral: 1, joy: 0, anger: 0, sad: 0, coquettish: 0, jealous: 0, longing: 0, peaceful: 0 }, dom: 'neutral', intensity: 0, momentum: 0, since: 0, source: 'init', strongAt: [], day: '', _prevDom: 'neutral', _transition: null },
   emotionLog: {},          // 情绪晴雨表：{ "YYYY-M-D": [{v,a}...] }
   diaryEntries: {},        // AI 日记：{ "YYYY-M-D": { text, t, mood } }
   lastDiaryPrompt: "",     // 上次问日记的日期，防重复
@@ -471,6 +474,12 @@ function load() {
       s.moodState = Object.assign({ key: 'neutral', intensity: 0, since: 0, source: 'init' }, s.moodState || {});
       s.relationship = Object.assign({ stage: 'stranger', stageName: '初识', warmth: 0, since: 0, updatedAt: 0, proact: { day: '', count: 0, lastAt: 0 } }, s.relationship || {});
       s.bond = Object.assign({ warmth: 0, shards: [], milestones: [], lastChatAt: 0, streak: 0 }, s.bond || {});
+      // v4.4（Affect-Voice）· 8 维情绪向量老档兜底（老存档缺字段回落，绝不白屏）
+      s.affect = Object.assign({
+        vec: { neutral: 1, joy: 0, anger: 0, sad: 0, coquettish: 0, jealous: 0, longing: 0, peaceful: 0 },
+        dom: 'neutral', intensity: 0, momentum: 0, since: 0, source: 'init',
+        strongAt: [], day: '', _prevDom: 'neutral', _transition: null
+      }, s.affect || {});
       s.diaryEntries = s.diaryEntries || {};
       s.weeklySummary = s.weeklySummary || {};
       s.lastDiaryPrompt = s.lastDiaryPrompt || "";
@@ -733,9 +742,17 @@ function tickEmotion() {
   S.emotion.v += (BASE.v - S.emotion.v) * 0.06;
   S.emotion.a += (BASE.a - S.emotion.a) * 0.06;
   // —— v4.1 · moodState 空闲衰减（每 ~3.4s 回落一点；moodState 自然回归 neutral）——
+  // v4.4（Affect-Voice）· 切至 AffectState 单一真源（Q5/R23：消除 app.js 的第二套衰减）。
+  // AffectState 缺席 → 逐字保留 v4.1 原路径，绝不白屏。
   try {
-    const em = (Engine.mod && Engine.mod("emotionCore")) || (typeof window !== 'undefined' && window.EmotionCore);
-    if (em && S.moodState) S.moodState = em.decay(S.moodState, 3400) || S.moodState;
+    const AFS2 = (typeof window !== 'undefined') ? window.AffectState : null;
+    if (AFS2 && typeof AFS2.decay === 'function' && S.affect) {
+      S.affect = AFS2.decay(S.affect, 3400) || S.affect;
+      S.moodState = AFS2.toMoodState(S.affect);
+    } else {
+      const em = (Engine.mod && Engine.mod("emotionCore")) || (typeof window !== 'undefined' && window.EmotionCore);
+      if (em && S.moodState) S.moodState = em.decay(S.moodState, 3400) || S.moodState;
+    }
   } catch (e) {}
   updateAura();
   if (++_auraTick % 6 === 0) save(); // 每 ~60s 落盘一次，避免频繁写盘
@@ -1491,11 +1508,24 @@ async function herReply(userText, img) {
     try {
       const em = (Engine.mod && Engine.mod("emotionCore")) || (typeof window !== 'undefined' && window.EmotionCore);
       if (em) {
-        const evt = em.inferMoodEvent(text, intent, result.ue) || null;
-        const ticked = em.moodTick(evt, S.emotion, S.relationship);
-        if (ticked) S.moodState = ticked;                       // 写回 moodState（仅追加字段，不动 V-A）
-        else if (S.moodState) S.moodState = em.decay(S.moodState, 0) || S.moodState;
-        result.expression = em.moodToExpr(S.moodState, result.expression);  // moodState 优先映射 EXPR_MAP
+        const evt = em.inferMoodEvent(text, intent, result.ue) || null;      // ← 事件推断单一真源（零改动）
+        // —— v4.4（Affect-Voice）· 情绪动力学：8 维向量 + 阻尼惯性；emotion-core.js 零字节改动 ——
+        // AffectState 缺席 / 抛错 → 回落下方 v4.1 路径，输出逐字等同 v4.3，绝不白屏。
+        const AFS = (typeof window !== 'undefined') ? window.AffectState : null;
+        if (AFS && typeof AFS.advance === 'function') {
+          try {
+            S.affect = AFS.advance(S.affect, evt, {
+              ue: result.ue, S: S, now: Date.now(),
+              stage: AFS.normalizeStage(S)
+            }) || S.affect;
+            S.moodState = AFS.toMoodState(S.affect);
+          } catch (e) { /* 异常 → 保留既有 S.moodState，绝不白屏 */ }
+        } else if (evt) {
+          const ticked = em.moodTick(evt, S.emotion, S.relationship);         // ← v4.1 原路径，逐字保留
+          if (ticked) S.moodState = ticked;                       // 写回 moodState（仅追加字段，不动 V-A）
+          else if (S.moodState) S.moodState = em.decay(S.moodState, 0) || S.moodState;
+        }
+        result.expression = em.moodToExpr(S.moodState, result.expression);  // moodState 优先映射 EXPR_MAP（零改动）
       }
     } catch (e) { /* 任一异常 → 保留既有 result.expression，绝不白屏/静默 */ }
 
@@ -1529,6 +1559,25 @@ async function herReply(userText, img) {
           reply = dc.dialogueWeave(reply, { ue: result.ue, moodState: S.moodState, bondMem: (S.bond || null), S: S });
         }
       } catch (e) { /* 任一异常 → 保留编排后文本，绝不静默 */ }
+      // —— v4.4（Affect-Voice）· 情绪-文风编排：置于 dialogueWeave 之后、safetyGuard 之前 ——
+      // 顺序硬理由：① LRU 存未改写原句，去重口径与 v4.3 逐字一致；
+      //           ② safetyGuard 必须校验**最终**文本，护栏恒在改写之后。
+      // 降级：AffectVoice 缺席/抛错 → 原句直出，逐字等同 v4.3，绝不白屏。
+      try {
+        const AV = (typeof window !== 'undefined') ? window.AffectVoice : null;
+        if (AV && typeof AV.orchestrate === 'function') {
+          reply = AV.orchestrate(reply, {
+            state: S,
+            ctx: {
+              ue: result.ue, mood: mood, intent: result.intent,
+              textured: !!result.textured, moodState: S.moodState,
+              stage: (S.relationship && S.relationship.stage) || 'L0',
+              turnIdx: i, totalTurns: result.replies.length,
+              hasBondEcho: !!(bondFrag && bondFrag.echo && i === result.replies.length - 1)
+            }
+          }) || reply;
+        }
+      } catch (e) { /* 任一异常 → 保留编织后文本，绝不静默/白屏 */ }
       // —— v4.1 · personaCore 钩子：复用危机/破墙护栏；不通过 → 回退原句（绝不放行 break-wall）——
       try {
         const pc = (Engine.mod && Engine.mod("personaCore")) || (typeof window !== 'undefined' && window.PersonaCore);
@@ -4927,8 +4976,19 @@ function init() {
     if (window.BondMemory && window.BondMemory.anniversaryScan && window.EmotionCore && window.EmotionCore.moodTick) {
       var _ann = window.BondMemory.anniversaryScan(S, Date.now());
       if (_ann) {
-        var _tick = window.EmotionCore.moodTick({ type: _ann.type, intensity: _ann.intensity }, S.emotion, S.relationship);
-        if (_tick) S.moodState = _tick;
+        // v4.4（Affect-Voice）· 情绪动力学纳管：AffectState 在 → 走 8 维向量推进；
+        // 缺席 → 原 v4.1 路径逐字保留（Q5/R23：不纳管即两套情绪推进并存）。
+        var _AFS = (typeof window !== 'undefined') ? window.AffectState : null;
+        if (_AFS && typeof _AFS.advance === 'function') {
+          try {
+            S.affect = _AFS.advance(S.affect, { type: _ann.type, intensity: _ann.intensity },
+              { ue: S.ue, S: S, now: Date.now(), stage: _AFS.normalizeStage(S) }) || S.affect;
+            S.moodState = _AFS.toMoodState(S.affect);
+          } catch (e2) { /* 异常 → 保留既有 S.moodState，绝不白屏 */ }
+        } else {
+          var _tick = window.EmotionCore.moodTick({ type: _ann.type, intensity: _ann.intensity }, S.emotion, S.relationship);
+          if (_tick) S.moodState = _tick;
+        }
       }
     }
   } catch (e) {}

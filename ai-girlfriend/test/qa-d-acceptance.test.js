@@ -61,7 +61,12 @@ const DECLARED_NEW = [
   "ai-girlfriend/face-sense.js",      // 心屿 v4.2 · S3 面部信号识别
   "ai-girlfriend/voice-sense.js",     // 心屿 v4.2 · S3 语音情绪识别
   "ai-girlfriend/bond-memory.js",     // 心屿 v4.3 · S4 关系记忆内核（只读消费 memory.js，绝不改写；冻结线外新建，主理人重 baselining 批准）
-  "ai-girlfriend/proactivity-core.js" // 心屿 v4.3 · S5 主动性内核（五重不打扰守门 + 关系等级派生）
+  "ai-girlfriend/proactivity-core.js",// 心屿 v4.3 · S5 主动性内核（五重不打扰守门 + 关系等级派生）
+  "ai-girlfriend/affect-state.js",              // 心屿 v4.4 · 8 维情绪向量 + 阻尼惯性（α=0.45）+ 强事件突破（0.80/24h≤2）
+  "ai-girlfriend/voice-style.js",               // 心屿 v4.4 · 8 态 × 12 维 VoiceProfile + 形式层改写（保守档）
+  "ai-girlfriend/empathy-front.js",             // 心屿 v4.4 · 共情前置（引擎真实 7 类 ue.type × L0–L3 分档）
+  "ai-girlfriend/turn-rhythm.js",               // 心屿 v4.4 · 话轮节奏（纯参数变换器，turnIdx 驱动）
+  "ai-girlfriend/affect-voice-orchestrator.js"  // 心屿 v4.4 · 五步管道统一编排门面（profile→empathy→rhythm→style→guard）
 ];
 
 /* ── 冻结线（AC-D26；与 c-regression.test.js:450 / qa-c-privacy-acceptance.test.js:32 同源）── */
